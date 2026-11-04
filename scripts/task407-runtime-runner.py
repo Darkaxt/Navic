@@ -47,6 +47,27 @@ _FIXED_COMMAND_FAILURES = frozenset((
 ))
 
 
+def guest_ui_ready(user_state, windows):
+    """Require actual unlocked user and focused, visible, drawn application window.
+
+    Window identities/content are parsed only in RAM, never exported as diagnostics.
+    """
+    if user_state.strip() != b'RUNNING_UNLOCKED':
+        return False
+    text = windows.decode('utf-8', errors='replace')
+    focus = re.search(r'\bmCurrentFocus=(Window\{[^\r\n}]+\})', text)
+    if focus is None:
+        return False
+    for match in re.finditer(r'^\s*Window #\d+ (Window\{[^\r\n}]+\}):([^\n]*(?:\n(?!\s*Window #\d+ ).*)*)', text, re.MULTILINE):
+        if match[1] == focus[1]:
+            body = match[2]
+            return (re.search(r'\bmViewVisibility=0x0\b', body) is not None
+                and re.search(r'\bmHasSurface=true\b', body) is not None
+                and re.search(r'\bmDrawState=HAS_DRAWN\b', body) is not None
+                and re.search(r'\bty=(?:BASE_APPLICATION|APPLICATION)\b', body) is not None)
+    return False
+
+
 def _command_failure(value):
     if value is None:
         return 'NONE'
@@ -919,7 +940,7 @@ def validate_live_session(record, watchdog_id):
         raise ValueError('SESSION_AUTHORITY_UNCONFIRMED')
     gate = record.get('gate')
     runtime = _runtime_gate()
-    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.16.8',
+    fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.20.5',
         'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
         'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
         'thread_name': 'Navic'}
@@ -1122,7 +1143,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
               'transport_first_failure_diagnostics_profile': 'FIRST_FAILURE_TRANSPORT_DIAGNOSTICS_V3',
               'transport_first_failure_diagnostics_scope': 'PRE_TEARDOWN_AFTER_TERMINAL_DECISION',
               'transport_first_failure_diagnostics': _empty_transport_first_failure_diagnostics('NOT_REACHED'),
-              'coordinator_failure_diagnostics_profile': 'COORDINATOR_PRIMARY_SECONDARY_FAILURE_V1',
+              'coordinator_failure_diagnostics_profile': 'COORDINATOR_PRIMARY_SECONDARY_FAILURE_REFERENCE_V2',
               'coordinator_failure_diagnostics_scope': 'FIRST_MATCHED_REJECTION_ONLY_IF_FIRST_OVERALL_FAILURE',
               'coordinator_failure_diagnostics': dict(sample_state='NOT_REACHED', failure_diagnostics=None),
               'host_memory_observations_profile': 'HOST_MEMORY_HEADROOM_V1',
@@ -1389,7 +1410,7 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             caps=caps, launch_started=launch_started, pre_teardown_observation=observe_pre_teardown,
             **guardian_options)
         if gated:
-            result.update(launch_transport_profile='COORDINATOR_0_16_8_READER_DIAGNOSTICS_37_2_12_EOF_V1',
+            result.update(launch_transport_profile='COORDINATOR_0_20_5_READER_DIAGNOSTICS_37_2_12_EOF_V1',
                 launch_anchor_profile='ACQUIRED_NATIVE_CREATION_FILETIME_TO_MONOTONIC_V1',
                 environment_equivalence='CHANGED_HOST_PROFILE_NOT_OLD_ENVIRONMENT_QUALIFICATION',
                 phase_trace_scope='HOST_CALLER_ENVELOPES_INCLUDE_GATE_QUEUE_NOT_VM_EXECUTION',
@@ -1424,8 +1445,25 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
             if code != 0 or err or type(out) is not bytes:
                 raise ValueError('UI_READY_UNCONFIRMED')
             if out in (b'1', b'1\n', b'1\r\n'):
-                break
-            if out not in (b'', b'\n', b'\r\n', b'0', b'0\n', b'0\r\n'):
+                if not gated:
+                    break  # Historical direct host fixtures retain their original seam.
+                code, user, err = shell('SYS_BOOT_COMPLETED', ['am', 'get-current-user'], caps.command)
+                if code != 0 or err or not re.fullmatch(rb'[0-9]+\s*', user):
+                    raise ValueError('UI_READY_UNCONFIRMED')
+                code, state, err = shell('SYS_BOOT_COMPLETED',
+                    ['am', 'get-started-user-state', user.strip().decode('ascii')], caps.command)
+                if code != 0 or err:
+                    raise ValueError('UI_READY_UNCONFIRMED')
+                code, windows, err = shell('SYS_BOOT_COMPLETED', ['dumpsys', 'window', 'windows'], caps.command)
+                if code != 0 or err:
+                    raise ValueError('UI_READY_UNCONFIRMED')
+                ready = guest_ui_ready(state, windows)
+                del user, state, windows
+                if ready:
+                    result['guest_readiness_observation'] = dict(boot_completed=True,
+                        foreground_user_unlocked=True, focused_application_window_drawn=True)
+                    break
+            elif out not in (b'', b'\n', b'\r\n', b'0', b'0\n', b'0\r\n'):
                 raise ValueError('UI_READY_UNCONFIRMED')
             # Known pending values alone admit another observation, with finite
             # condition backoff inside the guardian's unchanged original cap.
@@ -1691,7 +1729,7 @@ def main(argv=None):
         active_path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/active.json')
         active_bytes = active_path.read_bytes()
         active = json.loads(active_bytes)
-        if active.get('release') != runtime.RELEASE or active.get('version') != '0.16.8':
+        if active.get('release') != runtime.RELEASE or active.get('version') != '0.20.5':
             raise ValueError('GATE_ACTIVE_RELEASE_CHANGED')
         component = json.loads((Path(runtime.RELEASE_ROOT) / 'integration/emulator-components.json').read_bytes())
         selected = component['profiles']['reader-diagnostics']

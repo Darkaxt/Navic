@@ -17,18 +17,24 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 HELPER = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
-RELEASE = '79bd02266382f266'
+RELEASE = '9b7347f4af7433f6'
 RELEASE_ROOT = 'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + RELEASE
 SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
-MODULES = ('tools_cli.py', 'workflows.py', 'workflow_failures.py', 'native_process.py', 'android_emulator.py',
-           'emulator_adb.py', 'android_cli.py', 'android_cli_worker.py', 'emulator_state.py',
-           'workflow_pipe.py', 'cua_mcp.py')
+MODULES = ('tools_cli.py', 'workflows.py', 'workflow_failures.py', 'owned_stop.py', 'state_owner.py',
+           'native_process.py', 'android_emulator.py', 'emulator_adb.py', 'android_cli.py',
+           'android_cli_worker.py', 'emulator_state.py', 'workflow_pipe.py', 'cua_mcp.py')
+STATE_OWNER_FILES = ('Coordinator.State.deps.json', 'Coordinator.State.dll', 'Coordinator.State.exe',
+    'Coordinator.State.pdb', 'Coordinator.State.runtimeconfig.json', 'e_sqlite3.dll',
+    'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.batteries_v2.dll', 'SQLitePCLRaw.core.dll',
+    'SQLitePCLRaw.provider.e_sqlite3.dll')
 QUEUE_SOURCE = RELEASE_ROOT + '/engines/agent_toolbelt_gradle_build_gate/queue.py'
 RUNTIME_PATHS = (HELPER, *(RELEASE_ROOT + '/src/llm_coordinator/' + name for name in MODULES),
                  RELEASE_ROOT + '/integration/android-cli.json',
-                 RELEASE_ROOT + '/integration/emulator-components.json', QUEUE_SOURCE)
+                 RELEASE_ROOT + '/integration/emulator-components.json', QUEUE_SOURCE,
+                 *(RELEASE_ROOT + '/state-owner/' + name for name in STATE_OWNER_FILES))
 PROFILE = 'reader-diagnostics'
 PROOF = 'GATE_NATIVE_TREE_LEASE_HOST_STORAGE_V1'
 
@@ -141,7 +147,7 @@ def _first_outer_method(method):
 
 
 def _project_failure_diagnostics(value, expected_method):
-    """Validate the closed remote receipt; omit clock/reference, infer no guest outcome."""
+    """Validate closed receipt; retain private correlation reference, not time or guest inference."""
     def keys(item, expected):
         return type(item) is dict and all(type(k) is str for k in item) and set(item) == set(expected)
 
@@ -173,7 +179,7 @@ def _project_failure_diagnostics(value, expected_method):
                 'READ', 'WRITE', 'NOT_JOURNAL')
             or any(type(value[k]) is not bool for k in ('engine_dispatched', 'engine_returned'))):
         raise blocked()
-    projected = {k: value[k] for k in names if k not in ('observed_at', 'reference', 'primary', 'secondary', 'record_error')}
+    projected = {k: value[k] for k in names if k not in ('observed_at', 'primary', 'secondary', 'record_error')}
     projected['primary'] = error(value['primary'])
     projected['secondary'] = None
     if value['secondary'] is not None:
@@ -199,9 +205,9 @@ def copy_failure_diagnostic_snapshot(value):
         return dict(value)
     receipt = value['failure_diagnostics']
     if (value['sample_state'] != 'SAMPLED' or type(receipt) is not dict
-            or 'observed_at' in receipt or 'reference' in receipt):
+            or 'observed_at' in receipt):
         raise blocked()
-    projected = _project_failure_diagnostics(dict(receipt, observed_at=0.0, reference='0' * 32), receipt.get('method'))
+    projected = _project_failure_diagnostics(dict(receipt, observed_at=0.0), receipt.get('method'))
     return dict(sample_state='SAMPLED', failure_diagnostics=projected)
 
 
@@ -478,7 +484,7 @@ class JsonLineTransport:
                 request_sequence = self._next_diagnostic_sequence()
                 self._diagnostic_rejection_receive_side = 'UNAVAILABLE'
             self._counter += 1
-            identity = str(self._counter)
+            identity = uuid.uuid4().hex  # Unique across original-owner recovery transports; never retried.
             payload = dict(id=identity, method=method, params=params or {})
             phase = 'WRITE'
             self.process.stdin.write((json.dumps(payload) + '\n').encode('utf-8'))
@@ -989,7 +995,7 @@ def decode_stream(row, cap):
 CLEANUP_HELPER = 'C:/Users/darka/.claude/skills/transactional-cleanup/scripts/invoke_transactional_cleanup.py'
 CLEANUP_ACTIVE = 'C:/Users/darka/AppData/Local/Tools/transactional-cleanup/active.json'
 CLEANUP_SOURCE = ('C:/Users/darka/AppData/Local/Tools/transactional-cleanup/releases/'
-                  'add2469e175569e6e96533b8e9f961fb/src')
+                  '622e47971017069ce77b5e9ee8887796/src')
 _CLEANUP_CLIENTS = []  # Interrupted management clients remain retained, never replayed.
 
 
@@ -998,9 +1004,9 @@ def cleanup_installation_valid():
     try:
         active = Path(CLEANUP_ACTIVE).read_bytes()
         if (hashlib.sha256(active).hexdigest() !=
-                'cba2ed4931bd7f0c79eb68462a1da21f4346978592991ef1a7cc2e62f77f0959'
+                'b82c316f1d2d5d88d0e874a96fe1a86b8a9e10af0f88bb05aaf0d1d568769c57'
                 or hashlib.sha256(Path(CLEANUP_HELPER).read_bytes()).hexdigest() !=
-                '66f8114c197870b0d1f713a9cad1e74391e575d7e8bea15542412d21b35f3f52'):
+                'c7820a319bca0371ac192d6e9cfa9047ec485c59b7bdbcd84f2cce0a86174e66'):
             return False
         metadata = json.loads(active)
         return (Path(metadata['source']) == Path(CLEANUP_SOURCE)
