@@ -4,6 +4,23 @@
 
 ## 1. Governing boundary
 
+### Host readiness repair — 2026-11-05
+
+The installed reader-diagnostics emulator separates `mCurrentFocus` into
+`dumpsys window displays`; `dumpsys window windows` contains the per-window
+visibility, surface and draw-state details. The prospective host runner must
+read both through its original serial-bound retained gate, then join the exact
+focused window identity in memory. A boot-completed property or a drawn unrelated
+window is insufficient. Preserve the original unlocked/visible/surfaced/drawn
+application requirements, APK, assertions and 180/45/420/15/5/5/2/15 budgets.
+Do not retain window identities/content in diagnostics.
+
+Prospective diagnostic contracts bind the genuine current chat title and session
+identity; they must not require a different chat's cosmetic title. Live lease
+verification still enforces the expected original owner and canonical AVD/serial.
+The earlier r168 result remains immutable. A corrected host readiness path is not
+Navic acceptance until the unchanged original runtime assertions actually pass.
+
 The 2026-09-13 resumable-coordinator design remains the production contract. Preserve Foliate semantic authority, passive raster isolation, PlayLikeCurl deformation/resource execution, canonical WordSync, the existing coordinator, complete real production capability, all sixteen truthful physical sources, exact resource release, and lawful existing Task 6 fact-only timer/error ownership. Do not start Task 7, project Task9 or Stage 7.
 
 The revised development sequence is: real cold-route feasibility, bounded current core closure, genuine fresh-session bootstrap/bench on proven feasibility, decoration/handoff/progress evidence, owned-emulator experiment, then remaining release migration. Direct-start is a hypothesis, not current production wiring.

@@ -47,7 +47,7 @@ _FIXED_COMMAND_FAILURES = frozenset((
 ))
 
 
-def guest_ui_ready(user_state, windows):
+def guest_ui_ready(user_state, windows, displays):
     """Require actual unlocked user and focused, visible, drawn application window.
 
     Window identities/content are parsed only in RAM, never exported as diagnostics.
@@ -55,7 +55,11 @@ def guest_ui_ready(user_state, windows):
     if user_state.strip() != b'RUNNING_UNLOCKED':
         return False
     text = windows.decode('utf-8', errors='replace')
-    focus = re.search(r'\bmCurrentFocus=(Window\{[^\r\n}]+\})', text)
+    # Android's windows subcommand contains window details; display state owns
+    # mCurrentFocus. Requiring that field in the windows response rejects a fully
+    # booted launcher indefinitely. Join by the exact opaque identity in RAM.
+    focus = re.search(r'\bmCurrentFocus=(Window\{[^\r\n}]+\})',
+                      displays.decode('utf-8', errors='replace'))
     if focus is None:
         return False
     for match in re.finditer(r'^\s*Window #\d+ (Window\{[^\r\n}]+\}):([^\n]*(?:\n(?!\s*Window #\d+ ).*)*)', text, re.MULTILINE):
@@ -942,14 +946,13 @@ def validate_live_session(record, watchdog_id):
     runtime = _runtime_gate()
     fields = {'helper': runtime.HELPER, 'release': runtime.RELEASE, 'version': '0.20.5',
         'emulator_profile': 'reader-diagnostics', 'component_version': '37.2.12',
-        'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases',
-        'thread_name': 'Navic'}
+        'scratch_root': runtime.SCRATCH, 'owner_task': 'Validate original reader runtime cases'}
     if (type(gate) is not dict or any(gate.get(k) != v for k, v in fields.items())
             or type(gate.get('expected_owner')) is not dict
             or set(gate['expected_owner']) != {'system', 'session_sha256', 'thread_name'}
             or any(type(v) is not str or not v for v in gate['expected_owner'].values())
             or not re.fullmatch(r'[0-9a-f]{64}', gate['expected_owner']['session_sha256'])
-            or gate['expected_owner']['thread_name'] != 'Navic'
+            or gate.get('thread_name') != gate['expected_owner']['thread_name']
             or type(gate.get('binding')) is not dict):
         raise ValueError('GATE_PROFILE_UNCONFIRMED')
     binding = gate['binding']
@@ -1457,8 +1460,11 @@ def run_session(supervision, record, labels, *, pins, caps, watchdog_id, gate=No
                 code, windows, err = shell('SYS_BOOT_COMPLETED', ['dumpsys', 'window', 'windows'], caps.command)
                 if code != 0 or err:
                     raise ValueError('UI_READY_UNCONFIRMED')
-                ready = guest_ui_ready(state, windows)
-                del user, state, windows
+                code, displays, err = shell('SYS_BOOT_COMPLETED', ['dumpsys', 'window', 'displays'], caps.command)
+                if code != 0 or err:
+                    raise ValueError('UI_READY_UNCONFIRMED')
+                ready = guest_ui_ready(state, windows, displays)
+                del user, state, windows, displays
                 if ready:
                     result['guest_readiness_observation'] = dict(boot_completed=True,
                         foreground_user_unlocked=True, focused_application_window_drawn=True)

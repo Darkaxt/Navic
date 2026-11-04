@@ -137,8 +137,9 @@ class Wire:
                 data = (b'  Window #0 Window{abc u0 test.launcher/Home}:\n'
                         b'    mViewVisibility=0x0 mHasSurface=true\n'
                         b'    mAttrs={ty=BASE_APPLICATION}\n'
-                        b'    mDrawState=HAS_DRAWN\n'
-                        b'  mCurrentFocus=Window{abc u0 test.launcher/Home}\n')
+                        b'    mDrawState=HAS_DRAWN\n')
+            elif remote == ['dumpsys', 'window', 'displays']:
+                data = b'  mCurrentFocus=Window{abc u0 test.launcher/Home}\n'
             else:
                 data = b''
             self.clients[token] = dict(pending=pending, cancelled=False, data=data)
@@ -3304,15 +3305,32 @@ class R168RetestTests(unittest.TestCase):
         windows = ('  Window #0 Window{abc u0 test.launcher/Home}:\n'
                    '    mViewVisibility=0x0 mHasSurface=true\n'
                    '    mAttrs={ty=BASE_APPLICATION}\n'
-                   '    mDrawState=HAS_DRAWN\n'
-                   '  mCurrentFocus=Window{abc u0 test.launcher/Home}\n')
-        self.assertTrue(predicate(b'RUNNING_UNLOCKED\n', windows.encode()))
+                   '    mDrawState=HAS_DRAWN\n')
+        displays = b'  mCurrentFocus=Window{abc u0 test.launcher/Home}\n'
+        self.assertTrue(predicate(b'RUNNING_UNLOCKED\n', windows.encode(), displays))
         for state, text in ((b'RUNNING_LOCKED\n', windows),
                 (b'RUNNING_UNLOCKED\n', windows.replace('HAS_DRAWN', 'DRAW_PENDING')),
                 (b'RUNNING_UNLOCKED\n', windows.replace('mHasSurface=true', 'mHasSurface=false')),
-                (b'RUNNING_UNLOCKED\n', windows.replace('ty=BASE_APPLICATION', 'ty=STATUS_BAR')),
-                (b'RUNNING_UNLOCKED\n', windows.replace('mCurrentFocus=Window{abc', 'mCurrentFocus=Window{other'))):
-            self.assertFalse(predicate(state, text.encode()))
+                (b'RUNNING_UNLOCKED\n', windows.replace('ty=BASE_APPLICATION', 'ty=STATUS_BAR'))):
+            self.assertFalse(predicate(state, text.encode(), displays))
+        for focus in (b'', b'  mCurrentFocus=null\n', displays.replace(b'Window{abc', b'Window{other')):
+            self.assertFalse(predicate(b'RUNNING_UNLOCKED\n', windows.encode(), focus))
+        # Window details from another node must not satisfy the focused node.
+        other = windows.replace('Window{abc', 'Window{other')
+        undrawn = windows.replace('HAS_DRAWN', 'DRAW_PENDING')
+        self.assertFalse(predicate(b'RUNNING_UNLOCKED\n', (undrawn + other).encode(), displays))
+        # A focus record mistakenly appended to the windows response supplies no
+        # display authority. This is the former synthetic fixture's blind spot.
+        self.assertFalse(predicate(b'RUNNING_UNLOCKED\n', windows.encode() + displays, b''))
+
+    def test_readiness_repair_contract_preserves_actual_owner_title(self):
+        value = record()
+        value['gate']['thread_name'] = 'Actual current diagnostic chat'
+        value['gate']['expected_owner']['thread_name'] = value['gate']['thread_name']
+        self.assertIsNone(r.validate_live_session(value, 'host-fixture'))
+        value['gate']['thread_name'] = 'Different chat'
+        with self.assertRaises(ValueError):
+            r.validate_live_session(value, 'host-fixture')
 
 
 if __name__ == '__main__':
