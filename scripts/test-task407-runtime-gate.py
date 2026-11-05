@@ -62,7 +62,7 @@ def record():
         user_session_authorized=True, no_snapshot_save=True, preserve_app_data=True, clear_logcat=False,
         watchdog_id='host-fixture', apk_path='fixture-only.apk',
         gate=dict(helper='C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py',
-            release='9b7347f4af7433f6', version='0.20.5', emulator_profile='reader-diagnostics',
+            release='b72bf7f756f873c3', version='0.20.6', emulator_profile='reader-diagnostics',
             component_version='37.2.12', scratch_root='D:/Temp/navic-task407-gated-runtime/r146',
             owner_task='Validate original reader runtime cases', thread_name='Navic',
             expected_owner=dict(system='claude', session_sha256=hashlib.sha256(b'host-chat').hexdigest(), thread_name='Navic'),
@@ -730,7 +730,7 @@ class BoundaryTests(unittest.TestCase):
         value.update(seal_path='seal', seal_sha256='a' * 64,
             host_qualification_path='receipt', host_qualification_sha256='b' * 64)
         value['gate']['pins'] = []
-        runtime = SimpleNamespace(RELEASE='9b7347f4af7433f6', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
+        runtime = SimpleNamespace(RELEASE='b72bf7f756f873c3', RELEASE_ROOT='D:/fixture', RUNTIME_PATHS=())
         seal = dict(base_source_commit='a' * 40, apk=dict(path='fixture-only.apk', sha256='c' * 64))
         result = dict(automatic_emulator_teardown_verified=True, all_three_original_runtime_cases_passed=True,
             supervisor=dict(native_exit_code=3221226505, workflow_exit_code=3221226505,
@@ -741,7 +741,7 @@ class BoundaryTests(unittest.TestCase):
              mock.patch.object(r, '_runtime_gate', return_value=runtime), \
              mock.patch.object(r, 'pins_match', return_value=True), \
              mock.patch.object(r.Path, 'read_bytes', side_effect=[
-                 b'{"release":"9b7347f4af7433f6","version":"0.20.5"}',
+                 b'{"release":"b72bf7f756f873c3","version":"0.20.6"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(r.Path, 'open', mock.mock_open()), \
              mock.patch.object(r.os, 'environ', dict(WATCHDOG_ID='host-fixture')), \
@@ -1532,7 +1532,7 @@ class R149EOFTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '9b7347f4af7433f6/src/llm_coordinator/emulator_adb.py')
+                    'b72bf7f756f873c3/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -1827,14 +1827,14 @@ class R149EOFTests(unittest.TestCase):
         result = self.execute(session, cleanup=lambda: True)
         self.assertTrue(result['all_three_original_runtime_cases_passed'])
         self.assertEqual(result['launch_transport_profile'],
-            'COORDINATOR_0_20_5_READER_DIAGNOSTICS_37_2_12_EOF_V1')
+            'COORDINATOR_0_20_6_READER_DIAGNOSTICS_37_2_12_EOF_V1')
 
     test_delivered_active_release_reaches_cli_without_old_version_block = (
         BoundaryTests.test_cli_preserves_sdk_shutdown_failure_even_when_original_oracle_passes)
 
     def test_current_live_admission_accepts_active_release_and_rejects_old_delivery(self):
         current = record()
-        current['gate'].update(release='9b7347f4af7433f6', version='0.20.5')
+        current['gate'].update(release='b72bf7f756f873c3', version='0.20.6')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
@@ -1842,11 +1842,11 @@ class R149EOFTests(unittest.TestCase):
         old = record()
         old['gate'].update(release='df52528334e1391b', version='0.16.4')
         with self.assertRaises(ValueError): r.validate_live_session(old, 'host-fixture')
-        self.assertTrue(all('9b7347f4af7433f6' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('b72bf7f756f873c3' in path for path in g.RUNTIME_PATHS[1:]))
 
     def test_r162_current_admission_accepts_exact_0_16_5_and_rejects_prior_or_mixed_pairs(self):
         current = record()
-        current['gate'].update(release='9b7347f4af7433f6', version='0.20.5')
+        current['gate'].update(release='b72bf7f756f873c3', version='0.20.6')
         try:
             self.assertIsNone(r.validate_live_session(current, 'host-fixture'))
         except ValueError:
@@ -1854,8 +1854,8 @@ class R149EOFTests(unittest.TestCase):
         for release, version in (
                 ('a0eb32e6e700bb9e', '0.16.3'), ('a84522cf993339ea', '0.16.2'),
                 ('5fc7390b4f9b73d3', '0.16.1'), ('e501a86cc7460fa2', '0.16.0'),
-                ('df52528334e1391b', '0.16.4'), ('9b7347f4af7433f6', '0.16.4'),
-                ('a0eb32e6e700bb9e', '0.20.5'), ('a84522cf993339ea', '0.20.5')):
+                ('df52528334e1391b', '0.16.4'), ('b72bf7f756f873c3', '0.16.4'),
+                ('a0eb32e6e700bb9e', '0.20.6'), ('a84522cf993339ea', '0.20.6')):
             with self.subTest(release=release, version=version):
                 rejected = record()
                 rejected['gate'].update(release=release, version=version)
@@ -1863,7 +1863,7 @@ class R149EOFTests(unittest.TestCase):
                     r.validate_live_session(rejected, 'host-fixture')
         self.assertEqual(len(g.RUNTIME_PATHS), 27)
         self.assertEqual(len(set(g.RUNTIME_PATHS)), 27)
-        self.assertTrue(all('9b7347f4af7433f6' in path for path in g.RUNTIME_PATHS[1:]))
+        self.assertTrue(all('b72bf7f756f873c3' in path for path in g.RUNTIME_PATHS[1:]))
 
 
 class R150VMExitTests(unittest.TestCase):
@@ -1881,7 +1881,7 @@ class R150VMExitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                    '9b7347f4af7433f6/src/llm_coordinator/emulator_adb.py')
+                    'b72bf7f756f873c3/src/llm_coordinator/emulator_adb.py')
         if hashlib.sha256(path.read_bytes()).hexdigest() != (
                 '3789b278e21892e745b4b89ad06a86b8dc3a740a8ce545c3b6a3762c7d122f0e'):
             raise AssertionError('INSTALLED_CAPTURE_PIN_CHANGED')
@@ -2205,7 +2205,7 @@ class TransportTests(unittest.TestCase):
 class R152FifoNoticeTests(unittest.TestCase):
     """Installed FIFO queue notices are diagnostic-only, never RPC authority."""
     queue_source = Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/'
-                        '9b7347f4af7433f6/engines/agent_toolbelt_gradle_build_gate/queue.py')
+                        'b72bf7f756f873c3/engines/agent_toolbelt_gradle_build_gate/queue.py')
 
     @classmethod
     def setUpClass(cls):
@@ -2429,15 +2429,15 @@ class R156CompletionTests(unittest.TestCase):
 
     def test_r165_current_admission_accepts_only_exact_0_16_8_pair(self):
         current = record()
-        current['gate'].update(release='9b7347f4af7433f6', version='0.20.5')
+        current['gate'].update(release='b72bf7f756f873c3', version='0.20.6')
         try:
             accepted = r.validate_live_session(current, 'host-fixture')
         except ValueError:
             accepted = 'REJECTED'
         self.assertIsNone(accepted)
         for release, version in (('df52528334e1391b', '0.16.4'),
-                                 ('9b7347f4af7433f6', '0.16.4'),
-                                 ('df52528334e1391b', '0.20.5')):
+                                 ('b72bf7f756f873c3', '0.16.4'),
+                                 ('df52528334e1391b', '0.20.6')):
             rejected = record()
             rejected['gate'].update(release=release, version=version)
             with self.subTest(release=release, version=version), self.assertRaises(ValueError):
@@ -3100,14 +3100,14 @@ class R167FailureDiagnosticsTests(unittest.TestCase):
 
     def test_r167_current_admission_and_complete_dependency_set(self):
         current = record()
-        current['gate'].update(release='9b7347f4af7433f6', version='0.20.5')
+        current['gate'].update(release='b72bf7f756f873c3', version='0.20.6')
         try:
             accepted = r.validate_live_session(current, 'host-fixture')
         except ValueError:
             accepted = 'REJECTED'
         self.assertIsNone(accepted)
         for release, version in (('77a9616d05187aee', '0.16.5'),
-                ('9b7347f4af7433f6', '0.16.5'), ('77a9616d05187aee', '0.20.5')):
+                ('b72bf7f756f873c3', '0.16.5'), ('77a9616d05187aee', '0.20.6')):
             bad = copy.deepcopy(current)
             bad['gate'].update(release=release, version=version)
             with self.assertRaises(ValueError):
@@ -3269,13 +3269,13 @@ class R168RetestTests(unittest.TestCase):
 
     def test_r168_current_binding_and_complete_state_owner_bundle(self):
         value = record()
-        value['gate'].update(release='9b7347f4af7433f6', version='0.20.5')
+        value['gate'].update(release='b72bf7f756f873c3', version='0.20.6')
         try:
             accepted = r.validate_live_session(value, 'host-fixture')
         except ValueError:
             accepted = 'REJECTED'
         self.assertIsNone(accepted)
-        manifest = json.loads(Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/9b7347f4af7433f6/manifest.json').read_text())
+        manifest = json.loads(Path('C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/b72bf7f756f873c3/manifest.json').read_text())
         expected = {str(Path(g.RELEASE_ROOT) / name).replace('\\', '/') for name in manifest['files'] if name.startswith('state-owner/')}
         self.assertEqual({path for path in g.RUNTIME_PATHS if '/state-owner/' in path}, expected)
         self.assertIn(g.RELEASE_ROOT + '/src/llm_coordinator/state_owner.py', g.RUNTIME_PATHS)

@@ -32,6 +32,13 @@ and releasing the original lease. Preserve actual native/workflow exit codes and
 record `exact_owner_force_stop_verified`; a deliberate post-test exit130 is not
 an APK crash. No time budget or reader assertion is increased or weakened.
 
+The prospective installed binding is Coordinator0.20.6/releaseb72bf7f756f873c3.
+It ignores stale child-birth notifications after native stop only when current
+job membership proves the child departed; live-member access errors remain
+errors and ACTIVE_PROCESS_ZERO still establishes full native rundown. The native
+WinError5 mechanism reproduced during engine-call inspection is separate from
+the older journal-replacement incident. Historical results remain unchanged.
+
 The 2026-09-13 resumable-coordinator design remains the production contract. Preserve Foliate semantic authority, passive raster isolation, PlayLikeCurl deformation/resource execution, canonical WordSync, the existing coordinator, complete real production capability, all sixteen truthful physical sources, exact resource release, and lawful existing Task 6 fact-only timer/error ownership. Do not start Task 7, project Task9 or Stage 7.
 
 The revised development sequence is: real cold-route feasibility, bounded current core closure, genuine fresh-session bootstrap/bench on proven feasibility, decoration/handoff/progress evidence, owned-emulator experiment, then remaining release migration. Direct-start is a hypothesis, not current production wiring.
