@@ -1,5 +1,18 @@
 # Fresh-session reader checkpoint: scoped Stage 6 design amendment
 
+## Prospective Coordinator0.20.7 binding — 2026-11-05
+
+The supported runtime is release73eb0992217afceb. It corrects a reproduced
+state-owner pipe-availability race before request bytes are sent. No failed
+exchange or uncertain ADB command is reconnected/replayed. Existing strict
+wire failure receipts remain unchanged; the bounded private correlation log
+additionally retains closed state-owner kind/code/stage and SQLite extended code.
+The lost owner code in historical reference2632524cd6c944eb8279739bab04366c
+is not retrospectively established. Original failed attempt/results and its
+separately verified recovery remain immutable. Any later APK test needs a fresh
+prospective contract with the current qualified runtime hashes and genuine owner;
+this host binding update neither repeats that attempt nor accepts the reader.
+
 **Status:** authorized by the user's `continue` on 2026-10-04 after receiving `docs/superpowers/plans/2026-10-03-reader-fresh-session-evidence-first.md`. This admission defines a development route, not accepted implementation or production activation. Existing paused roots/claims/evidence remain history.
 
 ## 1. Governing boundary
