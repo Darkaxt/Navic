@@ -1,6 +1,21 @@
 # Reader Resumable Transition Coordinator Implementation Plan
 
-## Current continuation — Task407/408 (2026-10-28, IN_PROGRESS: live-test readiness)
+## Current tracking — GitHub Issues (2026-11-05)
+
+**Stage 6 / parent IN_PROGRESS.** The actionable backlog and completion checklist now live in [Darkaxt/Navic#6](https://github.com/Darkaxt/Navic/issues/6), not in additional local progress narratives. Update the relevant issue as work advances. This document and the Stage 6 amendment retain the governing architecture and acceptance requirements; dated continuation sections below are historical evidence, not current status or new permission gates.
+
+- [#7 Bootstrap, turns and pending-work cancellation](https://github.com/Darkaxt/Navic/issues/7)
+- [#8 Failed-open / ACK semantics](https://github.com/Darkaxt/Navic/issues/8)
+- [#9 Default-inactive / genuine experiment admission](https://github.com/Darkaxt/Navic/issues/9)
+- [#10 Configured WordSync and continuing-input freshness](https://github.com/Darkaxt/Navic/issues/10)
+- [#11 Continuous Section 16 / restore / wake / reflow](https://github.com/Darkaxt/Navic/issues/11)
+- [#12 Actual workload performance](https://github.com/Darkaxt/Navic/issues/12)
+- [#13 Full migration and legacy-writer retirement](https://github.com/Darkaxt/Navic/issues/13)
+- [#14 Production signing and separately owned tablet acceptance](https://github.com/Darkaxt/Navic/issues/14)
+
+Checkpoint `1a9d492b4` is host/Android-qualified; its new renderer-attachment APK has **not** passed real runtime acceptance. No new emulator/ADB operation follows from this tracking migration. Required evidence and paused artifacts remain preserved. Stage 7 remains prohibited; recording a gap in an issue does not satisfy it.
+
+## Historical continuation — Task407/408 (2026-10-28, as-of live-test readiness)
 
 **Immediate objective:** pass useful live emulator tests and distinguish app/reader failure, emulator/Android failure and host-resource limits from actual evidence; do not add speculative guards. The existing approved stage-observability plan and amendment §9 govern. Published baseline remains `96ef79bde09be8819e19d6e71ef7e1cb30c964b4`; current edits are not yet a published or fully qualified candidate. Retained continuation evidence is `D:/Projects/Navic-validation/task407-live-readiness-20261028/` (paths in this section are relative to it). Historical `T/` references below retain their original meaning and failed outcomes.
 
