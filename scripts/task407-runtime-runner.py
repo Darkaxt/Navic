@@ -415,6 +415,10 @@ _STARTUP_WITNESS_KEY = 'E407.StartupWitness.V1'
 _STARTUP_WITNESS_EVENTS = frozenset((
     'OBSERVATION_INSTALL_ATTEMPT', 'FIXTURE_MOUNT_ENTERED',
     'LOGGER_CONSOLE_MODULE_LOADED', 'LOGGER_BRIDGE_READY', 'LOGGER_BRIDGE_PUBLICATION_READY',
+    'LOGGER_OPEN_VIEW_STARTED', 'LOGGER_OPEN_VIEW_COMPLETED',
+    'LOGGER_OPEN_COVER_STARTED', 'LOGGER_OPEN_COVER_COMPLETED',
+    'LOGGER_OPEN_NAVIGATION_STARTED', 'LOGGER_OPEN_NAVIGATION_COMPLETED',
+    'LOGGER_OPEN_PAGINATION_STARTED', 'LOGGER_OPEN_PAGINATION_COMPLETED',
     'LOGGER_BRIDGE_COMMAND_ACK', 'LOGGER_BRIDGE_COMMAND_FAILED',
     'LOGGER_CURRENT_DESTINATION_RESOLVED', 'LOGGER_OPEN_PUBLICATION_DISPATCHED',
     'LOGGER_CURRENT_DESTINATION_QUERY_DISPATCHED',
@@ -533,6 +537,9 @@ _READER_STAGE_FIELDS = {
     'MaterialAllocation': (),
     'InstalledPreparation': (),
     'PublicationWrite': ('current', 'persisted'),
+    'PublicationCost': ('measuredMask', 'ioDispatchMs', 'ioReturnMs', 'encodeMs',
+                        'rasterSyncMs', 'hashMs', 'cacheLockMs', 'rasterPromoteMs',
+                        'manifestSerializeMs', 'manifestSyncMs', 'manifestPromoteMs'),
     'PublicationAcceptance': ('applied',),
     'TargetProgress': ('completedCount', 'requiredCount'),
     'InstalledProgress': (),
@@ -572,6 +579,13 @@ def _valid_reader_stage(message):
     expected = _READER_STAGE_FIELDS[phase]
     if phase not in ('CoordinatorFact',) and tuple(key for key, _ in extra) != expected:
         return False
+    if phase == 'PublicationCost':
+        if (state not in ('Completed', 'Failed') or reason != 'None'
+                or any(not value.isdecimal() or int(value) > 2**63 - 1 for _, value in extra)):
+            return False
+        mask = int(extra[0][1])
+        return (mask <= 1023 and all(mask & (1 << index) or int(value) == 0
+                                    for index, (_, value) in enumerate(extra[1:])))
     if phase in ('TargetProgress', 'RasterReady'):
         completed, required_count = (value for _, value in extra)
         return (completed.isdecimal() and required_count.isdecimal()

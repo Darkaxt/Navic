@@ -13,16 +13,7 @@ import {
   readerInitialCurrentDestinationCaptureBasis,
 } from './navic-reader-current-destination.js'
 import {
-  CenterTapMovementSlop,
-  CenterTapSyntheticClickDedupeMs,
-  FixedLayoutSurfaceSwipeThreshold,
-  KomikkuNavigationRegionLeft,
-  KomikkuNavigationRegionMenu,
-  KomikkuNavigationRegionNext,
-  KomikkuNavigationRegionPrevious,
-  KomikkuNavigationRegionRight,
   ReaderDirectionDefault,
-  ReaderDirectionLtr,
   ReaderDirectionRtl,
   ReaderDocumentThemeStyleId,
   ReaderDragAnimationNone,
@@ -190,6 +181,7 @@ import {
 } from './navic-reader-wordsync-provenance.js'
 import { ReaderDuplicatePageFingerprintDiagnostics } from './navic-reader-baseline-hmac.js'
 import { ReaderWhispersyncCueMapRuntime } from './navic-reader-cue-map.js'
+import { readerObserveOpenPhase } from './navic-reader-open-diagnostics.js'
 class NavicReaderRuntime {
   view = null
   mediaOverlayEnabled = false
@@ -608,20 +600,25 @@ class NavicReaderRuntime {
       readerRoot.replaceChildren(this.view)
       if (settings) this.applySettings(settings, true)
       this.applyReaderViewportLayout('view-created')
+      readerObserveOpenPhase('open-view-started')
       await this.view.open(url)
+      readerObserveOpenPhase('open-view-completed')
       this.attachLiveTextPageCommitInvalidationListener()
       this.postNavigationState('view-opened')
       this.attachSurfacePaperTextureScrollSync()
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
       if (settings) this.applySettings(settings)
+      readerObserveOpenPhase('open-cover-started')
       const shellCoverAllowed = this.view?.isFixedLayout !== true
       const shellCoverUrl = this.externalShellCover || this.suppressWebShellCover ? null : shellCoverAllowed ? await this.loadShellCover() : null
       const hasShellCoverSurface = this.externalShellCover || Boolean(shellCoverUrl)
       const shouldStartAtShellCover = hasShellCoverSurface && this.startLocatorTargetsShellCover(startLocator)
+      readerObserveOpenPhase('open-cover-completed')
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
+      readerObserveOpenPhase('open-navigation-started')
       if (shouldStartAtShellCover) {
         await this.goToFirstReadableContent()
       } else if (locator) {
@@ -633,7 +630,10 @@ class NavicReaderRuntime {
       } else {
         await this.view.init?.({ showTextStart: true })
       }
+      readerObserveOpenPhase('open-navigation-completed')
+      readerObserveOpenPhase('open-pagination-started')
       await this.ensureCompletePaginationProfile(url, this.readerSettings)
+      readerObserveOpenPhase('open-pagination-completed')
       this.attachSurfaceTapGesture(this.view)
       this.attachReaderTapZoneGesture(this.view)
       if (shellCoverAllowed && shellCoverUrl) this.showShellCover()

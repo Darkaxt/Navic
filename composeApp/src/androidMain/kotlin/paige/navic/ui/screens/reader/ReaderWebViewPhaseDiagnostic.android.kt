@@ -50,6 +50,7 @@ internal enum class ReaderStageDiagnosticPhase {
 	MaterialAllocation,
 	InstalledPreparation,
 	PublicationWrite,
+	PublicationCost,
 	PublicationAcceptance,
 	TargetProgress,
 	InstalledProgress,
@@ -85,6 +86,46 @@ internal enum class ReaderStageDiagnosticReason {
 	DeckReplacedWhileSettling
 }
 
+/** Ordered bits describe measured spans, including genuine sub-millisecond (zero ms) work. */
+internal enum class ReaderPublicationCostSpan(val field: String) {
+	IoDispatch("ioDispatchMs"), IoReturn("ioReturnMs"), Encode("encodeMs"),
+	RasterSync("rasterSyncMs"), Hash("hashMs"), CacheLock("cacheLockMs"),
+	RasterPromote("rasterPromoteMs"), ManifestSerialize("manifestSerializeMs"),
+	ManifestSync("manifestSyncMs"), ManifestPromote("manifestPromoteMs")
+}
+
+/** Publication-local scalars only. No clock/sink callbacks are invoked under cache locks. */
+internal class ReaderPublicationCost {
+	private val durations = LongArray(ReaderPublicationCostSpan.entries.size)
+	var measuredMask: Int = 0
+		private set
+
+	fun record(span: ReaderPublicationCostSpan, startedNanos: Long, endedNanos: Long = System.nanoTime()) {
+		val delta = endedNanos - startedNanos
+		if (delta < 0L) return
+		durations[span.ordinal] = delta / 1_000_000L
+		measuredMask = measuredMask or (1 shl span.ordinal)
+	}
+
+	fun appendTo(output: StringBuilder) {
+		output.append(" measuredMask=").append(measuredMask)
+		ReaderPublicationCostSpan.entries.forEach { span ->
+			output.append(' ').append(span.field).append('=').append(durations[span.ordinal])
+		}
+	}
+}
+
+/** Preserves the original operation's return/exception; timing never invokes external observers. */
+internal inline fun <T> readerMeasurePublicationCost(
+	cost: ReaderPublicationCost?,
+	span: ReaderPublicationCostSpan,
+	action: () -> T
+): T {
+	if (cost == null) return action()
+	val started = System.nanoTime()
+	return try { action() } finally { cost.record(span, started) }
+}
+
 /** Fixed stage categories and scalar fields only: never identities, payloads or exceptions. */
 internal object ReaderStageDiagnostic {
 	fun format(
@@ -101,7 +142,8 @@ internal object ReaderStageDiagnostic {
 		applied: Boolean? = null,
 		outcome: ReaderTransitionOutcomeKind? = null,
 		failure: ReaderTransitionFailureReason? = null,
-		cancellation: ReaderTransitionCancellationReason? = null
+		cancellation: ReaderTransitionCancellationReason? = null,
+		cost: ReaderPublicationCost? = null
 	): String = buildString {
 		append("reader-stage phase=").append(phase.name)
 		append(" state=").append(state.name)
@@ -117,6 +159,7 @@ internal object ReaderStageDiagnostic {
 		if (outcome != null) append(" outcome=").append(outcome.name)
 		if (failure != null) append(" failure=").append(failure.name)
 		if (cancellation != null) append(" cancellation=").append(cancellation.name)
+		cost?.appendTo(this)
 	}.also { message -> require(isSafeMessage(message)) }
 
 	fun emit(
@@ -134,6 +177,7 @@ internal object ReaderStageDiagnostic {
 		outcome: ReaderTransitionOutcomeKind? = null,
 		failure: ReaderTransitionFailureReason? = null,
 		cancellation: ReaderTransitionCancellationReason? = null,
+		cost: ReaderPublicationCost? = null,
 		write: (String) -> Unit = { Logger.i(ReaderStageDiagnosticTag, it) }
 	): Unit {
 		runCatching {
@@ -151,7 +195,8 @@ internal object ReaderStageDiagnostic {
 				applied = applied,
 				outcome = outcome,
 				failure = failure,
-				cancellation = cancellation
+				cancellation = cancellation,
+				cost = cost
 			))
 		}
 	}
@@ -173,12 +218,26 @@ internal object ReaderStageDiagnostic {
 		if (valueAt(3, "elapsedMs").nonnegativeLongOrNull() == null) return false
 		val extra = pairs.drop(4)
 		return when (phase) {
+			ReaderStageDiagnosticPhase.PublicationCost ->
+				valueAt(1, "state") in setOf("Completed", "Failed") &&
+					valueAt(2, "reason") == "None" && extra.publicationCostPairs()
 			ReaderStageDiagnosticPhase.PublicationWrite -> extra.booleanPair("current", "persisted")
 			ReaderStageDiagnosticPhase.PublicationAcceptance -> extra.booleanPair("applied")
 			ReaderStageDiagnosticPhase.TargetProgress,
 			ReaderStageDiagnosticPhase.RasterReady -> extra.progressPairs()
 			ReaderStageDiagnosticPhase.CoordinatorFact -> extra.coordinatorFactPairs()
 			else -> extra.isEmpty()
+		}
+	}
+
+	private fun List<List<String>>.publicationCostPairs(): Boolean {
+		if (size != 11 || this[0][0] != "measuredMask") return false
+		val mask = this[0][1].nonnegativeIntOrNull()?.takeIf { it <= 1023 } ?: return false
+		return ReaderPublicationCostSpan.entries.all { span ->
+			val pair = this[span.ordinal + 1]
+			val duration = pair[1].nonnegativeLongOrNull()
+			pair[0] == span.field && duration != null &&
+				(mask and (1 shl span.ordinal) != 0 || duration == 0L)
 		}
 	}
 

@@ -242,6 +242,21 @@ internal class Task407LoggerStartupObservation(private val method: Task407Origin
     /** Each input is a complete source-static projection from ReaderEngineLogProjector or a
      * source-sanctioned scalar error prefix. The set receives only these fixed labels. */
     private fun observeReaderEngineHost(event: LoggerEvent) {
+        // Exact Info projections only; timestamps describe logger arrival, not JS execution.
+        if (event.level == AppLogLevel.Info) {
+            val openPhase = when (event.message) {
+                "Reader console LOG: open-view-started" -> Task407StartupPhaseEvent.LOGGER_OPEN_VIEW_STARTED
+                "Reader console LOG: open-view-completed" -> Task407StartupPhaseEvent.LOGGER_OPEN_VIEW_COMPLETED
+                "Reader console LOG: open-cover-started" -> Task407StartupPhaseEvent.LOGGER_OPEN_COVER_STARTED
+                "Reader console LOG: open-cover-completed" -> Task407StartupPhaseEvent.LOGGER_OPEN_COVER_COMPLETED
+                "Reader console LOG: open-navigation-started" -> Task407StartupPhaseEvent.LOGGER_OPEN_NAVIGATION_STARTED
+                "Reader console LOG: open-navigation-completed" -> Task407StartupPhaseEvent.LOGGER_OPEN_NAVIGATION_COMPLETED
+                "Reader console LOG: open-pagination-started" -> Task407StartupPhaseEvent.LOGGER_OPEN_PAGINATION_STARTED
+                "Reader console LOG: open-pagination-completed" -> Task407StartupPhaseEvent.LOGGER_OPEN_PAGINATION_COMPLETED
+                else -> null
+            }
+            if (openPhase != null) recordStartupObservation(openPhase)
+        }
         when {
             event.level == AppLogLevel.Info && event.message in moduleLoadedConsoleMessages -> {
                 recordStartupObservation(Task407StartupPhaseEvent.LOGGER_CONSOLE_MODULE_LOADED)

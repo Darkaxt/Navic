@@ -152,6 +152,23 @@ class ReaderJavascriptBridgeTest {
 	}
 
 	@Test
+	fun openBoundaryConsoleProjectionRetainsOnlyClosedLabelsAndNoSuffix() {
+		for (phase in listOf("view", "cover", "navigation", "pagination")) {
+			for (state in listOf("started", "completed")) {
+				val label = "open-$phase-$state"
+				assertEquals("Reader console LOG: $label", ReaderEngineLogProjector.console(
+					"LOG", "[NavicReader] $label", "PRIVATE_SOURCE"))
+				assertEquals("Reader console LOG: $label", ReaderEngineLogProjector.console(
+					"LOG", "[NavicReader] $label PRIVATE_URL PRIVATE_CFI", "PRIVATE_SOURCE"))
+			}
+		}
+		for (label in listOf("open-view-success", "open-user-started", "PRIVATE_URL")) {
+			assertEquals("Reader console LOG: [redacted-reader-console]", ReaderEngineLogProjector.console(
+				"LOG", "[NavicReader] $label", "PRIVATE_SOURCE"))
+		}
+	}
+
+	@Test
 	fun deactivatedBridgeDropsEventsAndRejections() {
 		val events = mutableListOf<ReaderBridgeEvent>()
 		val rejections = mutableListOf<ReaderBridgeDecodeResult.Rejected>()

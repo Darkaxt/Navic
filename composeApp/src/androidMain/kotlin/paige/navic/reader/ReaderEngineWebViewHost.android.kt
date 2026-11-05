@@ -89,7 +89,15 @@ internal object ReaderEngineLogProjector {
 		"post",
 		"bridge-unavailable",
 		"post-failed",
-		"reportError"
+		"reportError",
+		"open-view-started",
+		"open-view-completed",
+		"open-cover-started",
+		"open-cover-completed",
+		"open-navigation-started",
+		"open-navigation-completed",
+		"open-pagination-started",
+		"open-pagination-completed"
 	)
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =

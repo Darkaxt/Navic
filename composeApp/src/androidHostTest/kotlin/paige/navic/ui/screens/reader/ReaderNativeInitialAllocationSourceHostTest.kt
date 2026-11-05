@@ -335,6 +335,11 @@ class ReaderNativeInitialAllocationSourceHostTest {
                     }
                 }
                 val messages = diagnostics.messages()
+                val costs = messages.filter { it.startsWith("reader-stage phase=PublicationCost ") }
+                assertEquals(1, costs.size, "A407.Cost.OriginalDurableWriteEmitsExactlyOneSummary")
+                assertTrue(costs.single().contains("state=Completed reason=None"))
+                assertTrue(costs.single().contains(" measuredMask=1023 "),
+                    "A407.Cost.OriginalCacheAndIoBoundariesAreActuallyMeasured")
                 assertTrue(messages.any { message ->
                     stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
                         ReaderWebViewDiagnosticState.Completed, "current=true", "persisted=true")
@@ -382,6 +387,9 @@ class ReaderNativeInitialAllocationSourceHostTest {
                     }
                 }
                 val messages = diagnostics.messages()
+                val costs = messages.filter { it.startsWith("reader-stage phase=PublicationCost ") }
+                assertEquals(1, costs.size, "A407.Cost.OriginalFailedWriteStillEmitsOneSummary")
+                assertTrue(costs.single().contains("state=Failed reason=None"))
                 assertTrue(messages.any { message ->
                     stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
                         ReaderWebViewDiagnosticState.Failed, "current=true", "persisted=false")
@@ -627,6 +635,8 @@ class ReaderNativeInitialAllocationSourceHostTest {
                         "A407.Timeout.LateOriginalWriteRolledBackBeforePhysicalReturn")
                     assertEquals(0, f.bundle().ownershipMetrics().stagedPublications)
                     val messages = diagnostics.messages()
+                    assertEquals(1, messages.count { it.startsWith("reader-stage phase=PublicationCost ") },
+                        "A407.Cost.CancelledOriginalPublicationEmitsOnceWithoutAdmittingLateWork")
                     assertTrue(messages.any { message ->
                         stageMessage(message, ReaderStageDiagnosticPhase.PublicationWrite,
                             ReaderWebViewDiagnosticState.Completed, "current=false", "persisted=true")

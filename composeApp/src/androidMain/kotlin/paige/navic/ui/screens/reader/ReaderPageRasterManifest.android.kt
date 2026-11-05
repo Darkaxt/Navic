@@ -126,19 +126,25 @@ internal class ReaderPageRasterManifest(
 		}
 	}
 
-	fun write(entries: Collection<ReaderPageRasterManifestEntry>): Boolean {
-		val payload = buildJsonObject {
-			put("schemaVersion", ReaderPageRasterSchemaVersion)
-			put("entries", buildJsonArray {
-				entries.sortedBy { entry -> entry.key.digest }.forEach { entry -> add(entry.toJson()) }
-			})
-		}.toString().encodeToByteArray()
-		return readerPageRasterAtomicWrite(file) { output -> output.write(payload) }
+	fun write(
+		entries: Collection<ReaderPageRasterManifestEntry>,
+		cost: ReaderPublicationCost? = null
+	): Boolean {
+		val payload = readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.ManifestSerialize) {
+			buildJsonObject {
+				put("schemaVersion", ReaderPageRasterSchemaVersion)
+				put("entries", buildJsonArray {
+					entries.sortedBy { entry -> entry.key.digest }.forEach { entry -> add(entry.toJson()) }
+				})
+			}.toString().encodeToByteArray()
+		}
+		return readerPageRasterAtomicWrite(file, cost) { output -> output.write(payload) }
 	}
 }
 
 internal fun readerPageRasterAtomicWrite(
 	target: File,
+	cost: ReaderPublicationCost? = null,
 	write: (FileOutputStream) -> Unit
 ): Boolean {
 	val parent = target.parentFile ?: return false
@@ -148,9 +154,11 @@ internal fun readerPageRasterAtomicWrite(
 	return try {
 		FileOutputStream(temporary).use { output ->
 			write(output)
-			output.fd.sync()
+			readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.ManifestSync) { output.fd.sync() }
 		}
-		readerPageRasterPromote(temporary, target)
+		readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.ManifestPromote) {
+			readerPageRasterPromote(temporary, target)
+		}
 		true
 	} catch (_: Throwable) {
 		temporary.delete()

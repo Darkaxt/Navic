@@ -191,7 +191,8 @@ internal class ReaderPageRasterCache<T : Any>(
 		value: T,
 		mode: ReaderPageRasterWriteMode = ReaderPageRasterWriteMode.AdoptDecoded,
 		commitFence: ReaderPageRasterCommitFence =
-			ReaderPageRasterCommitFence { action -> action() }
+			ReaderPageRasterCommitFence { action -> action() },
+		cost: ReaderPublicationCost? = null
 	): ReaderPageRasterWriteResult =
 		withDecodedEncodeAdmission(mode, value) {
 			if (!storageAvailable) {
@@ -214,14 +215,20 @@ internal class ReaderPageRasterCache<T : Any>(
 			}
 			root.mkdirs()
 			val temporary = root.resolve("${key.digest}.${System.nanoTime()}.tmp")
-			val encoded = runCatching { codec.encode(value, temporary) }
+			val encoded = runCatching {
+				readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.Encode) {
+					codec.encode(value, temporary)
+				}
+			}
 				.getOrDefault(false)
 			if (!encoded || !temporary.isFile || temporary.length() <= 0L) {
 				temporary.delete()
 				return@withDecodedEncodeAdmission writeFailed(key, "encode-failed")
 			}
 			runCatching {
-				FileOutputStream(temporary, true).use { output -> output.fd.sync() }
+				FileOutputStream(temporary, true).use { output ->
+					readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.RasterSync) { output.fd.sync() }
+				}
 			}.getOrElse {
 				temporary.delete()
 				return@withDecodedEncodeAdmission writeFailed(
@@ -238,7 +245,9 @@ internal class ReaderPageRasterCache<T : Any>(
 					byteSize
 				)
 			}
-			val contentDigest = temporary.sha256().take(16)
+			val contentDigest = readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.Hash) {
+				temporary.sha256().take(16)
+			}
 			val lockRequestedAt = System.nanoTime()
 			val result = try {
 				commitFence.commit {
@@ -250,7 +259,8 @@ internal class ReaderPageRasterCache<T : Any>(
 						temporary = temporary,
 						contentDigest = contentDigest,
 						byteSize = byteSize,
-						lockRequestedAt = lockRequestedAt
+						lockRequestedAt = lockRequestedAt,
+						cost = cost
 					)
 				}
 			} catch (failure: Throwable) {
@@ -269,10 +279,13 @@ internal class ReaderPageRasterCache<T : Any>(
 		temporary: File,
 		contentDigest: String,
 		byteSize: Long,
-		lockRequestedAt: Long
+		lockRequestedAt: Long,
+		cost: ReaderPublicationCost?
 	): ReaderPageRasterWriteResult {
 		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
+		val cacheLockStarted = if (cost != null) System.nanoTime() else 0L
 		val persisted = synchronized(this) {
+			cost?.record(ReaderPublicationCostSpan.CacheLock, cacheLockStarted)
 			val lockWaitMillis = elapsedMillis(lockRequestedAt)
 			if (lockWaitMillis >= ReaderPageRasterContentionDiagnosticMillis) {
 				onDiagnostic(
@@ -283,7 +296,9 @@ internal class ReaderPageRasterCache<T : Any>(
 			val target = root.resolve("${key.digest}-$contentDigest.png")
 			val targetExisted = target.isFile
 			val promotion = runCatching {
-				readerPageRasterPromote(temporary, target)
+				readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.RasterPromote) {
+					readerPageRasterPromote(temporary, target)
+				}
 			}
 			if (promotion.isFailure) {
 				temporary.delete()
@@ -318,7 +333,7 @@ internal class ReaderPageRasterCache<T : Any>(
 					failureReason = ReaderPageRasterWriteFailureReason.DiskCapacity
 				)
 			}
-			if (!manifest.write(retained)) {
+			if (!manifest.write(retained, cost)) {
 				if (!targetExisted) target.delete()
 				return@synchronized writeFailed(
 					key,

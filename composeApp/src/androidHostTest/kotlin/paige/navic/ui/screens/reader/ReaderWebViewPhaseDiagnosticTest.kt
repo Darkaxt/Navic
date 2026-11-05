@@ -256,7 +256,7 @@ class ReaderWebViewPhaseDiagnosticTest {
 					applied = true,
 					outcome = ReaderTransitionOutcomeKind.Succeeded
 				)
-				else -> ReaderStageDiagnostic.format(
+				else -> if (phase.name == "PublicationCost") publicationCostMessage() else ReaderStageDiagnostic.format(
 					phase, ReaderWebViewDiagnosticState.Completed, ReaderStageDiagnosticReason.None, 0L
 				)
 			}
@@ -349,6 +349,124 @@ class ReaderWebViewPhaseDiagnosticTest {
 		)
 		assertEquals(0, writes)
 	}
+
+	@Test
+	fun publicationCostAcceptsOnlyTerminalMeasurementStatesWithNoAuthorityReason() {
+		val message = publicationCostMessage()
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(message))
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(message.replace("state=Completed", "state=Failed")))
+		listOf("Started", "Rejected", "Cancelled", "Retired").forEach { state ->
+			assertFalse(ReaderStageDiagnostic.isSafeMessage(message.replace("state=Completed", "state=$state")))
+		}
+		ReaderStageDiagnosticReason.entries.filter { it.name != "None" }.forEach { reason ->
+			assertFalse(ReaderStageDiagnostic.isSafeMessage(message.replace("reason=None", "reason=${reason.name}")))
+		}
+	}
+
+	@Test
+	fun publicationCostMaskDistinguishesMeasuredZeroFromUnvisitedSpans() {
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(publicationCostMessage(mask = "0")))
+		publicationCostFields.forEachIndexed { bit, field ->
+			val measuredZero = publicationCostMessage(mask = (1 shl bit).toString())
+			assertTrue(ReaderStageDiagnostic.isSafeMessage(measuredZero), field)
+			assertTrue(ReaderStageDiagnostic.isSafeMessage(measuredZero.replace("$field=0", "$field=7")), field)
+			assertFalse(ReaderStageDiagnostic.isSafeMessage(
+				publicationCostMessage(mask = "0").replace("$field=0", "$field=7")
+			), field)
+			assertFalse(ReaderStageDiagnostic.isSafeMessage(
+				publicationCostMessage(mask = (1 shl ((bit + 1) % 10)).toString())
+					.replace("$field=0", "$field=7")
+			), field)
+		}
+	}
+
+	@Test
+	fun publicationCostRejectsOutOfRangeOrNondecimalDurationsAndMasks() {
+		val message = publicationCostMessage()
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(publicationCostMessage(duration = "9223372036854775807")))
+		publicationCostFields.forEach { field ->
+			listOf("-1", "+1", "1.0", "1e0", "true", "", "١", "9223372036854775808").forEach { value ->
+				assertFalse(ReaderStageDiagnostic.isSafeMessage(message.replace("$field=0", "$field=$value")), "$field=$value")
+			}
+		}
+		listOf("-1", "1024", "2147483648", "9223372036854775808", "true", "", "+1", "١").forEach { mask ->
+			assertFalse(ReaderStageDiagnostic.isSafeMessage(publicationCostMessage(mask = mask)), mask)
+		}
+		assertFalse(ReaderStageDiagnostic.isSafeMessage(message.replace("elapsedMs=0", "elapsedMs=-1")))
+		assertFalse(ReaderStageDiagnostic.isSafeMessage(message.replace("elapsedMs=0", "elapsedMs=9223372036854775808")))
+	}
+
+	@Test
+	fun publicationCostGrammarRejectsPrivateAuthorityMissingDuplicateOrReorderedFields() {
+		val message = publicationCostMessage()
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(message))
+		val invalid = listOf(
+			message + " bookId=PUBLICATION_COST_PRIVATE_CANARY",
+			message + " href=https://private.invalid/PUBLICATION_COST_PRIVATE_CANARY",
+			message + " path=D:/PUBLICATION_COST_PRIVATE_CANARY",
+			message + " exception=PUBLICATION_COST_PRIVATE_CANARY",
+			message + " current=true",
+			message + " persisted=true",
+			message + " outcome=Succeeded",
+			message.replace("encodeMs=0", "encodeMs=PUBLICATION_COST_PRIVATE_CANARY"),
+			message.replace("phase=PublicationCost", "phase=PUBLICATION_COST_PRIVATE_CANARY"),
+			message.replace("reason=None", "reason=PUBLICATION_COST_PRIVATE_CANARY"),
+			message.replace(" measuredMask=1023", ""),
+			message.replace(" hashMs=0", ""),
+			message + " hashMs=0",
+			message.replace("ioDispatchMs=0 ioReturnMs=0", "ioReturnMs=0 ioDispatchMs=0"),
+			message.replace(" encodeMs=0", "  encodeMs=0"),
+			message + "\n"
+		)
+		invalid.forEach { candidate -> assertFalse(ReaderStageDiagnostic.isSafeMessage(candidate)) }
+	}
+
+	@Test
+	fun publicationCostWorstCaseLongValuesFitTheExisting512CharacterLimit() {
+		val message = publicationCostMessage(duration = "9223372036854775807")
+			.replace("state=Completed", "state=Failed")
+			.replace("elapsedMs=0", "elapsedMs=9223372036854775807")
+		assertTrue(message.length <= 512)
+		assertTrue(ReaderStageDiagnostic.isSafeMessage(message))
+		assertFalse(ReaderStageDiagnostic.isSafeMessage(message + "x".repeat(513 - message.length)))
+	}
+
+	@Test
+	fun actualCostAccumulatorFormatsMeasuredZeroUnavailableAndScalarSpansWithoutSinkAuthority() {
+		val cost = ReaderPublicationCost()
+		cost.record(ReaderPublicationCostSpan.Encode, 100L, 100L)
+		cost.record(ReaderPublicationCostSpan.Hash, 10_000_000L, 19_999_999L)
+		cost.record(ReaderPublicationCostSpan.ManifestSync, 2L, 1L)
+		val message = ReaderStageDiagnostic.format(
+			ReaderStageDiagnosticPhase.PublicationCost, ReaderWebViewDiagnosticState.Completed,
+			ReaderStageDiagnosticReason.None, 0L, cost = cost
+		)
+		assertEquals(publicationCostMessage(mask = "20").replace("hashMs=0", "hashMs=9"), message)
+		assertTrue(runCatching {
+			ReaderStageDiagnostic.emit(
+				ReaderStageDiagnosticPhase.PublicationCost, ReaderWebViewDiagnosticState.Failed,
+				ReaderStageDiagnosticReason.None, 0L, cost = cost, write = { error("sink failed") }
+			)
+		}.isSuccess)
+		val original = IllegalStateException("original operation failure")
+		val failure = runCatching {
+			readerMeasurePublicationCost(cost, ReaderPublicationCostSpan.RasterSync) { throw original }
+		}.exceptionOrNull()
+		assertTrue(failure === original)
+		assertEquals(28, cost.measuredMask)
+		assertEquals(17, readerMeasurePublicationCost(null, ReaderPublicationCostSpan.Encode) { 17 })
+	}
+
+	private val publicationCostFields = listOf(
+		"ioDispatchMs", "ioReturnMs", "encodeMs", "rasterSyncMs", "hashMs",
+		"cacheLockMs", "rasterPromoteMs", "manifestSerializeMs", "manifestSyncMs", "manifestPromoteMs"
+	)
+
+	private fun publicationCostMessage(mask: String = "1023", duration: String = "0"): String =
+		"reader-stage phase=PublicationCost state=Completed reason=None elapsedMs=0 measuredMask=$mask " +
+			"ioDispatchMs=$duration ioReturnMs=$duration encodeMs=$duration rasterSyncMs=$duration " +
+			"hashMs=$duration cacheLockMs=$duration rasterPromoteMs=$duration " +
+			"manifestSerializeMs=$duration manifestSyncMs=$duration manifestPromoteMs=$duration"
 
 	private fun retirement(reason: ReaderWebViewDiagnosticReason): String =
 		ReaderWebViewPhaseDiagnostic.format(

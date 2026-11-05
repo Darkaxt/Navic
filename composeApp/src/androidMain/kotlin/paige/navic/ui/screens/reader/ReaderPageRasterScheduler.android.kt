@@ -237,7 +237,8 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		metadata: ReaderPageRasterMetadata,
 		value: T,
 		commitFence: ReaderPageRasterCommitFence,
-		work: ReaderActivatedRasterWork? = null
+		work: ReaderActivatedRasterWork? = null,
+		cost: ReaderPublicationCost? = null
 	): ReaderPageRasterWriteResult = withOpen(
 		ReaderPageRasterWriteResult(
 			persisted = false,
@@ -249,7 +250,8 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 			metadata = metadata,
 			value = value,
 			mode = ReaderPageRasterWriteMode.PersistOnly,
-			commitFence = commitFence
+			commitFence = commitFence,
+			cost = cost
 		)
 	}
 

@@ -617,6 +617,22 @@ class StartupWitnessProjectionTests(unittest.TestCase):
         self.assertNotIn('R123_PRIVATE_CANARY', json.dumps(result))
         return result
 
+    def test_original_open_boundaries_survive_only_as_logger_arrival_witnesses(self):
+        value = startup_witness()
+        events = ['LOGGER_OPEN_' + phase + '_' + state
+                  for phase in ('VIEW', 'COVER', 'NAVIGATION', 'PAGINATION')
+                  for state in ('STARTED', 'COMPLETED')]
+        value['records'] = [dict(sequence=0, elapsed_ms=0, event='OBSERVATION_INSTALL_ATTEMPT')]
+        value['records'] += [dict(sequence=index + 1, elapsed_ms=(index + 1) * 7, event=event)
+                             for index, event in enumerate(events)]
+        before = self.project(transcript())
+        result = self.project(with_witness(value))
+        self.assertEqual(self.retained(result), {METHODS[0]: value})
+        self.assertEqual(result['startup_witness_rejection_count'], 0)
+        self.assertEqual(len(result['events']), 1)
+        self.assertFalse(runner.original_three_passed(result, exit_code=0, source_drift=False))
+        self.assertEqual(self.retained(before), {})
+
     def test_valid_source_qualified_timeline_retains_arrival_order_and_sample_distinction(self):
         value = startup_witness()
         result = self.project(with_witness(value))
@@ -836,6 +852,150 @@ class ReaderStageTransportTests(unittest.TestCase):
     """Closed outcome transport only; a retained stage never supplies acceptance."""
     def line(self, message, method=METHODS[0]):
         return ('INSTRUMENTATION_STATUS: E407.ReaderPhase.V1=' + method + '|' + message + '\n').encode('ascii')
+
+    PUBLICATION_COST_FIELDS = (
+        'ioDispatchMs', 'ioReturnMs', 'encodeMs', 'rasterSyncMs', 'hashMs',
+        'cacheLockMs', 'rasterPromoteMs', 'manifestSerializeMs', 'manifestSyncMs',
+        'manifestPromoteMs',
+    )
+
+    def publication_cost_message(self, mask='1023', duration='0', state='Completed'):
+        return (
+            'reader-stage phase=PublicationCost state=' + state +
+            ' reason=None elapsedMs=0 measuredMask=' + mask +
+            ' ioDispatchMs=' + duration + ' ioReturnMs=' + duration +
+            ' encodeMs=' + duration + ' rasterSyncMs=' + duration +
+            ' hashMs=' + duration + ' cacheLockMs=' + duration +
+            ' rasterPromoteMs=' + duration + ' manifestSerializeMs=' + duration +
+            ' manifestSyncMs=' + duration + ' manifestPromoteMs=' + duration)
+
+    def test_publication_cost_accepts_only_terminal_measurement_states_and_none_reason(self):
+        message = self.publication_cost_message()
+        for state in ('Completed', 'Failed'):
+            with self.subTest(state=state):
+                self.assertTrue(runner._valid_reader_phase(self.publication_cost_message(state=state)))
+        for state in ('Started', 'Rejected', 'Cancelled', 'Retired'):
+            with self.subTest(state=state):
+                self.assertFalse(runner._valid_reader_phase(self.publication_cost_message(state=state)))
+        for reason in runner._READER_STAGE_REASONS - {'None'}:
+            with self.subTest(reason=reason):
+                self.assertFalse(runner._valid_reader_phase(message.replace('reason=None', 'reason=' + reason)))
+
+    def test_publication_cost_mask_maps_each_span_and_distinguishes_unvisited_from_zero(self):
+        self.assertTrue(runner._valid_reader_phase(self.publication_cost_message(mask='0')))
+        for bit, field in enumerate(self.PUBLICATION_COST_FIELDS):
+            with self.subTest(field=field):
+                measured_zero = self.publication_cost_message(mask=str(1 << bit))
+                self.assertTrue(runner._valid_reader_phase(measured_zero))
+                self.assertTrue(runner._valid_reader_phase(measured_zero.replace(field + '=0', field + '=7')))
+                self.assertFalse(runner._valid_reader_phase(
+                    self.publication_cost_message(mask='0').replace(field + '=0', field + '=7')))
+                self.assertFalse(runner._valid_reader_phase(
+                    self.publication_cost_message(mask=str(1 << ((bit + 1) % 10)))
+                    .replace(field + '=0', field + '=7')))
+
+    def test_publication_cost_numeric_bounds_reject_nondecimal_negative_and_overflow(self):
+        message = self.publication_cost_message()
+        self.assertTrue(runner._valid_reader_phase(
+            self.publication_cost_message(duration='9223372036854775807')))
+        for field in self.PUBLICATION_COST_FIELDS:
+            for value in ('-1', '+1', '1.0', '1e0', 'true', '', '١', '9223372036854775808'):
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(runner._valid_reader_phase(message.replace(field + '=0', field + '=' + value)))
+        for mask in ('-1', '1024', '2147483648', '9223372036854775808', 'true', '', '+1', '١'):
+            with self.subTest(mask=mask):
+                self.assertFalse(runner._valid_reader_phase(self.publication_cost_message(mask=mask)))
+        for elapsed in ('-1', '9223372036854775808'):
+            self.assertFalse(runner._valid_reader_phase(message.replace('elapsedMs=0', 'elapsedMs=' + elapsed)))
+
+    def test_publication_cost_closed_grammar_and_privacy_rejections_survive_live_transport(self):
+        message = self.publication_cost_message()
+        self.assertTrue(runner._valid_reader_phase(message))
+        invalid = [
+            message + ' bookId=PUBLICATION_COST_PRIVATE_CANARY',
+            message + ' href=https://private.invalid/PUBLICATION_COST_PRIVATE_CANARY',
+            message + ' path=D:/PUBLICATION_COST_PRIVATE_CANARY',
+            message + ' exception=PUBLICATION_COST_PRIVATE_CANARY',
+            message + ' current=true',
+            message + ' persisted=true',
+            message + ' outcome=Succeeded',
+            message.replace('encodeMs=0', 'encodeMs=PUBLICATION_COST_PRIVATE_CANARY'),
+            message.replace('phase=PublicationCost', 'phase=PUBLICATION_COST_PRIVATE_CANARY'),
+            message.replace('reason=None', 'reason=PUBLICATION_COST_PRIVATE_CANARY'),
+            message.replace(' measuredMask=1023', ''),
+            message.replace(' hashMs=0', ''),
+            message + ' hashMs=0',
+            message.replace('ioDispatchMs=0 ioReturnMs=0', 'ioReturnMs=0 ioDispatchMs=0'),
+            message.replace(' encodeMs=0', '  encodeMs=0'),
+        ]
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        for candidate in invalid:
+            with self.subTest(candidate=candidate):
+                self.assertFalse(runner._valid_reader_phase(candidate))
+                stream.feed(0, self.line(candidate))
+        self.assertFalse(runner._valid_reader_phase(message + '\n'))
+        snapshot = stream.snapshot()
+        self.assertEqual(snapshot['records'], [])
+        self.assertEqual(snapshot['counts']['rejected_phase_lines'], len(invalid))
+        self.assertNotIn('PUBLICATION_COST_PRIVATE_CANARY', json.dumps(snapshot))
+        self.assertFalse(snapshot['acceptance_evidence'])
+
+    def test_publication_cost_worst_case_long_values_fit_existing_message_and_stream_limits(self):
+        message = self.publication_cost_message(duration='9223372036854775807', state='Failed')
+        message = message.replace('elapsedMs=0', 'elapsedMs=9223372036854775807')
+        self.assertLessEqual(len(message), 512)
+        self.assertTrue(runner._valid_reader_phase(message))
+        self.assertFalse(runner._valid_reader_phase(message + 'x' * (513 - len(message))))
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        line = self.line(message)
+        self.assertLessEqual(len(line) - 1, stream.PARTIAL_CAP)
+        for part in (line[:31], line[31:-1], line[-1:]):
+            stream.feed(0, part)
+        snapshot = stream.snapshot()
+        self.assertEqual([row['message'] for row in snapshot['records']], [message])
+        self.assertEqual(snapshot['counts']['omitted_overlong_lines'], 0)
+        self.assertEqual(snapshot['counts']['rejected_phase_lines'], 0)
+        self.assertFalse(snapshot['acceptance_evidence'])
+
+    def test_publication_cost_retains_failed_method_diagnostics_without_changing_original_oracles(self):
+        original = transcript().replace('STATUS_CODE: 0', 'STATUS_CODE: -2')
+        before = runner.project_instrumentation(original, {PHASE_KEY})
+        for state in ('Completed', 'Failed'):
+            with self.subTest(measurement_state=state):
+                message = self.publication_cost_message(state=state)
+                text = original
+                stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+                for method in METHODS:
+                    marker = 'INSTRUMENTATION_STATUS: test=' + method + '\nINSTRUMENTATION_STATUS_CODE: 1'
+                    text = text.replace(marker, marker + '\n' + phase_status([message], method))
+                    line = self.line(message, method)
+                    for part in (line[:31], line[31:-1], line[-1:]):
+                        stream.feed(0, part)
+                result = runner.project_instrumentation(text, {PHASE_KEY})
+                self.assertEqual({name: value['records'] for name, value in
+                    result['reader_phases_by_original_method'].items()},
+                    {name: [message] for name in METHODS})
+                self.assertEqual(result['reader_phase_rejection_count'], 0)
+                self.assertEqual(before['events'], result['events'])
+                self.assertEqual(before['terminal_codes'], result['terminal_codes'])
+                self.assertFalse(runner.original_three_passed(result, exit_code=0, source_drift=False))
+                snapshot = stream.snapshot()
+                self.assertEqual([(row['method'], row['message']) for row in snapshot['records']],
+                                 [(method, message) for method in METHODS])
+                self.assertEqual(snapshot['counts']['rejected_phase_lines'], 0)
+                self.assertFalse(snapshot['acceptance_evidence'])
+
+    def test_publication_cost_records_preserve_existing_live_retention_cap_and_drop_accounting(self):
+        stream = runner._ReaderPhaseStream(qualified=True, clock=lambda: 10.0)
+        line = self.line(self.publication_cost_message())
+        for _ in range(300):
+            stream.feed(0, line)
+        snapshot = stream.snapshot()
+        self.assertEqual(len(snapshot['records']), 256)
+        self.assertEqual(snapshot['dropped_records'], 44)
+        self.assertEqual(snapshot['counts']['accepted_records'], 300)
+        self.assertEqual(snapshot['counts']['rejected_phase_lines'], 0)
+        self.assertFalse(snapshot['acceptance_evidence'])
 
     def test_deck_handoff_reasons_survive_failed_original_methods_without_becoming_oracles(self):
         reasons = ('DeckCapabilitiesUnavailable', 'DeckSessionDetached', 'DeckStaleGeneration',

@@ -5217,6 +5217,7 @@ internal class ReaderPageTurnBundleSource(
 			val value = publicationLedger.acquireForPersistence(request)
 				?: return@publication
 			val writeStartedAtMillis = SystemClock.uptimeMillis()
+			val publicationCost = runCatching { ReaderPublicationCost() }.getOrNull()
 			ReaderStageDiagnostic.emit(
 				phase = ReaderStageDiagnosticPhase.PublicationWrite,
 				state = ReaderWebViewDiagnosticState.Started,
@@ -5245,8 +5246,11 @@ internal class ReaderPageTurnBundleSource(
 					persistenceRetryCorrelations[value.key.digest] = correlation
 					onQaFaultApplied(correlation)
 				}
+				var ioExitedAtNanos: Long? = null
+				val ioRequestedAtNanos = if (publicationCost != null) System.nanoTime() else 0L
 				try {
 					withContext(NonCancellable + Dispatchers.IO) {
+						publicationCost?.record(ReaderPublicationCostSpan.IoDispatch, ioRequestedAtNanos)
 						try {
 							val metadata = value.generation.metadata
 							val commitFence = ReaderPageRasterCommitFence { action ->
@@ -5280,7 +5284,8 @@ internal class ReaderPageTurnBundleSource(
 									metadata = metadata,
 									value = value.generation.value,
 									commitFence = commitFence,
-									work = work
+									work = work,
+									cost = publicationCost
 								) ?: write
 							}
 							if (publicationQaFault != null && write.persisted) {
@@ -5295,12 +5300,16 @@ internal class ReaderPageTurnBundleSource(
 							if (publicationQaFault != null) {
 								write = write.copy(persisted = false, receipt = null)
 							}
+						} finally {
+							if (publicationCost != null) ioExitedAtNanos = System.nanoTime()
 						}
 					}
 				} catch (_: CancellationException) {
 					// The non-cancellable worker already captured its write result.
 				} catch (failure: Throwable) {
 					writeFailure = failure
+				} finally {
+					ioExitedAtNanos?.let { publicationCost?.record(ReaderPublicationCostSpan.IoReturn, it) }
 				}
 				writeFailure?.let(publicationLedger::recordFailure)
 				check(
@@ -5314,6 +5323,16 @@ internal class ReaderPageTurnBundleSource(
 						onQaFaultApplied(applied.correlation())
 					}
 			} finally {
+				// Observe after IO/ownership scopes return, before sampling acceptance currentness.
+				publicationCost?.let { cost ->
+					ReaderStageDiagnostic.emit(
+						phase = ReaderStageDiagnosticPhase.PublicationCost,
+						state = if (write.persisted) ReaderWebViewDiagnosticState.Completed else ReaderWebViewDiagnosticState.Failed,
+						reason = ReaderStageDiagnosticReason.None,
+						elapsedMs = SystemClock.uptimeMillis() - writeStartedAtMillis,
+						cost = cost
+					)
+				}
 				val publicationCurrent = publicationIsCurrent()
 				val publicationCancelled = currentCoroutineContext()[Job]?.isCancelled == true
 				val diagnosticReason = when {
