@@ -1,5 +1,16 @@
 # Fresh-session reader checkpoint: scoped Stage 6 design amendment
 
+## Prospective Coordinator 0.20.8 binding — 2026-11-05
+
+Release 9b0930fcdc43294f preserves the qualified Android state-owner, dispatch,
+observation, stop and recovery behavior. Its changes add PhotoCraft qualification
+and bind continuing Craft hosts to their owned runtime scratch. Refresh the
+prospective host literals/tests to this active release so native Craft delivery
+does not strand the reader runner on a retired package. Existing assertions,
+APK qualification, emulator/profile budgets, genuine owner checks and no-replay
+rules remain unchanged. This compatibility checkpoint is not a new emulator run,
+reader acceptance or permission to reuse a historical attempt/contract.
+
 ## Prospective Coordinator0.20.7 binding — 2026-11-05
 
 The supported runtime is release73eb0992217afceb. It corrects a reproduced
