@@ -2736,6 +2736,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 				updateSurfaceBounds()
 				setSurfaceReadingDirection(profile)
 				val submission = runCatching {
+					// Installed work owns physical activation independently of the frozen legacy host path.
+					if (!destroyed && work.isCurrent() && !lease.deckReleaseRequested &&
+						physicalDeckLeases[generationId] === lease &&
+						host.isAttachedToWindow && surfaceView.isAttachedToWindow) {
+						surfaceView.attach()
+					}
+					// attach drains terminal callbacks and can retire this exact work reentrantly.
+					if (destroyed || !work.isCurrent() || lease.deckReleaseRequested ||
+						physicalDeckLeases[generationId] !== lease) return@runCatching null
 					surfaceView.submitDeckWithResult(libraryDeck) {
 						lease.installedRendererOwned = true
 						check(physicalDeckOwnership.acknowledgeRendererOwnership(lease))

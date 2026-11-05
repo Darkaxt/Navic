@@ -58,6 +58,42 @@ class ReaderNativeInitialConstructionProducerHostTest {
             assertEquals(0, f.executor.activeSlotCount); assertEquals(0, f.registry.activeHandleCount)
         } finally { f.dispose() }
     }
+    /** Missing resource diagnostics erased the only platform reason before a cold opening
+     * deadline. Exercise the ORIGINAL client callback: codes/frame class are diagnostic only,
+     * never query completion or permission to extend/replay the outstanding command. */
+    @Test fun originalEngineResourceErrorsRetainOnlyPlatformCodeAndFrameClassWithoutCompletingConstruction() = runTest {
+        val f = ConstructionFixture(testScheduler)
+        try {
+            assertEquals(ReaderSemanticCommandResult.Accepted, f.start())
+            f.drain()
+            val engine = f.engine()
+            org.robolectric.shadows.ShadowLog.clear()
+            val request = object : android.webkit.WebResourceRequest {
+                override fun getUrl(): android.net.Uri = error("RESOURCE_URL_MUST_NOT_BE_READ")
+                override fun isForMainFrame() = false
+                override fun isRedirect() = false
+                override fun hasGesture() = false
+                override fun getMethod() = "GET"
+                override fun getRequestHeaders(): Map<String, String> = emptyMap()
+            }
+            val resourceError = android.webkit.ReaderSyntheticWebResourceError(
+                android.webkit.WebViewClient.ERROR_HOST_LOOKUP, "", rejectDescriptionRead = true)
+            engine.webViewClient.onReceivedError(engine, request, resourceError)
+            val response = android.webkit.WebResourceResponse("text/plain", "utf-8", 504,
+                "Synthetic", emptyMap(), java.io.ByteArrayInputStream(byteArrayOf()))
+            engine.webViewClient.onReceivedHttpError(engine, request, response)
+            val phases = org.robolectric.shadows.ShadowLog.getLogsForTag("ReaderEngineWebViewHost")
+                .map { it.msg }.filter { it.startsWith("reader-webview-phase ") }
+            assertTrue(phases.any { it.startsWith("reader-webview-phase source=Engine phase=RuntimeLoad state=Failed reason=WebViewError elapsedMs=") &&
+                it.endsWith(" code=-2 mainFrame=false") }, "Original resource failure must retain its platform code without content")
+            assertTrue(phases.any { it.startsWith("reader-webview-phase source=Engine phase=RuntimeLoad state=Failed reason=HttpError elapsedMs=") &&
+                it.endsWith(" code=504 mainFrame=false") }, "Original HTTP failure must retain its status without content")
+            assertTrue(f.pending().pendingCommands.isEmpty(), "A resource diagnostic cannot initialize or dispatch construction")
+            assertEquals(0, f.receipts.size, "A resource diagnostic cannot certify an initial destination")
+            assertEquals(1, f.executor.activeSlotCount, "The same outstanding construction retains custody")
+        } finally { f.dispose() }
+    }
+
     @Test fun nonEntrypointPageFinishCannotInitializeInitialQuery() = runTest {
         val f = ConstructionFixture(testScheduler)
         try {

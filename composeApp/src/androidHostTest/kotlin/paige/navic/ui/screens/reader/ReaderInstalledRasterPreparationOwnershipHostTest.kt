@@ -817,6 +817,113 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 		assertEquals(0, readiness.session.metrics().activeCaptures)
 	}
 
+	/** Owning attachment regression: the current installed command must reach the ORIGINAL
+	 * surface admission after legacy sources were frozen, without reopening legacy admission.
+	 * Escape hatch in earlier coverage: the UNIT renderer below accepted submissions without
+	 * the native attached guard, hiding the installed path's missing physical activation.
+	 * GL stays unavailable here: CAPABILITIES_UNAVAILABLE is deliberately NOT a prepared deck,
+	 * transferred bitmap lease, presented frame, production-root proof or live acceptance. */
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun currentInstalledDeckOnWindowAttachedSurfacePassesOriginalAttachmentGateWithoutLegacyReopen() =
+		withMaterialFixture(legacySelection = false, installedForeground = true) { f ->
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			f.start(expectPrepared = false)
+			val submission = f.surface.originalSubmissionResults.single()
+			assertEquals(PageSurfaceDeckSubmissionResult.Status.REJECTED, submission.status)
+			assertEquals(DeckRejectionReason.CAPABILITIES_UNAVAILABLE, submission.rejectionReason,
+				"E407.Attachment.CurrentInstalledCommandMustPassOriginalSessionDetachedGuard")
+			assertEquals(0, f.surface.originalOwnershipTransfers, "E407.Attachment.NoInventedGlOwnership")
+			assertNull(f.candidate(), "E407.Attachment.CapabilitiesAreStillUnavailable")
+			assertEquals(0, f.barrier.atomicCommitCount, "E407.Attachment.NoInventedPublication")
+			assertFalse(f.curl.originalLegacyDeckAdmissionRestored, "E407.Attachment.DeckLegacyStillFrozen")
+			assertTrue(f.foreground.isFrozenForTransitionActivation(), "E407.Attachment.ForegroundStillFrozen")
+			assertFalse(f.foreground.originalLegacyAdmissionRestored, "E407.Attachment.NoForegroundThaw")
+		}
+
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun detachedInstalledDeckCannotActivateOriginalSurfaceOrReopenLegacyAdmission() =
+		withMaterialFixture(legacySelection = false, installedForeground = true) { f ->
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.detachOriginalSurfaceFromWindow()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			f.start(expectPrepared = false)
+			val submission = f.surface.originalSubmissionResults.single()
+			assertEquals(PageSurfaceDeckSubmissionResult.Status.REJECTED, submission.status)
+			assertEquals(DeckRejectionReason.SESSION_DETACHED, submission.rejectionReason,
+				"E407.Attachment.DetachedWindowCannotBeActivatedByInstalledCommand")
+			assertEquals(0, f.surface.originalOwnershipTransfers)
+			assertNull(f.candidate())
+			assertEquals(0, f.barrier.atomicCommitCount)
+			assertFalse(f.curl.originalLegacyDeckAdmissionRestored)
+			assertFalse(f.foreground.originalLegacyAdmissionRestored)
+		}
+
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun originalSurfacePublicAttachAndDetachControlTheForwardedAdmissionGate() =
+		withMaterialFixture(legacySelection = false, installedForeground = true) { f ->
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			f.start(expectPrepared = false)
+			val libraryDeck = f.surface.submitted.single()
+			// Characterize the narrow platform boundary independently of the missing installed
+			// activation: only this control may call the ORIGINAL public surface lifecycle API.
+			f.curl.surfaceView.attach()
+			val active = f.curl.surfaceView.submitDeckWithResult(libraryDeck) {
+				error("The control has no GL capabilities and cannot transfer bitmap ownership")
+			}
+			assertEquals(DeckRejectionReason.CAPABILITIES_UNAVAILABLE, active.rejectionReason,
+				"E407.Attachment.OriginalPublicAttachReachesCapabilityGate")
+			f.curl.surfaceView.detach()
+			val detached = f.curl.surfaceView.submitDeckWithResult(libraryDeck) {
+				error("The detached control cannot transfer bitmap ownership")
+			}
+			assertEquals(DeckRejectionReason.SESSION_DETACHED, detached.rejectionReason,
+				"E407.Attachment.OriginalPublicDetachPreservesSessionGuard")
+			assertEquals(0, f.surface.originalOwnershipTransfers)
+			assertEquals(0, f.barrier.atomicCommitCount)
+			assertFalse(f.curl.originalLegacyDeckAdmissionRestored)
+			assertFalse(f.foreground.originalLegacyAdmissionRestored)
+		}
+
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun retiredInstalledDeckCannotReactivateOriginalSurfaceAfterPublicationClose() =
+		withMaterialFixture(legacySelection = false, installedForeground = true) { f ->
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			f.start(expectPrepared = false)
+			val deck = assertNotNull(f.deck)
+			val libraryDeck = f.surface.submitted.single()
+			assertFalse(f.work.isCurrent(), "E407.Attachment.RejectedOperationRetiredOriginalWork")
+			// Reset only the REAL physical activation through its public lifecycle method.
+			// A stale/closed reserve must not activate it, even while the window remains attached.
+			f.curl.surfaceView.detach()
+			assertTrue(f.curl.surfaceView.isAttachedToWindow)
+			assertIs<ReaderPortCommandResult.Rejected>(f.curl.reserveInstalledDeck(f.work, deck) {
+				error("Retired installed work cannot emit a new deck fact")
+			}, "E407.Attachment.StaleReservationRejected")
+			f.coordinator.enqueue(ReaderTransitionFact.PublicationClosed(null))
+			assertIs<ReaderPortCommandResult.Rejected>(f.curl.reserveInstalledDeck(f.work, deck) {
+				error("Closed installed work cannot emit a new deck fact")
+			}, "E407.Attachment.ClosedReservationRejected")
+			assertEquals(1, f.surface.originalSubmissionResults.size, "E407.Attachment.NoReplaySubmission")
+			// Observe the original private attached gate via its PUBLIC result, not reflection
+			// into ownership/activation state and not a mock attach-call counter.
+			val probe = f.curl.surfaceView.submitDeckWithResult(libraryDeck) {
+				error("A detached original surface cannot acquire the probe's bitmap lease")
+			}
+			assertEquals(DeckRejectionReason.SESSION_DETACHED, probe.rejectionReason,
+				"E407.Attachment.StaleAndClosedCommandsDidNotReactivate")
+			assertEquals(0, f.surface.originalOwnershipTransfers)
+			assertEquals(0, f.barrier.atomicCommitCount)
+			assertFalse(f.curl.originalLegacyDeckAdmissionRestored)
+			assertFalse(f.foreground.originalLegacyAdmissionRestored)
+		}
+
 	@Test
 	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
 	fun installedDeckRejectionPreservesEveryActualRendererReasonWithoutPublication() {
@@ -1724,6 +1831,24 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			assertEquals(ReaderPortCommandResult.Accepted, input.finalizeActivatedHandoff(installed.domain))
 		}
 
+		/** Attachment-only fixture operation: model the normal freeze-before-window-attach order.
+		 * Never call legacy onHostAttached or set the surface's private attached/ownership state. */
+		fun attachOriginalSurfaceToWindowAfterFreeze() {
+			assertFalse(curl.originalLegacyDeckAdmissionRestored)
+			assertTrue(foreground.isFrozenForTransitionActivation())
+			assertNull(curl.surfaceView.parent)
+			host.addView(curl.surfaceView, FrameLayout.LayoutParams(120, 80))
+			curl.surfaceView.layout(0, 0, 120, 80)
+			assertTrue(host.isAttachedToWindow, "E407.Attachment.RealHostWindowAttached")
+			assertTrue(webView.isAttachedToWindow, "E407.Attachment.RealWebViewWindowAttached")
+			assertTrue(curl.surfaceView.isAttachedToWindow, "E407.Attachment.RealSurfaceWindowAttached")
+		}
+
+		fun detachOriginalSurfaceFromWindow() {
+			host.removeView(curl.surfaceView)
+			assertFalse(curl.surfaceView.isAttachedToWindow, "E407.Attachment.RealSurfaceWindowDetached")
+		}
+
 		/** Proposed PUBLIC original atomic sink consumer. Lookup is deliberately exact:
 		 * no legacy selection fallback, synthetic completion, reflection into success state,
 		 * or alternate method may make the absent behavioral prerequisite pass. */
@@ -2108,6 +2233,12 @@ internal class ReaderInstalledUnitPageSurfaceShadow : Task8ImmediateGlSurfaceVie
 	@RealObject private lateinit var surface: PageSurfaceView
 	val submitted = mutableListOf<PageDeck<Bitmap>>()
 	var rejection: DeckRejectionReason? = null
+	// Opt-in only: keep the actual PageSurface lifecycle/capability gates. No GL capabilities
+	// or renderer ownership are supplied; earlier UNIT cases retain their existing profile.
+	var forwardOriginalSubmissionAdmission = false
+	val originalSubmissionResults = mutableListOf<PageSurfaceDeckSubmissionResult>()
+	var originalOwnershipTransfers = 0
+		private set
 	val frames = linkedMapOf<Long, Runnable>()
 	val overlays = mutableListOf<List<PageOverlayImage<Bitmap>>>()
 	val cancellations = mutableListOf<Long>()
@@ -2153,6 +2284,7 @@ internal class ReaderInstalledUnitPageSurfaceShadow : Task8ImmediateGlSurfaceVie
 		@Direct fun registerMainTerminalExecutor(executor: PageSurfaceView.MainTerminalExecutor)
 		@Direct fun setPageSurfaceListener(listener: PageSurfaceListener?)
 		@Direct fun setOwnershipCallbackCapacityListener(listener: Runnable)
+		@Direct fun submitDeckWithResult(deck: PageDeck<Bitmap>, transferred: Runnable): PageSurfaceDeckSubmissionResult
 		@Direct fun cancelGesture(gestureId: Long)
 	}
 
@@ -2165,6 +2297,12 @@ internal class ReaderInstalledUnitPageSurfaceShadow : Task8ImmediateGlSurfaceVie
 	@Implementation
 	fun submitDeckWithResult(deck: PageDeck<Bitmap>, transferred: Runnable): PageSurfaceDeckSubmissionResult {
 		submitted += deck
+		if (forwardOriginalSubmissionAdmission) {
+			check(rejection == null) { "Original surface admission cannot use an injected UNIT rejection" }
+			return reflector(OriginalSurfaceConstruction::class.java, surface)
+				.submitDeckWithResult(deck, Runnable { originalOwnershipTransfers++; transferred.run() })
+				.also(originalSubmissionResults::add)
+		}
 		rejection?.let { reason ->
 			listener.onDeckRejected(deck.generationId, reason)
 			return PageSurfaceDeckSubmissionResult.rejected(reason)

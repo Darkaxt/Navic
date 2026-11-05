@@ -495,12 +495,14 @@ actual fun ReaderEngineWebViewHost(
 		phase: ReaderWebViewDiagnosticPhase,
 		state: ReaderWebViewDiagnosticState,
 		reason: ReaderWebViewDiagnosticReason = ReaderWebViewDiagnosticReason.None,
-		startedAtMillis: Long = runtimeLoadStartedAtMillis.get()
+		startedAtMillis: Long = runtimeLoadStartedAtMillis.get(),
+		code: Int? = null,
+		mainFrame: Boolean? = null
 	) {
 		runCatching {
 			Logger.i(ReaderEngineWebViewHostTag, ReaderWebViewPhaseDiagnostic.format(
 				ReaderWebViewDiagnosticSource.Engine, phase, state, reason,
-				SystemClock.elapsedRealtime() - startedAtMillis))
+				SystemClock.elapsedRealtime() - startedAtMillis, code = code, mainFrame = mainFrame))
 		}
 	}
 	// Only a local linearization fence: dispatch custody remains in the existing ledger.
@@ -1226,6 +1228,9 @@ actual fun ReaderEngineWebViewHost(
 								"Reader engine WebView error main=${request.isForMainFrame} " +
 									"code=${error.errorCode}"
 							)
+							phaseDiagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+								ReaderWebViewDiagnosticReason.WebViewError, code = error.errorCode,
+								mainFrame = request.isForMainFrame)
 						}
 
 						override fun onReceivedHttpError(
@@ -1238,6 +1243,9 @@ actual fun ReaderEngineWebViewHost(
 								"Reader engine WebView HTTP error main=${request.isForMainFrame} " +
 									"status=${errorResponse.statusCode}"
 							)
+							phaseDiagnostic(ReaderWebViewDiagnosticPhase.RuntimeLoad, ReaderWebViewDiagnosticState.Failed,
+								ReaderWebViewDiagnosticReason.HttpError, code = errorResponse.statusCode,
+								mainFrame = request.isForMainFrame)
 						}
 
 						override fun onRenderProcessGone(
