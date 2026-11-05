@@ -73,10 +73,12 @@ internal data class ReaderPageRasterKey(
 	val identity: String
 		get() = toJson().toString()
 
-	val digest: String
-		get() = MessageDigest.getInstance("SHA-256")
+	// All identity inputs are immutable; sort/cache lookups share one safely published result.
+	val digest: String by lazy {
+		MessageDigest.getInstance("SHA-256")
 			.digest(identity.encodeToByteArray())
 			.joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+	}
 }
 
 internal data class ReaderPageRasterRect(
