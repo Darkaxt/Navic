@@ -1542,6 +1542,18 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 			override fun onDeckRejected(generationId: Long, reason: DeckRejectionReason) {
 				physicalDeckLeases[generationId]?.takeIf { it.installedWork != null }?.let { lease ->
+					// Callback-local observation only; zero is not preparation/submission latency.
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.DeckSubmission,
+						ReaderWebViewDiagnosticState.Rejected, when (reason) {
+							DeckRejectionReason.CAPABILITIES_UNAVAILABLE -> ReaderStageDiagnosticReason.DeckCapabilitiesUnavailable
+							DeckRejectionReason.SESSION_DETACHED -> ReaderStageDiagnosticReason.DeckSessionDetached
+							DeckRejectionReason.STALE_GENERATION -> ReaderStageDiagnosticReason.DeckStaleGeneration
+							DeckRejectionReason.CONFLICTING_GENERATION -> ReaderStageDiagnosticReason.DeckConflictingGeneration
+							DeckRejectionReason.RESOURCE_CAPACITY -> ReaderStageDiagnosticReason.DeckResourceCapacity
+							DeckRejectionReason.DISPOSED -> ReaderStageDiagnosticReason.DeckDisposed
+							DeckRejectionReason.INVALID_CONTENT -> ReaderStageDiagnosticReason.DeckInvalidContent
+							DeckRejectionReason.REPLACED_WHILE_SETTLING -> ReaderStageDiagnosticReason.DeckReplacedWhileSettling
+						}, 0L)
 					lease.installedRendererReturned.complete(Unit)
 					generationOwners[generationId]?.obsolete = true
 					releaseGeneration(generationId)
@@ -2697,6 +2709,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			withContext(NonCancellable + Dispatchers.Main.immediate) {
 				val rasterDeck = result.getOrNull()
 				if (rasterDeck == null || !work.isCurrent() || lease.deckReleaseRequested) {
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.DeckPreparation,
+						if (result.isFailure) ReaderWebViewDiagnosticState.Failed else ReaderWebViewDiagnosticState.Rejected,
+						if (result.isFailure) ReaderStageDiagnosticReason.CommandThrew else ReaderStageDiagnosticReason.NotReady, 0L)
 					rasterDeck?.close()
 					if (work.isCurrent() && !lease.deckReleaseRequested) callbacks.onRejected(deck)
 					return@withContext
@@ -2711,6 +2726,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					buildLibraryDeck(pages, plan.centerPageIndex, generationId)
 				}.getOrNull()
 				if (libraryDeck == null) {
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.DeckBuild,
+						ReaderWebViewDiagnosticState.Failed, ReaderStageDiagnosticReason.CommandThrew, 0L)
 					pages.obsolete = true
 					releaseGeneration(generationId)
 					callbacks.onRejected(deck)
@@ -2725,6 +2742,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 						callbacks.onOwned(deck)
 						if (lease.installedPrepared && work.isCurrent()) callbacks.onPrepared(deck)
 					}
+				}.onFailure {
+					ReaderStageDiagnostic.emit(ReaderStageDiagnosticPhase.DeckSubmission,
+						ReaderWebViewDiagnosticState.Failed, ReaderStageDiagnosticReason.CommandThrew, 0L)
 				}.getOrNull()
 				if (submission?.status != PageSurfaceDeckSubmissionResult.Status.ACCEPTED &&
 					!lease.installedRendererOwned) {

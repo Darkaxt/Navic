@@ -670,6 +670,9 @@ class GateSession:
         self.stop_clients = []
         self.exact_owner_force_stop_verified = False
         self.clients = []
+        self._command_condition = threading.Condition()
+        self._command_active = 0
+        self._command_closing = False
         self.uncertain = False
         self._finished = None
         self._finish_lock = threading.Lock()
@@ -903,6 +906,8 @@ class GateSession:
                 command_failures=None, sdk_output_complete=False, wrapper_settled=False,
                 verification_clients_settled=False, cleanup_failures=[])
             self._finished = result  # No replay even if a bounded caller expires.
+            with self._command_condition:
+                self._command_closing = True
             try:
                 # A separate read-only verification helper cannot poison the keeper
                 # channel or prevent independent safe owned native stop/release.
@@ -926,12 +931,21 @@ class GateSession:
                     and all(client.settled for client in self.verification_clients))
                 if not result['verification_clients_settled']:
                     result['cleanup_failures'].append('VERIFICATION_CLIENT_UNSETTLED')
+                # Share the existing SDK settlement allowance with in-flight ADB
+                # publication; no new cap or replay of a start RPC is introduced.
+                publication_deadline = time.monotonic() + caps.settle
                 self._sdk_stop.set()
                 if self._sdk_worker is not None:
-                    self._sdk_worker.join(caps.settle)
+                    self._sdk_worker.join(max(0, publication_deadline - time.monotonic()))
                     if self._sdk_worker.is_alive():
                         self.uncertain = True
                         raise blocked()
+                with self._command_condition:
+                    while self._command_active:
+                        remaining = publication_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise blocked()
+                        self._command_condition.wait(remaining)
                 for client in self.clients:
                     if not client.done.is_set() and not client.cancel(caps.settle):
                         raise blocked()
@@ -1294,21 +1308,32 @@ def command_type(supervision, session):
                     or len(argv) < 4 or timeout <= 0 or not 0 < max_bytes <= 4 * 1024 * 1024):
                 raise blocked()
             role = _transport_role(diagnostic_role, 'emulator.adb.start')
-            result = session.request('emulator.adb.start', dict(arguments=argv[3:], max_bytes=max_bytes,
-                timeout_seconds=timeout, timeout_reason='Original Task407 command budget'),
-                timeout=min(15, timeout), diagnostic_role=role)
+            # Admit before native creation, and retain the in-flight obligation
+            # until the exact owner and its observation worker are published.
+            with session._command_condition:
+                if session._command_closing:
+                    raise blocked()
+                session._command_active += 1
             try:
-                if (result.get('not_dispatched') or type(result.get('command_id')) is not str
-                        or not result['command_id'] or result.get('state') not in ('running', 'draining', 'complete')):
-                    raise blocked()  # Explicit non-dispatch never becomes an automatic replay.
-            except BaseException:
-                _diagnostic_call(session, 'record_local_failure', role, 'PRODUCER_REPLY_VALIDATION')
-                raise
-            value = cls(session, result['command_id'], max_bytes=max_bytes,
-                        on_line=on_line, observe_output=observe_output, diagnostic_role=role)
-            value._worker = threading.Thread(target=value._observe, daemon=True)
-            value._worker.start()
-            return value
+                result = session.request('emulator.adb.start', dict(arguments=argv[3:], max_bytes=max_bytes,
+                    timeout_seconds=timeout, timeout_reason='Original Task407 command budget'),
+                    timeout=min(15, timeout), diagnostic_role=role)
+                try:
+                    if (result.get('not_dispatched') or type(result.get('command_id')) is not str
+                            or not result['command_id'] or result.get('state') not in ('running', 'draining', 'complete')):
+                        raise blocked()  # Explicit non-dispatch never becomes an automatic replay.
+                except BaseException:
+                    _diagnostic_call(session, 'record_local_failure', role, 'PRODUCER_REPLY_VALIDATION')
+                    raise
+                value = cls(session, result['command_id'], max_bytes=max_bytes,
+                            on_line=on_line, observe_output=observe_output, diagnostic_role=role)
+                value._worker = threading.Thread(target=value._observe, daemon=True)
+                value._worker.start()
+                return value
+            finally:
+                with session._command_condition:
+                    session._command_active -= 1
+                    session._command_condition.notify_all()
 
         def ingest(self, value):
             phase = 'PRODUCER_REPLY_VALIDATION'

@@ -817,6 +817,53 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 		assertEquals(0, readiness.session.metrics().activeCaptures)
 	}
 
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun installedDeckRejectionPreservesEveryActualRendererReasonWithoutPublication() {
+		val reasons = mapOf(
+			DeckRejectionReason.CAPABILITIES_UNAVAILABLE to "DeckCapabilitiesUnavailable",
+			DeckRejectionReason.SESSION_DETACHED to "DeckSessionDetached",
+			DeckRejectionReason.STALE_GENERATION to "DeckStaleGeneration",
+			DeckRejectionReason.CONFLICTING_GENERATION to "DeckConflictingGeneration",
+			DeckRejectionReason.RESOURCE_CAPACITY to "DeckResourceCapacity",
+			DeckRejectionReason.DISPOSED to "DeckDisposed",
+			DeckRejectionReason.INVALID_CONTENT to "DeckInvalidContent",
+			DeckRejectionReason.REPLACED_WHILE_SETTLING to "DeckReplacedWhileSettling"
+		)
+		assertEquals(DeckRejectionReason.values().toSet(), reasons.keys)
+		reasons.forEach { (rendererReason, diagnosticReason) ->
+			withMaterialFixture { f ->
+				f.surface.rejection = rendererReason
+				org.robolectric.shadows.ShadowLog.clear()
+				f.start(expectPrepared = false)
+				val messages = org.robolectric.shadows.ShadowLog.getLogsForTag(ReaderStageDiagnosticTag).map { it.msg }
+				assertTrue(messages.any { it == "reader-stage phase=DeckSubmission state=Rejected reason=$diagnosticReason elapsedMs=0" },
+					"Original renderer rejection must survive the installed listener: $rendererReason")
+				assertEquals(1, f.commands.filterIsInstance<ReaderTransitionCommand.ReserveDeck>().size)
+				assertNull(f.candidate(), "Rejected renderer has no prepared candidate")
+				assertNull(f.coordinator.snapshot().activeOperation, "Original rejection still terminates work")
+				assertEquals(ReaderTransitionOutcomeKind.Failed, f.coordinator.snapshot().lastOutcome)
+				assertEquals(0, f.barrier.atomicCommitCount, "Diagnostics cannot manufacture publication")
+			}
+		}
+	}
+
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class, ReaderInstalledRasterCopyFailureShadow::class])
+	fun installedDeckPreparationExceptionIsNotReportedAsLifecycleNotReady() = withMaterialFixture { f ->
+		f.failRasterCopy = true
+		org.robolectric.shadows.ShadowLog.clear()
+		f.start(expectPrepared = false, expectSubmission = false)
+		val messages = org.robolectric.shadows.ShadowLog.getLogsForTag(ReaderStageDiagnosticTag).map { it.msg }
+		assertTrue(messages.contains("reader-stage phase=DeckPreparation state=Failed reason=CommandThrew elapsedMs=0"),
+			"Original preparation exception must remain distinct from lifecycle NotReady")
+		assertFalse(messages.any { it.contains("PRIVATE_PREPARATION_FAILURE") })
+		assertNull(f.candidate())
+		assertNull(f.coordinator.snapshot().activeOperation)
+		assertEquals(ReaderTransitionOutcomeKind.Failed, f.coordinator.snapshot().lastOutcome)
+		assertEquals(0, f.barrier.atomicCommitCount)
+	}
+
 	/** Prospective original-record regressions. MAIN qualifies RED before lifetime/overlay behavior.
 	 * The platform shadow delivers the ORIGINAL ownership/listener/frame consumers. Preparation
 	 * is controlled at the original preparation owner's public capture/cache boundary: no passive
@@ -1489,6 +1536,7 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 		val deck: ReaderDeckLease? get() = exactDeck
 		private var exactDeck: ReaderDeckLease? = null
 		var completePreparation: (((() -> Unit)) -> Unit)? = null
+		var failRasterCopy = false
 		private var rasterReturns = 0
 		private var physical: ReaderOwnerAndInputPublicationSnapshot? = null
 		val input = ReaderPageInputSettlementHostController(
@@ -1543,6 +1591,7 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 									ReaderPageTurnCaptureResult(bitmap, Rect(location[0], location[1], location[0] + 120,
 										location[1] + 80), geometry, 0L),
 									lease.rasterGeneration, persist = false, work = work), "B407.Prepare.OriginalCache")
+								if (failRasterCopy) Shadow.extract<ReaderInstalledRasterCopyFailureShadow>(bitmap).failCopy = true
 							}
 							completed { work.recordPreparedTargets(plan.targets.size); callbacks.onProven(lease) }
 							true
@@ -1712,7 +1761,7 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 
 		fun candidate() = exactDeck?.let { curl.installedNativeCandidate(it, null, 120, 80) }
 
-		fun start() {
+		fun start(expectPrepared: Boolean = true, expectSubmission: Boolean = true) {
 			if (!legacySelection) requireOriginalAtomicPublicationConsumer()
 			val reservation = assertNotNull(installed.snapshot.initialDecision?.neutralBootstrapReservation,
 				"B407.Semantic.OriginalReservation")
@@ -1744,7 +1793,9 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			assertEquals(1, commands.filterIsInstance<ReaderTransitionCommand.ReserveDeck>().size,
 				"B407.Deck.CommandCount")
 			val lease = assertNotNull(exactDeck, "B407.Deck.Reserved")
-			assertEquals(1, surface.submitted.size, "B407.Deck.PlatformSubmitted")
+			assertEquals(if (expectSubmission) 1 else 0, surface.submitted.size, "B407.Deck.PlatformSubmitted")
+			if (!expectSubmission) return // Preparation-failure tests never reach the platform.
+			if (!expectPrepared) return // Rejection tests stop at the real platform submission boundary.
 			assertNotNull(candidate(), "B407.Deck.ActualOwnedPrepared")
 			assertTrue(curl.surfaceView.rendererGeneration > 0L, "B407.Frame.UnitRendererContext")
 			val specification = b407ConstructionStage("B407.Frame.TargetConstruction") {
@@ -2041,10 +2092,22 @@ private inline fun <T> b407ConstructionStage(label: String, operation: () -> T):
  * The actual object's ONE Robolectric shadow must also be a compatible receiver for the
  * configured GLSurfaceView shadow. ShadowWrangler resolves inherited methods by their
  * defining real class; sibling shadows cannot receive that superclass's method handles. */
+@Implements(Bitmap::class)
+internal class ReaderInstalledRasterCopyFailureShadow : org.robolectric.shadows.ShadowLegacyBitmap() {
+	var failCopy = false
+
+	@Implementation
+	public override fun copy(config: Bitmap.Config, isMutable: Boolean): Bitmap {
+		if (failCopy) throw IllegalStateException("PRIVATE_PREPARATION_FAILURE")
+		return super.copy(config, isMutable)
+	}
+}
+
 @Implements(PageSurfaceView::class)
 internal class ReaderInstalledUnitPageSurfaceShadow : Task8ImmediateGlSurfaceViewShadow() {
 	@RealObject private lateinit var surface: PageSurfaceView
 	val submitted = mutableListOf<PageDeck<Bitmap>>()
+	var rejection: DeckRejectionReason? = null
 	val frames = linkedMapOf<Long, Runnable>()
 	val overlays = mutableListOf<List<PageOverlayImage<Bitmap>>>()
 	val cancellations = mutableListOf<Long>()
@@ -2102,6 +2165,10 @@ internal class ReaderInstalledUnitPageSurfaceShadow : Task8ImmediateGlSurfaceVie
 	@Implementation
 	fun submitDeckWithResult(deck: PageDeck<Bitmap>, transferred: Runnable): PageSurfaceDeckSubmissionResult {
 		submitted += deck
+		rejection?.let { reason ->
+			listener.onDeckRejected(deck.generationId, reason)
+			return PageSurfaceDeckSubmissionResult.rejected(reason)
+		}
 		// Exercise callback-before-ownership buffering in the ORIGINAL physical lease.
 		listener.onDeckPrepared(deck.generationId)
 		transferred.run()

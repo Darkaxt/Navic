@@ -837,6 +837,35 @@ class ReaderStageTransportTests(unittest.TestCase):
     def line(self, message, method=METHODS[0]):
         return ('INSTRUMENTATION_STATUS: E407.ReaderPhase.V1=' + method + '|' + message + '\n').encode('ascii')
 
+    def test_deck_handoff_reasons_survive_failed_original_methods_without_becoming_oracles(self):
+        reasons = ('DeckCapabilitiesUnavailable', 'DeckSessionDetached', 'DeckStaleGeneration',
+                   'DeckConflictingGeneration', 'DeckResourceCapacity', 'DeckDisposed',
+                   'DeckInvalidContent', 'DeckReplacedWhileSettling')
+        messages = [
+            'reader-stage phase=DeckPreparation state=Rejected reason=NotReady elapsedMs=0',
+            'reader-stage phase=DeckPreparation state=Failed reason=CommandThrew elapsedMs=0',
+            'reader-stage phase=DeckBuild state=Failed reason=CommandThrew elapsedMs=0',
+            'reader-stage phase=DeckSubmission state=Failed reason=CommandThrew elapsedMs=0',
+        ] + ['reader-stage phase=DeckSubmission state=Rejected reason=' + reason + ' elapsedMs=0'
+             for reason in reasons]
+        for message in messages:
+            self.assertTrue(runner._valid_reader_phase(message), message)
+            self.assertFalse(runner._valid_reader_phase(message + ' bookId=PRIVATE_DECK_CANARY'))
+            self.assertFalse(runner._valid_reader_phase(message.replace('reason=', 'reason=PRIVATE_DECK_CANARY')))
+        text = transcript().replace('STATUS_CODE: 0', 'STATUS_CODE: -2')
+        before = runner.project_instrumentation(text, {PHASE_KEY})
+        for method in METHODS:
+            marker = 'INSTRUMENTATION_STATUS: test=' + method + '\nINSTRUMENTATION_STATUS_CODE: 1'
+            text = text.replace(marker, marker + '\n' + phase_status(messages, method))
+        result = runner.project_instrumentation(text, {PHASE_KEY})
+        self.assertEqual({name: value['records'] for name, value in
+                          result['reader_phases_by_original_method'].items()},
+                         {name: messages for name in METHODS})
+        self.assertEqual(before['events'], result['events'])
+        self.assertEqual(before['terminal_codes'], result['terminal_codes'])
+        self.assertFalse(runner.original_three_passed(result, exit_code=0, source_drift=False))
+        self.assertNotIn('PRIVATE_DECK_CANARY', json.dumps(result))
+
     def test_r142_kotlin_stage_formatter_and_fixture_retention_are_connected(self):
         root = PATH.parent.parent
         source = (root / 'composeApp/src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderWebViewPhaseDiagnostic.android.kt').read_text(encoding='utf-8')

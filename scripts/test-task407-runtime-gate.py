@@ -340,6 +340,84 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(wire.request.call_count, 1)
         self.assertTrue(session.uncertain)
 
+    def test_finish_never_stops_with_acknowledged_start_still_awaiting_owner_publication(self):
+        # A native client exists before adb.start returns to GateCommand.spawn.
+        # Omitting the publication fence lets finish stop with no registered owner.
+        session, wire = self.session()
+        cls = g.command_type(s, session)
+        entered, release = threading.Event(), threading.Event()
+        original = wire.request
+        commands, errors = [], []
+        def request(method, params=None, timeout=15):
+            value = original(method, params, timeout)
+            if method == 'emulator.adb.start':
+                entered.set()
+                if not release.wait(2):
+                    raise AssertionError('START_REPLY_BARRIER_NOT_RELEASED')
+            return value
+        wire.request = request
+        def spawn():
+            try:
+                commands.append(cls.spawn(['gate-adb', '-s', r.SERIAL, 'get-state'],
+                    timeout=1, max_bytes=65536))
+            except BaseException:
+                errors.append('SPAWN_FAILED')
+        caller = threading.Thread(target=spawn)
+        caller.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            self.assertEqual(len(wire.clients), 1)
+            self.assertFalse(session.clients)
+            closed = session.finish(s.Caps(.8, .5, .2, .2, .05, .5, 1, 1))
+            self.assertFalse(closed['lease_released'])
+            self.assertFalse(closed['native_tree_exit_verified'])
+            self.assertNotIn('emulator.request-stop', [method for method, _, _ in wire.calls],
+                'STOP_MUST_WAIT_FOR_ACTUAL_START_OWNER_PUBLICATION')
+            self.assertIs(session.finish(s.Caps(.8, .5, .2, .2, .05, .5, 1, 1)), closed)
+        finally:
+            release.set()
+            caller.join(2)
+            self.assertFalse(caller.is_alive())
+            for command in commands:
+                if not session.uncertain:
+                    self.assertTrue(command.settle(.5))
+                command._worker.join(.5)
+                self.assertFalse(command._worker.is_alive())
+        self.assertFalse(errors)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(set(wire.clients), wire.closed)
+        self.assertIn(commands[0], session.clients)
+        starts = sum(method == 'emulator.adb.start' for method, _, _ in wire.calls)
+        with self.assertRaises(ValueError):
+            cls.spawn(['gate-adb', '-s', r.SERIAL, 'get-state'], timeout=1, max_bytes=65536)
+        self.assertEqual(sum(method == 'emulator.adb.start' for method, _, _ in wire.calls), starts)
+
+    def test_source_failure_during_start_reply_still_closes_the_exact_late_owner(self):
+        session, wire = self.session()
+        original = wire.request
+        def request(method, params=None, timeout=15):
+            value = original(method, params, timeout)
+            if method == 'emulator.adb.start' and wire.instrument.is_set():
+                next(command for command in session.clients if command.is_event_source)._lose_feed()
+                # Hold the acknowledged reply until the real guardian reaches
+                # SDK settlement, before the original start owner can be built.
+                if not session._sdk_stop.wait(1):
+                    raise AssertionError('GUARDIAN_DID_NOT_BEGIN_SETTLEMENT')
+            return value
+        wire.request = request
+        pins = [dict(path=__file__, sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())]
+        result = r.run_gated_session(s, record(), set(), pins=pins,
+            caps=s.Caps(.8, .5, .2, .2, .1, .5, 1, 1),
+            watchdog_id='host-fixture', gate=session, cleanup=lambda: True)
+        self.assertEqual(result['supervisor']['cause'], 'OBSERVER_FAILED')
+        self.assertFalse(result['runtime_result_analysis_performed'])
+        self.assertTrue(result['automatic_emulator_teardown_verified'])
+        self.assertTrue(result['supervisor']['lease_released'])
+        self.assertFalse(session.uncertain)
+        self.assertEqual(set(wire.clients), wire.closed)
+        self.assertTrue(all(not command._worker.is_alive() for command in session.clients))
+        self.assertEqual(sum(method == 'workflow.end' for method, _, _ in wire.calls), 1)
+
     def test_sdk_nonzero_is_separate_from_native_exit_release_and_snapshot_absence(self):
         session, wire = self.session()
         wire.native_code = 3221226505

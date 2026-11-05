@@ -54,6 +54,9 @@ internal enum class ReaderStageDiagnosticPhase {
 	TargetProgress,
 	InstalledProgress,
 	RasterReady,
+	DeckPreparation,
+	DeckBuild,
+	DeckSubmission,
 	CoordinatorFact,
 	DeadlineProgress,
 	DisplayPublication,
@@ -71,7 +74,15 @@ internal enum class ReaderStageDiagnosticReason {
 	CapacityReached,
 	PortRejected,
 	CommandThrew,
-	NotReady
+	NotReady,
+	DeckCapabilitiesUnavailable,
+	DeckSessionDetached,
+	DeckStaleGeneration,
+	DeckConflictingGeneration,
+	DeckResourceCapacity,
+	DeckDisposed,
+	DeckInvalidContent,
+	DeckReplacedWhileSettling
 }
 
 /** Fixed stage categories and scalar fields only: never identities, payloads or exceptions. */

@@ -525,6 +525,9 @@ _READER_STAGE_STATES = frozenset((
 _READER_STAGE_REASONS = frozenset((
     'None', 'Stale', 'Closed', 'Cancelled', 'DiskCapacity', 'EncodeIdentityReleasing',
     'CapacityReached', 'PortRejected', 'CommandThrew', 'NotReady',
+    'DeckCapabilitiesUnavailable', 'DeckSessionDetached', 'DeckStaleGeneration',
+    'DeckConflictingGeneration', 'DeckResourceCapacity', 'DeckDisposed',
+    'DeckInvalidContent', 'DeckReplacedWhileSettling',
 ))
 _READER_STAGE_FIELDS = {
     'MaterialAllocation': (),
@@ -534,6 +537,9 @@ _READER_STAGE_FIELDS = {
     'TargetProgress': ('completedCount', 'requiredCount'),
     'InstalledProgress': (),
     'RasterReady': ('completedCount', 'requiredCount'),
+    'DeckPreparation': (),
+    'DeckBuild': (),
+    'DeckSubmission': (),
     'CoordinatorFact': ('fact', 'classification'),
     'DeadlineProgress': (),
     'DisplayPublication': (),
