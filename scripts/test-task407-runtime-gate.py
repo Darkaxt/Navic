@@ -557,6 +557,151 @@ class MigrationTests(unittest.TestCase):
                 validate(seal, bad, ROOT, r.IMMUTABLE_SEAL_SHA256)
 
 
+class FreshCandidateAdmissionTests(unittest.TestCase):
+    """Admission only: real validators/CLI; filesystem, git and runtime are injected."""
+    def candidate(self):
+        source = ['scripts/task407-runtime-runner.py', 'scripts/task407-runtime-supervisor.py',
+                  'scripts/test-task407-runtime-runner.py', 'scripts/test-task407-runtime-supervisor.py',
+                  'scripts/task407-runtime-diagnostics.py', 'scripts/test-task407-runtime-diagnostics.py',
+                  'composeApp/src/androidMain/Qualified.kt']
+        reviews = dict(kind='task407-corrected-deck-diagnostics-ordered-review-v1',
+            sequence=[dict(stage=stage, verdict='PASS') for stage in ('SPEC', 'MAIN', 'QUALITY', 'MAIN')],
+            runtime_accepted=False, parent_stage_complete=False)
+        review_hash = hashlib.sha256(json.dumps(reviews).encode()).hexdigest()
+        seal = dict(kind='full-lower-qualified-pushed-source-emulator-only-apk-seal',
+            original_timeout_and_acceptance_oracles_changed=False, runtime_accepted=False,
+            base_source_commit='a' * 40, reviews_sha256=review_hash,
+            apk=dict(package=r.PACKAGE, production_signed=False, path='fixture-only.apk', sha256='e' * 64),
+            source_pins=[dict(path=path, sha256='a' * 64) for path in source])
+        receipt = dict(kind='task407-gate-fresh-candidate-host-qualification-v1',
+            seal_sha256='b' * 64, candidate_reviews_sha256=review_hash, apk_sha256='e' * 64,
+            source_commit='c' * 40, ordered=True, spec='PASS', main_after_spec='PASS',
+            quality='PASS', main_after_quality='PASS', host_tests='PASS', runtime_accepted=False,
+            pins=[dict(path=path, sha256='c' * 64) for path in sorted(r.HOST_MIGRATION_PATHS)])
+        value = record()
+        value.update(seal_path='seal', seal_sha256='b' * 64, host_qualification_path='receipt',
+            host_qualification_sha256='d' * 64, candidate_reviews_path='reviews',
+            candidate_reviews_sha256=review_hash)
+        return value, seal, receipt, reviews
+
+    def invoke(self, value, seal, receipt, reviews, *, bad_review_hash=False):
+        runtime = SimpleNamespace(RELEASE='b72bf7f756f873c3', RELEASE_ROOT='D:/fixture',
+            HELPER=value['gate']['helper'], SCRATCH=value['gate']['scratch_root'],
+            RUNTIME_PATHS=tuple(row['path'] for row in value['gate']['pins']))
+        result = dict(automatic_emulator_teardown_verified=True, all_three_original_runtime_cases_passed=False,
+            host_snapshot_residue_cleanup_required=False,
+            supervisor=dict(native_exit_code=0, workflow_exit_code=0, command_failures=False))
+        def read(path, digest):
+            if path == 'fixture':
+                return value
+            if path == 'seal' and digest == 'b' * 64:
+                return seal
+            if path == 'receipt' and digest == 'd' * 64:
+                return receipt
+            if (path == 'reviews' and not bad_review_hash
+                    and digest == hashlib.sha256(json.dumps(reviews).encode()).hexdigest()):
+                return reviews
+            raise ValueError('METADATA_PIN_CHANGED')
+        with mock.patch.object(r, 'read_checked_json', side_effect=read), \
+             mock.patch.object(r, '_runtime_gate', return_value=runtime), \
+             mock.patch.object(r, 'pins_match', return_value=True), \
+             mock.patch.object(r.Path, 'read_bytes', side_effect=[
+                 b'{"release":"b72bf7f756f873c3","version":"0.20.6"}',
+                 b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
+             mock.patch.object(r.Path, 'rglob', return_value=[]), \
+             mock.patch.object(r.Path, 'open', mock.mock_open()), \
+             mock.patch.object(r.os, 'environ', dict(WATCHDOG_ID='host-fixture')), \
+             mock.patch.object(r.subprocess, 'run', side_effect=[
+                 SimpleNamespace(returncode=0, stdout=b'c' * 40), SimpleNamespace(returncode=0, stdout=b'')]), \
+             mock.patch.object(r, 'run_gated_session', return_value=result) as dispatch:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = r.main(['--contract', 'fixture', '--contract-sha256', 'f' * 64,
+                               '--output', 'never-created'])
+        return code, json.loads(output.getvalue()), dispatch.call_args_list
+
+    def test_fresh_seal_with_linked_actual_reviews_reaches_dispatch_without_runtime_acceptance(self):
+        # The old immutable-only branch blocks this real new-candidate admission.
+        code, terminal, calls = self.invoke(*self.candidate())
+        self.assertEqual(len(calls), 1, 'FRESH_QUALIFIED_CANDIDATE_MUST_REACH_DISPATCH')
+        self.assertEqual(code, 1, 'Admission must not manufacture original-three PASS')
+        self.assertFalse(terminal['all_three_original_runtime_cases_passed'])
+        indexed = {Path(row['path']).name: row['sha256'] for row in calls[0].kwargs['pins']}
+        self.assertEqual(indexed['Qualified.kt'], 'a' * 64)
+        self.assertEqual(indexed['task407-runtime-runner.py'], 'c' * 64)
+        self.assertEqual(indexed['task407-runtime-diagnostics.py'], 'a' * 64)
+        self.assertEqual(indexed['fixture-only.apk'], 'e' * 64)
+
+    def test_fresh_proof_cannot_substitute_under_historical_seal_identity(self):
+        value, seal, receipt, reviews = self.candidate()
+        receipt['seal_sha256'] = r.IMMUTABLE_SEAL_SHA256
+        with self.assertRaises(ValueError):
+            r.validate_host_qualification(seal, receipt, ROOT, r.IMMUTABLE_SEAL_SHA256,
+                candidate_reviews=reviews, candidate_reviews_sha256=value['candidate_reviews_sha256'])
+
+    def test_existing_supervision_review_schema_still_requires_exact_six_pin_agreement(self):
+        _, seal, _, _ = self.candidate()
+        reviews = dict(kind='ordered-runtime-supervision-reviews-not-android-proof',
+            ordered=True, spec='PASS', quality='PASS', pins=copy.deepcopy(seal['source_pins'][:6]))
+        self.assertIsNone(r.validate_candidate(seal, reviews, ROOT))
+        reviews['pins'][0]['sha256'] = 'f' * 64
+        with self.assertRaises(ValueError):
+            r.validate_candidate(seal, reviews, ROOT)
+
+    def test_fresh_proof_mismatch_missing_or_invented_authority_blocks_before_dispatch(self):
+        for defect in ('missing_path', 'missing_hash', 'bad_hash', 'receipt_hash', 'seal_link',
+                'sequence', 'review_fail', 'runtime_claim', 'stage_claim', 'kind', 'supervision',
+                'android_override', 'apk', 'signer', 'package', 'host_review', 'old_receipt', 'no_permission'):
+            with self.subTest(defect=defect):
+                value, seal, receipt, reviews = self.candidate()
+                if defect == 'missing_path':
+                    value.pop('candidate_reviews_path')
+                elif defect == 'missing_hash':
+                    value.pop('candidate_reviews_sha256')
+                elif defect == 'receipt_hash':
+                    receipt['candidate_reviews_sha256'] = 'f' * 64
+                elif defect == 'seal_link':
+                    seal['reviews_sha256'] = 'f' * 64
+                elif defect == 'sequence':
+                    reviews['sequence'][1]['stage'] = 'QUALITY'
+                elif defect == 'review_fail':
+                    reviews['sequence'][0]['verdict'] = 'FAIL'
+                elif defect == 'runtime_claim':
+                    reviews['runtime_accepted'] = True
+                elif defect == 'stage_claim':
+                    reviews['parent_stage_complete'] = True
+                elif defect == 'kind':
+                    reviews['kind'] = 'invented-pass'
+                elif defect == 'supervision':
+                    seal['source_pins'].pop(4)
+                elif defect == 'android_override':
+                    receipt['pins'].append(dict(path='composeApp/src/androidMain/Qualified.kt', sha256='c' * 64))
+                elif defect == 'apk':
+                    receipt['apk_sha256'] = r.IMMUTABLE_APK_SHA256
+                elif defect == 'signer':
+                    seal['apk']['production_signed'] = True
+                elif defect == 'package':
+                    seal['apk']['package'] = 'other.package'
+                elif defect == 'host_review':
+                    receipt['main_after_quality'] = 'FAIL'
+                elif defect == 'old_receipt':
+                    receipt['kind'] = 'task407-gate-host-qualification-v1'
+                elif defect == 'no_permission':
+                    value['user_session_authorized'] = False
+                if defect in ('sequence', 'review_fail', 'runtime_claim', 'stage_claim', 'kind'):
+                    # Correctly pinned invalid contents must reach the real schema
+                    # validator; a mocked hash-reader rejection proves less.
+                    digest = hashlib.sha256(json.dumps(reviews).encode()).hexdigest()
+                    value['candidate_reviews_sha256'] = digest
+                    seal['reviews_sha256'] = digest
+                    receipt['candidate_reviews_sha256'] = digest
+                code, terminal, calls = self.invoke(value, seal, receipt, reviews,
+                    bad_review_hash=defect == 'bad_hash')
+                self.assertEqual(code, 2)
+                self.assertEqual(terminal['status'], 'BLOCKED')
+                self.assertFalse(calls, 'Invalid candidate must fail before runtime dispatch')
+
+
 class BoundaryTests(unittest.TestCase):
     """Additional protocol/clock closure boundaries; no live gate operations."""
     api = MigrationTests.api

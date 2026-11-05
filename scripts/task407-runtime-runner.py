@@ -971,23 +971,40 @@ def validate_live_session(record, watchdog_id):
         raise ValueError('GATE_BINDING_UNCONFIRMED')
 
 
-def validate_host_qualification(seal, receipt, root, seal_sha256):
-    """Immutable Android qualification + narrowly admitted NEW host qualification.
+def validate_host_qualification(seal, receipt, root, seal_sha256, *,
+                                candidate_reviews=None, candidate_reviews_sha256=None):
+    """Pinned Android qualification + narrowly admitted current host qualification.
 
-    MAIN supplies the actual ordered SPEC→MAIN→QUALITY→MAIN receipt after review
-    and publication. Changed host/doc pins never rewrite historical seal evidence.
-    All other original pins (including diagnostics) remain mandatory unchanged.
+    The historical route keeps its exact seal/APK identity. A fresh candidate
+    requires its own independently contract-pinned, seal-linked actual reviews.
+    Neither route permits Android/diagnostic drift through host overrides or
+    supplies permission/runtime acceptance from qualification metadata.
     """
-    if (seal_sha256 != IMMUTABLE_SEAL_SHA256
-            or seal.get('kind') != 'full-lower-qualified-pushed-source-emulator-only-apk-seal'
+    fresh = receipt.get('kind') == 'task407-gate-fresh-candidate-host-qualification-v1'
+    if fresh:
+        if (seal_sha256 == IMMUTABLE_SEAL_SHA256
+                or not re.fullmatch(r'[0-9a-f]{64}', seal_sha256)
+                or candidate_reviews is None or candidate_reviews_sha256 is None
+                or receipt.get('candidate_reviews_sha256') != candidate_reviews_sha256):
+            raise ValueError('HOST_QUALIFICATION_UNCONFIRMED')
+        validate_candidate(seal, candidate_reviews, root,
+                           reviews_sha256=candidate_reviews_sha256)
+        expected_apk = seal['apk']['sha256']
+    else:
+        if (seal_sha256 != IMMUTABLE_SEAL_SHA256 or candidate_reviews is not None
+                or candidate_reviews_sha256 is not None):
+            raise ValueError('HOST_QUALIFICATION_UNCONFIRMED')
+        expected_apk = IMMUTABLE_APK_SHA256
+    if (seal.get('kind') != 'full-lower-qualified-pushed-source-emulator-only-apk-seal'
             or seal.get('original_timeout_and_acceptance_oracles_changed') is not False
             or seal.get('runtime_accepted') is not False
             or not re.fullmatch(r'[0-9a-f]{40}', seal.get('base_source_commit', ''))
-            or seal.get('apk', {}).get('sha256') != IMMUTABLE_APK_SHA256
+            or seal.get('apk', {}).get('sha256') != expected_apk
             or seal['apk'].get('package') != PACKAGE or seal['apk'].get('production_signed') is not False
-            or receipt.get('kind') != 'task407-gate-host-qualification-v1'
+            or receipt.get('kind') != ('task407-gate-fresh-candidate-host-qualification-v1'
+                                       if fresh else 'task407-gate-host-qualification-v1')
             or receipt.get('seal_sha256') != seal_sha256
-            or receipt.get('apk_sha256') != IMMUTABLE_APK_SHA256
+            or receipt.get('apk_sha256') != expected_apk
             or receipt.get('ordered') is not True or receipt.get('runtime_accepted') is not False
             or any(receipt.get(key) != 'PASS' for key in (
                 'spec', 'main_after_spec', 'quality', 'main_after_quality', 'host_tests'))
@@ -1675,7 +1692,7 @@ def read_checked_json(path, expected_sha256):
     return value
 
 
-def validate_candidate(seal, reviews, root):
+def validate_candidate(seal, reviews, root, *, reviews_sha256=None):
     """Check the pinned seal/review linkage, not manufacture new qualification.
 
     MAIN creates the seal only from actual current full gates. Its recorded hash
@@ -1683,13 +1700,29 @@ def validate_candidate(seal, reviews, root):
     this caller. The optional diagnostic implementation is qualified alongside
     the original supervisor/runner and their tests, not just the original four inputs.
     """
+    if reviews_sha256 is not None:
+        # This is the actual full-candidate review receipt, not a synthesized
+        # supervision PASS. Its exact bytes are independently pinned by MAIN and
+        # linked by the immutable new seal. Current host deltas qualify separately.
+        sequence = reviews.get('sequence')
+        if (not re.fullmatch(r'[0-9a-f]{64}', reviews_sha256)
+                or seal.get('reviews_sha256') != reviews_sha256
+                or reviews.get('kind') != 'task407-corrected-deck-diagnostics-ordered-review-v1'
+                or reviews.get('runtime_accepted') is not False
+                or reviews.get('parent_stage_complete') is not False
+                or type(sequence) is not list or len(sequence) != 4
+                or any(type(row) is not dict or row.get('stage') != stage
+                       or row.get('verdict') != 'PASS'
+                       for row, stage in zip(sequence, ('SPEC', 'MAIN', 'QUALITY', 'MAIN')))):
+            raise ValueError('CANDIDATE_PREREQUISITE_INVALID')
+    elif (reviews.get('kind') != 'ordered-runtime-supervision-reviews-not-android-proof'
+            or reviews.get('ordered') is not True
+            or reviews.get('spec') != 'PASS' or reviews.get('quality') != 'PASS'):
+        raise ValueError('CANDIDATE_PREREQUISITE_INVALID')
     if (seal.get('kind') != 'full-lower-qualified-pushed-source-emulator-only-apk-seal'
             or seal.get('original_timeout_and_acceptance_oracles_changed') is not False
             or seal.get('runtime_accepted') is not False
-            or not re.fullmatch(r'[0-9a-f]{40}', seal.get('base_source_commit', ''))
-            or reviews.get('kind') != 'ordered-runtime-supervision-reviews-not-android-proof'
-            or reviews.get('ordered') is not True
-            or reviews.get('spec') != 'PASS' or reviews.get('quality') != 'PASS'):
+            or not re.fullmatch(r'[0-9a-f]{40}', seal.get('base_source_commit', ''))):
         raise ValueError('CANDIDATE_PREREQUISITE_INVALID')
     apk = seal['apk']
     if (apk.get('package') != PACKAGE or apk.get('production_signed') is not False
@@ -1711,10 +1744,14 @@ def validate_candidate(seal, reviews, root):
             result[path] = row['sha256']
         return result
 
-    source, reviewed = indexed(seal['source_pins']), indexed(reviews['pins'])
-    if (not required <= source.keys() or reviewed.keys() != required
-            or any(source[path] != reviewed[path] for path in required)):
+    source = indexed(seal['source_pins'])
+    if not required <= source.keys():
         raise ValueError('CURRENT_SUPERVISION_UNQUALIFIED')
+    if reviews_sha256 is None:
+        reviewed = indexed(reviews['pins'])
+        if (reviewed.keys() != required
+                or any(source[path] != reviewed[path] for path in required)):
+            raise ValueError('CURRENT_SUPERVISION_UNQUALIFIED')
 
 
 def main(argv=None):
@@ -1731,7 +1768,14 @@ def main(argv=None):
         root = Path(__file__).resolve().parents[1]
         seal = read_checked_json(record['seal_path'], record['seal_sha256'])
         receipt = read_checked_json(record['host_qualification_path'], record['host_qualification_sha256'])
-        pins, source_commit = validate_host_qualification(seal, receipt, root, record['seal_sha256'])
+        if receipt.get('kind') == 'task407-gate-fresh-candidate-host-qualification-v1':
+            reviews = read_checked_json(record['candidate_reviews_path'], record['candidate_reviews_sha256'])
+            pins, source_commit = validate_host_qualification(seal, receipt, root, record['seal_sha256'],
+                candidate_reviews=reviews, candidate_reviews_sha256=record['candidate_reviews_sha256'])
+        else:
+            if 'candidate_reviews_path' in record or 'candidate_reviews_sha256' in record:
+                raise ValueError('HOST_QUALIFICATION_UNCONFIRMED')
+            pins, source_commit = validate_host_qualification(seal, receipt, root, record['seal_sha256'])
         if Path(record['apk_path']).resolve() != Path(seal['apk']['path']).resolve():
             raise ValueError('CANDIDATE_APK_PATH_CHANGED')
         runtime = _runtime_gate()

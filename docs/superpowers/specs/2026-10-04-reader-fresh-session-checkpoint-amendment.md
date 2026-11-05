@@ -42,6 +42,19 @@ release, replay or a cached success; retain any late exact owner for recovery.
 Source-feed failure still rejects instrumentation/oracle eligibility. This repairs
 a deterministically reproduced host race, not a reader assertion or SDK fault.
 
+Prospective current-artifact admission — 2026-11-05: the deck-discrimination
+Android changes require their own actual full-candidate qualification, ordered
+reviews, published source and exact new APK/source seal. They cannot be admitted
+as the historical r144 APK or by rewriting its immutable seal. Bind the new seal
+and its applicable supervision-review proof by independently checked hashes in
+the fresh MAIN contract; preserve exact package/emulator-only signer status,
+source-pin coverage and the narrow host-only override boundary. Missing or
+mismatched proof must fail before dispatch. The historical r144 host-migration
+route remains unchanged. Reuse genuinely unchanged Android qualification for
+subsequent host-only admission changes; never claim a host test qualifies changed
+Android bytes. No admission document itself grants a device session or establishes
+runtime acceptance, and no consumed contract or uncertain operation is replayed.
+
 The prospective installed binding is Coordinator0.20.6/releaseb72bf7f756f873c3.
 It ignores stale child-birth notifications after native stop only when current
 job membership proves the child departed; live-member access errors remain
