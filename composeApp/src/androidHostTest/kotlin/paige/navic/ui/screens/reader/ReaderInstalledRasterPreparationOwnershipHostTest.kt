@@ -995,6 +995,53 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 
 	@Test
 	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun acceptedInstalledDeckReturnSurvivesDestroyBeforeRasterRetirementStarts() {
+		val raster = HeldRasterRetirementDispatcher()
+		withMaterialFixture(rasterDispatcher = raster) { f ->
+			f.bootstrap()
+			val deck = assertNotNull(f.deck)
+			val image = f.surface.submitted.single().getSettlementPage(PageChange.NONE).content
+			var originalReturns = 0
+			var replacementReturns = 0
+			var returnedAfterDrain = false
+			// Relinquish selection, as the fixture's existing cleanup does. Keep the original
+			// controller, adapter, lease and accepted release callback throughout destruction.
+			f.curl.synchronizePresentationDecision(readerPresentationDecision(ReaderPresentationState()))
+			raster.hold = true
+			assertEquals(ReaderPortCommandResult.Accepted, f.curl.releaseInstalledDeck(deck) {
+				originalReturns++
+				val residency = f.curl.rasterResidencyMetrics()
+				returnedAfterDrain = image.isRecycled && residency.residentEntries == 0 &&
+					residency.uniqueDecodedBitmaps == 0 && residency.pinnedEntries == 0 &&
+					residency.activePreparationWorkers == 0 &&
+					residency.activeMaterializationWorkers == 0 && residency.pendingValueReleases == 0
+			})
+			assertTrue(raster.pendingDispatches > 0, "Installed retirement must be queued before destroy")
+			assertEquals(0, originalReturns, "Queued retirement still owns the original callback")
+			assertEquals(deck, f.curl.installedDeckFor(deck.resourceKey))
+			assertIs<ReaderPortCommandResult.Rejected>(f.curl.releaseInstalledDeck(deck) { replacementReturns++ })
+			val destroyed = f.curl.destroy()
+			val main = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+			main.idle()
+			assertEquals(0, originalReturns, "Destroy cannot substitute a logical return for adapter drain")
+			raster.drain()
+			main.idle()
+			assertTrue(destroyed.isCompleted, "Actual controller destruction must finish")
+			assertFalse(destroyed.isCancelled, "Destruction must finish without a teardown failure")
+			assertTrue(image.isRecycled, "Original renderer material must physically return")
+			assertEquals(1, originalReturns, "Destroy must preserve the accepted original physical-return callback")
+			assertTrue(returnedAfterDrain, "Original callback may run only after actual adapter residency drains")
+			assertNull(f.curl.installedDeckFor(deck.resourceKey))
+			assertSame(destroyed, f.curl.destroy())
+			raster.drain()
+			main.idle()
+			assertEquals(1, originalReturns, "Repeated destruction cannot return original custody twice")
+			assertEquals(0, replacementReturns, "Rejected replacement must never acquire callback custody")
+		}
+	}
+
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
 	fun displayedAssociationCannotBeSelfCertifiedByAnAnchorReceipt() = withMaterialFixture { f ->
 		f.start()
 		val deck = assertNotNull(f.deck, "B407.Association.Deck")
@@ -1581,15 +1628,32 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			assertEquals(originalOwner, assertNotNull(f.barrier.snapshot).owner, "E407.Source.NoReceiptOrSuccessorMinted")
 		}
 
+	/** Holds only raster dispatch; setup and the original Main teardown scope remain immediate.
+	 * No renderer return, adapter completion or ownership callback is supplied by this seam. */
+	private class HeldRasterRetirementDispatcher : kotlinx.coroutines.CoroutineDispatcher() {
+		var hold = false
+		private val pending = java.util.ArrayDeque<Runnable>()
+		val pendingDispatches: Int get() = pending.size
+		override fun isDispatchNeeded(context: kotlin.coroutines.CoroutineContext): Boolean = hold
+		override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+			if (hold) pending.addLast(block) else block.run()
+		}
+		fun drain() {
+			hold = false
+			while (pending.isNotEmpty()) pending.removeFirst().run()
+		}
+	}
+
 	@OptIn(ExperimentalCoroutinesApi::class)
 	internal fun withMaterialFixture(legacySelection: Boolean = true,
 		foliateSessionId: String = "installed-material-public-fixture", installedForeground: Boolean = false,
-		liveWebView: WebView? = null, test: (MaterialFixture) -> Unit) {
+		liveWebView: WebView? = null, rasterDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
+		test: (MaterialFixture) -> Unit) {
 		val dispatcher = UnconfinedTestDispatcher()
 		Dispatchers.setMain(dispatcher)
 		var fixture: MaterialFixture? = null
 		try {
-			fixture = b407ConstructionStage("B407.Construction.MaterialFixture") { MaterialFixture(dispatcher, legacySelection, foliateSessionId, installedForeground, liveWebView) }
+			fixture = b407ConstructionStage("B407.Construction.MaterialFixture") { MaterialFixture(rasterDispatcher ?: dispatcher, legacySelection, foliateSessionId, installedForeground, liveWebView) }
 			test(fixture)
 		} finally {
 			try {

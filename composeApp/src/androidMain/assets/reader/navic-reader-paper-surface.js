@@ -11,7 +11,9 @@ export const readerSurfaceSpreadMode = ({
   flowMode = '',
   width: rawWidth = null,
   height: rawHeight = null,
+  maxColumnCount = null,
 } = {}) => {
+  if (Number(maxColumnCount) === 1) return 'single'
   if (flowMode === ReaderFlowScrolled) return 'single'
   if (flowMode === ReaderFlowScrolledGaps) return 'single'
   if (flowMode === ReaderFlowPagedVertical) return 'single'

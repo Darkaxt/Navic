@@ -7,7 +7,7 @@ internal class ReaderPlayLikeCurlAdapterOwnerPool<T : Any>(
 		require(ownerLimit > 0)
 	}
 
-	private val owners = linkedSetOf<T>()
+	private val owners = linkedMapOf<T, (() -> Unit)?>()
 
 	val size: Int
 		get() = owners.size
@@ -15,11 +15,25 @@ internal class ReaderPlayLikeCurlAdapterOwnerPool<T : Any>(
 	fun tryAdd(owner: T): Boolean {
 		if (owner in owners) return true
 		if (owners.size == ownerLimit) return false
-		owners += owner
+		owners[owner] = null
 		return true
 	}
 
-	fun remove(owner: T): Boolean = owners.remove(owner)
+	/** Keep original return custody on the bounded owner, not its cancelable worker. */
+	fun retainDrainCallback(owner: T, onDrained: () -> Unit) {
+		check(owner in owners)
+		check(owners[owner] == null) { "Adapter return custody already retained" }
+		owners[owner] = onDrained
+	}
 
-	fun snapshot(): List<T> = owners.toList()
+	/** Call only after successful physical drain. Removal claims callback delivery once. */
+	fun remove(owner: T, onRemoved: () -> Unit = {}): Boolean {
+		if (owner !in owners) return false
+		val onDrained = owners.remove(owner)
+		onRemoved()
+		onDrained?.invoke()
+		return true
+	}
+
+	fun snapshot(): List<T> = owners.keys.toList()
 }

@@ -4808,21 +4808,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			rasterJob.cancelAndJoin()
 		}
+		val joinedAdapters = mutableSetOf<ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>>()
 		adaptersToClose.forEach { adapter ->
 			failure = captureTeardownFailure(
 				failure,
 				ReaderPageTeardownStage.RasterAdapter
 			) {
 				adapter.closeAndJoin()
+				joinedAdapters += adapter
 			}
 		}
+		val drainedAdapters = mutableSetOf<ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>>()
 		val adapterMetrics = mutableListOf<ReaderPlayLikeCurlRasterResidencyMetrics>()
 		adaptersToClose.forEach { adapter ->
 			failure = captureTeardownFailure(
 				failure,
 				ReaderPageTeardownStage.RasterAdapter
 			) {
-				adapterMetrics += adapter.metrics()
+				val metrics = adapter.metrics()
+				adapterMetrics += metrics
+				if (adapter in joinedAdapters && metrics.isDrained()) drainedAdapters += adapter
 			}
 		}
 		var budgetMetrics: ReaderPlayLikeCurlRasterResidencyBudgetMetrics? = null
@@ -4855,13 +4860,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			}
 		}
-		adaptersToClose.forEach { adapter ->
+		drainedAdapters.forEach { adapter ->
 			failure = captureTeardownFailure(
 				failure,
 				ReaderPageTeardownStage.RasterAdapter
 			) {
-				check(rasterAdapterOwners.remove(adapter))
-				onOwnershipMutated()
+				completeRasterAdapterDrain(adapter)
 			}
 		}
 		rasterAdapter = null
@@ -5042,10 +5046,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 		else if (failure !== first) first.addSuppressed(failure)
 	}
 
+	/** Both paths run on Main and claim the same original owner before callback reentry. */
+	private fun completeRasterAdapterDrain(
+		adapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
+	) {
+		rasterAdapterOwners.remove(adapter) {
+			onOwnershipMutated()
+			onOwnershipAvailabilityEdge()
+			if (!destroyed) refreshPreparedDeck()
+		}
+	}
+
 	private fun retireRasterAdapter(
 		adapter: ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>,
 		onDrained: () -> Unit = {}
 	) {
+		// Final disposal can cancel this worker even before it starts. The physical
+		// owner retains the original return until either path proves successful drain.
+		rasterAdapterOwners.retainDrainCallback(adapter, onDrained)
 		adapter.close()
 		rasterScope.launch {
 			val joinResult = runCatching { adapter.closeAndJoin() }
@@ -5053,13 +5071,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 			withContext(Dispatchers.Main.immediate) {
 				val metrics = metricsResult.getOrNull()
 				val drained = metrics?.let { current -> current.isDrained() } == true
-				if (drained) {
-					check(rasterAdapterOwners.remove(adapter))
-					onOwnershipMutated()
-					onOwnershipAvailabilityEdge()
-					if (!destroyed) refreshPreparedDeck()
-				}
-
 				val failure = joinResult.exceptionOrNull()
 					?: metricsResult.exceptionOrNull()
 					?: if (!drained) {
@@ -5069,12 +5080,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 					} else {
 						null
 					}
-				if (failure == null && drained) onDrained()
+				if (failure == null && drained) completeRasterAdapterDrain(adapter)
 				if (failure != null) {
 					recordRasterRetirementFailure(failure)
 					logActivationState(
 						"adapter-retirement-failed",
-						if (drained) "owner-released" else "owner-retained"
+						"owner-retained"
 					)
 					if (!destroyed) {
 						updateReadiness(

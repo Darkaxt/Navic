@@ -7,6 +7,8 @@ globalThis.document = { body: {} }
 globalThis.window = {}
 const { NavicReaderPageTurnPreviewMethods } = await import('../../androidMain/assets/reader/navic-reader-page-turn-preview.js')
 const plan = NavicReaderPageTurnPreviewMethods.pageTurnRasterPreparationPlan
+const captureGeometry = NavicReaderPageTurnPreviewMethods.pageTurnCaptureGeometry
+const { ReaderFlowPaged } = await import('../../androidMain/assets/reader/navic-reader-settings-core.js')
 assert.ok(typeof plan === 'function', 'Use the actual original plan producer')
 
 const layout = Object.freeze({ layoutGeneration: 7, viewGeneration: 3, navigationGeneration: 5,
@@ -25,6 +27,45 @@ function fixture(current = true, available = true) {
     }
     return { runtime, captures: () => captures }
 }
+
+for (const columns of [1, 0]) {
+    test(`real initial geometry respects resolved one-column Foliate limit ${columns} in landscape`, () => {
+        const previousWindow = globalThis.window
+        globalThis.window = { innerWidth: 560, innerHeight: 420 }
+        try {
+            const f = fixture()
+            Object.assign(f.runtime, {
+                readerSettings: { maxColumnCount: columns },
+                readerFlowModeValue: ReaderFlowPaged,
+                pageTurnCaptureGeometry: captureGeometry,
+            })
+            const result = plan.call(f.runtime, null)
+            assert.equal(result.captureGeometry.mode, 'single', 'Capture cannot invent a spread outside the Foliate column limit')
+            assert.equal(result.context.step, 1)
+            assert.equal(result.context.centerPageIndex, 0)
+            assert.deepEqual(result.targets.map(target => target.pageIndex), [0, 1, 2, 3, 4, 5, 6, 7])
+            assert.ok(result.resolvedLayout === layout, 'Geometry must not replace the original Live layout')
+        } finally { globalThis.window = previousWindow }
+    })
+}
+
+test('real initial geometry retains permitted two-column spread and its target stride', () => {
+    const previousWindow = globalThis.window
+    globalThis.window = { innerWidth: 560, innerHeight: 420 }
+    try {
+        const f = fixture()
+        Object.assign(f.runtime, {
+            readerSettings: { maxColumnCount: 2 },
+            readerFlowModeValue: ReaderFlowPaged,
+            pageTurnCaptureGeometry: captureGeometry,
+        })
+        const result = plan.call(f.runtime, null)
+        assert.equal(result.captureGeometry.mode, 'spread')
+        assert.equal(result.context.step, 2)
+        assert.deepEqual(result.targets.map(target => target.pageIndex), [0, 2, 4, 6])
+        assert.ok(result.resolvedLayout === layout)
+    } finally { globalThis.window = previousWindow }
+})
 
 test('original raster plan retains only its still-current Live numeric layout', () => {
     const f = fixture()

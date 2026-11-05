@@ -22,8 +22,10 @@ test('Installed commands reach original preparation, Curl and frame consumers ra
         'Original preparation must consume installed commands, not only own synthetic physical starts')
     assert.ok(/fun reserveInstalledDeck\s*\(/.test(source('ReaderPlayLikeCurlFoliateController.android.kt')),
         'Original Curl must submit the reserved material generation')
-    assert.ok(/fun createOriginalActivatedFramePort\s*\(/.test(host),
-        'Native must publish and prove the actual command-only frame')
-    assert.ok(/fun createOriginalActivatedOwnerAndInputPort\s*\(/.test(host),
-        'Owner and physical input must be acknowledged atomically at the original host')
+    assert.ok(/frame\s*=\s*viewerContainer\.createInstalledFramePort\(\)/.test(host) &&
+        /fun createInstalledFramePort\(\)[\s\S]*?override fun prepareTarget[\s\S]*?nativePagePresentationPublisher\.prepareTarget\(command, onFact\)[\s\S]*?override fun present[\s\S]*?nativePagePresentationPublisher\.present\(command, onFact\)/.test(host),
+        'Native must wire actual command-only target preparation and presentation to its original publisher')
+    assert.ok(/ReaderOwnerAndInputPublicationBarrier\([\s\S]*?narrowOrVeto = inputSafety::narrowOrVeto,[\s\S]*?publishAtomically = viewerContainer::canPublishInstalledOwnerAndInput\)/.test(host) &&
+        /ownerAndInput = object : ReaderOwnerAndInputPublicationPort[\s\S]*?override fun publish\(command: ReaderTransitionCommand\.CommitOwnerAndInputLease\) = publication\.publish\(command\)[\s\S]*?override fun publish\(command: ReaderTransitionCommand\.PublishRetainedOwnerAndInputLease\) = publication\.publish\(command\)/.test(host),
+        'Both installed publication commands must reach the original atomic owner/input barrier')
 })

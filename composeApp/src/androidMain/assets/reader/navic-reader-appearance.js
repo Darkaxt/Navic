@@ -640,10 +640,12 @@ function applySurfacePaperTextureUpdate(detail = {}, pagePosition = null) {
     : detail
   const textureKey = readerPaperTextureVariantKey(this.publicationUrl, section, index, textureDetail)
   const { width, height } = readerViewportSize()
+  const pageBox = readerAdaptiveFoliatePageBox({ width, height }, this.readerSettings)
   const spreadMode = readerSurfaceSpreadMode({
     flowMode: this.readerFlowModeValue,
     width,
     height,
+    maxColumnCount: pageBox.maxColumnCount,
   })
   let textureSlots = readerAdjacentPaperTextureSlots({
     publicationUrl: this.publicationUrl,

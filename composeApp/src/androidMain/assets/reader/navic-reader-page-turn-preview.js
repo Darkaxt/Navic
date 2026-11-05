@@ -429,6 +429,7 @@ function pageTurnCaptureGeometry() {
     flowMode: this.readerFlowModeValue,
     width: viewport.width,
     height: viewport.height,
+    maxColumnCount: pageBox.maxColumnCount,
   })
   const layoutProfile = readerPaperLayoutProfile({
     flowMode: this.readerFlowModeValue,
