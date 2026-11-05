@@ -1044,7 +1044,7 @@ def decode_stream(row, cap):
 CLEANUP_HELPER = 'C:/Users/darka/.claude/skills/transactional-cleanup/scripts/invoke_transactional_cleanup.py'
 CLEANUP_ACTIVE = 'C:/Users/darka/AppData/Local/Tools/transactional-cleanup/active.json'
 CLEANUP_SOURCE = ('C:/Users/darka/AppData/Local/Tools/transactional-cleanup/releases/'
-                  '622e47971017069ce77b5e9ee8887796/src')
+                  '3c7f01120c67546db3a6994a9a739228/src')
 _CLEANUP_CLIENTS = []  # Interrupted management clients remain retained, never replayed.
 
 
@@ -1053,7 +1053,7 @@ def cleanup_installation_valid():
     try:
         active = Path(CLEANUP_ACTIVE).read_bytes()
         if (hashlib.sha256(active).hexdigest() !=
-                'b82c316f1d2d5d88d0e874a96fe1a86b8a9e10af0f88bb05aaf0d1d568769c57'
+                '3d6116641bff068bf92b3e453b736b861f5405d7a1bd86d6de388fcd73fc4535'
                 or hashlib.sha256(Path(CLEANUP_HELPER).read_bytes()).hexdigest() !=
                 'c7820a319bca0371ac192d6e9cfa9047ec485c59b7bdbcd84f2cce0a86174e66'):
             return False
