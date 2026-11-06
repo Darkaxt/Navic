@@ -59,8 +59,8 @@ jobs:
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
-          distribution: temurin
-          java-version: 21
+          distribution: microsoft
+          java-version: 25
           cache: gradle
 
       - name: Setup Gradle
@@ -162,8 +162,8 @@ jobs:
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
-          distribution: temurin
-          java-version: 21
+          distribution: microsoft
+          java-version: 25
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5

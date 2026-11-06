@@ -1,13 +1,13 @@
 [versions]
 #noinspection AndroidGradlePluginVersion
-agp = "9.2.1"
+agp = "9.5.0"
 #noinspection UnusedVersionCatalogEntry
 android-compileSdk = "37"
 #noinspection UnusedVersionCatalogEntry
 android-minSdk = "24"
 #noinspection UnusedVersionCatalogEntry
 android-targetSdk = "37"
-kotlin = "2.4.0"
+kotlin = "2.4.21"
 
 # Androidx
 androidx-activity = "1.13.0"
@@ -39,7 +39,7 @@ koin = "4.2.2"
 
 # Plugins
 aboutLibraries = "15.0.2"
-ksp = "2.3.6"
+ksp = "2.3.13"
 
 [libraries]
 # Compose
