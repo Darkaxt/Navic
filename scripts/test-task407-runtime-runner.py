@@ -2206,7 +2206,7 @@ class PreflightBoundaryTests(unittest.TestCase):
             raise ValueError('fixture stop before dispatch')
         record.update(host_qualification_path='fixture-reviews', host_qualification_sha256='b' * 64,
                       gate={'pins': [], 'binding': {'emulator_root': 'D:/Components/37.2.12'}})
-        runtime = SimpleNamespace(RELEASE='6c70ac03b3aeb61d', RUNTIME_PATHS=(),
+        runtime = SimpleNamespace(RELEASE='8feabb2139c79dcd', RUNTIME_PATHS=(),
                                   RELEASE_ROOT='D:/fixture-release')
         # Live CLI is gate-only; isolate new receipt/active-release boundaries in
         # this original cap assertion, not historical peer-based admission.
@@ -2215,7 +2215,7 @@ class PreflightBoundaryTests(unittest.TestCase):
              mock.patch.object(runner, 'validate_host_qualification', return_value=([], 'a' * 40)), \
              mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
              mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                 b'{"release":"6c70ac03b3aeb61d","version":"0.24.1"}',
+                 b'{"release":"8feabb2139c79dcd","version":"0.25.2"}',
                  b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
              mock.patch.object(runner, 'pins_match', return_value=True), \
              mock.patch.object(runner, 'subprocess') as subprocess_mock, \
@@ -2242,7 +2242,7 @@ class PreflightBoundaryTests(unittest.TestCase):
         self.assertEqual(before['effective_budget_ms'], int(install_options['timeout'] * 1000))
 
     def test_r158_main_rejects_old_root_full_coverage_and_digest_drift(self):
-        new_release = '6c70ac03b3aeb61d'
+        new_release = '8feabb2139c79dcd'
         old_release = 'a84522cf993339ea'
         helper = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
         suffixes = (
@@ -2299,7 +2299,7 @@ class PreflightBoundaryTests(unittest.TestCase):
                  mock.patch.object(runner, '_runtime_gate', return_value=runtime), \
                  mock.patch.object(runner, 'pins_match', side_effect=pins_spy), \
                  mock.patch.object(runner.Path, 'read_bytes', side_effect=[
-                     b'{"release":"6c70ac03b3aeb61d","version":"0.24.1"}',
+                     b'{"release":"8feabb2139c79dcd","version":"0.25.2"}',
                      b'{"profiles":{"reader-diagnostics":{"version":"37.2.12","root":"D:/Components/37.2.12"}}}']), \
                  mock.patch.object(runner.subprocess, 'run', side_effect=stop_at_first_git_read), \
                  mock.patch.object(runner, 'run_gated_session') as gated_session, \
