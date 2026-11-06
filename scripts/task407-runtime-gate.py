@@ -20,7 +20,7 @@ import time
 import uuid
 
 HELPER = 'C:/Users/darka/.claude/skills/android-emulator-gate/scripts/invoke_native_gate.py'
-RELEASE = 'ad781a4017bf6a4a'
+RELEASE = '072ddea7226b9351'
 RELEASE_ROOT = 'C:/Users/darka/AppData/Local/Tools/llm-coordinator/releases/' + RELEASE
 SCRATCH = 'D:/Temp/navic-task407-gated-runtime/r146'
 MODULES = ('tools_cli.py', 'workflows.py', 'workflow_failures.py', 'owned_stop.py', 'state_owner.py',
