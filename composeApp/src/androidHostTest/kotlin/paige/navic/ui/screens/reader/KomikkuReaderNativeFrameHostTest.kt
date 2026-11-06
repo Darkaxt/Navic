@@ -10668,7 +10668,7 @@ class KomikkuReaderNativeFrameHostTest {
 				val dispatchEvent = viewerClass.task7Method("dispatchPresentationEvent", ReaderPresentationEvent::class.java)
 				fun deliver(event: ReaderPresentationEvent) = assertNotNull(
 					dispatchEvent.invoke(viewer, event) as ReaderPresentationEventReceipt?)
-				if (coverNullDeckRetry) {
+				suspend fun verifyCommittedCoverNullDeckRetry() {
 					// The committed cover is this focused ingress test's precondition, not
 					// a claim to exercise physical cover drawing or the full Task10 sequence.
 					common = common.onPresentationEvent(ReaderPresentationEvent.ShellCoverRequested(37L)).controller
@@ -11061,7 +11061,7 @@ class KomikkuReaderNativeFrameHostTest {
 							assertEquals(listOf(resizedAdmission.capability.originBinding), common.state.presentation.rendererCleanupOwnership.map { it.binding })
 							handler.deliver(queue.pendingEffects(), common.state.presentationDecision) { queue.acknowledge(it) }
 							assertTrue(queue.pendingEffects().isEmpty())
-							return@runTest
+							return
 						}
 						runtime.completeCommit(work)
 						val capture = withContext(Dispatchers.Default) { withTimeout(5_000L) { runtime.captures.receive() } }
@@ -11528,6 +11528,10 @@ class KomikkuReaderNativeFrameHostTest {
 						assertSame(originalNativeOnEvent, nativeOnEventField.get(observedNativePublisher))
 						assertSame(originalProducerOnEvent, producerOnEventField.get(viewer))
 					}
+					return
+				}
+				if (coverNullDeckRetry) {
+					verifyCommittedCoverNullDeckRetry()
 					return@runTest
 				}
 				val gestureController = if (nativePipeline) controller else source.controller
