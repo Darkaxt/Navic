@@ -149,6 +149,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var mediaSession: MediaSession? = null
 	private val serviceScope = MainScope()
 	private var streamPrefetcher: NavidromeStreamPrefetcher? = null
+	private var deferredTranscodeSeek: NavidromeDeferredTranscodeSeek? = null
 
 	private fun isOnUnmeteredNetwork(): Boolean {
 		val system = getSystemService(android.net.ConnectivityManager::class.java) ?: return false
@@ -303,6 +304,22 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}
 		})
 		val transcodeWarmer = NavidromeTranscodeWarmer(httpDataSourceFactory, Dispatchers.IO.asExecutor())
+		val deferredTranscodeSeek = NavidromeDeferredTranscodeSeek(
+			player = player,
+			completedLength = { uri -> completedNavidromeTranscodeLength(httpDataSourceFactory, uri) },
+			onCompletedLength = { uri, length -> NavidromeStreamCacheKey.of(uri)?.let { playbackCache.recordContentLength(it.value, length) } },
+			replaceItem = { index, item ->
+				val shuffleOrder = player.shuffleOrder
+				player.replaceMediaItem(index, item)
+				if (player.shuffleOrder !== shuffleOrder) player.setShuffleOrder(shuffleOrder)
+			},
+			executor = Dispatchers.IO.asExecutor(),
+			handler = Handler(player.applicationLooper),
+			log = { event, songId, detail ->
+				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(event, "songId" to songId, "detail" to detail))
+			}
+		)
+		this.deferredTranscodeSeek = deferredTranscodeSeek
 		// Release the pinned stream variant of songs that left the current/next window.
 		fun releaseStreamPins() {
 			val timeline = player.currentTimeline
@@ -315,6 +332,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		player.addListener(object : Player.Listener {
 			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+				deferredTranscodeSeek.cancel()
 				releaseStreamPins()
 				transcodeWarmer.warmUpcoming(player)
 				prefetcher.prefetchNext(player)
@@ -372,7 +390,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}, itemFactory::toMediaItem)
 		playbackResumption = resumption
 		mediaSession = MediaSession.Builder(this, stablePlaybackSessionPlayer(player,
-			resumption::allowsFrameworkPlaybackMutation, resumption::onPlaylistInstalled, ::allowsPlaybackStart))
+			resumption::allowsFrameworkPlaybackMutation, resumption::onPlaylistInstalled, ::allowsPlaybackStart,
+			interceptSeek = { index, positionMs -> deferredTranscodeSeek?.interceptSeek(index, positionMs) == true }))
 			.setSessionActivity(sessionPendingIntent)
 			.setCallback(PlaybackSessionCallback(player))
 			.build()
@@ -471,6 +490,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
 		streamPrefetcher?.close()
+		deferredTranscodeSeek?.cancel()
+		deferredTranscodeSeek = null
 		streamPrefetcher = null
 		releaseAudioEffects()
 		serviceScope.cancel()

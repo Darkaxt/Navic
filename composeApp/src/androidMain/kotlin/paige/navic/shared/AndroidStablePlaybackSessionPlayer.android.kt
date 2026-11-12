@@ -11,7 +11,9 @@ internal fun stablePlaybackSessionPlayer(
     player: ExoPlayer,
     allowsResumptionMutation: () -> Boolean = { true },
     onPlaylistInstalled: (List<MediaItem>) -> Unit = {},
-    allowsPlaybackStart: () -> Boolean = { true }
+    allowsPlaybackStart: () -> Boolean = { true },
+    /** Takes over seeks in a song still being transcoded live; returns true when it handled the seek. */
+    interceptSeek: (mediaItemIndex: Int, positionMs: Long) -> Boolean = { _, _ -> false }
 ): Player =
     object : ForwardingPlayer(player) {
         override fun play() {
@@ -23,6 +25,20 @@ internal fun stablePlaybackSessionPlayer(
             if (!playWhenReady || allowsResumptionMutation()) {
                 super.setPlayWhenReady(playWhenReady && allowsPlaybackStart())
             }
+        }
+        override fun seekTo(positionMs: Long) {
+            if (!interceptSeek(player.currentMediaItemIndex, positionMs)) super.seekTo(positionMs)
+        }
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+            if (!interceptSeek(mediaItemIndex, positionMs)) super.seekTo(mediaItemIndex, positionMs)
+        }
+        override fun seekForward() {
+            val target = player.currentPosition + player.seekForwardIncrement
+            if (!interceptSeek(player.currentMediaItemIndex, target)) super.seekForward()
+        }
+        override fun seekBack() {
+            val target = (player.currentPosition - player.seekBackIncrement).coerceAtLeast(0L)
+            if (target == 0L || !interceptSeek(player.currentMediaItemIndex, target)) super.seekBack()
         }
         override fun prepare() { if (allowsResumptionMutation()) super.prepare() }
         override fun seekToDefaultPosition() { if (allowsResumptionMutation()) super.seekToDefaultPosition() }
