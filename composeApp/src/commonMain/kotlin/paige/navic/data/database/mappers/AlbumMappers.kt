@@ -16,7 +16,7 @@ fun ApiAlbum.toEntity(
 	name = this.name,
 	artistId = resolveArtistId(artistIdOverride, this.artistId),
 	artistName = artistNameOverride ?: this.artistName,
-	coverArtId = this.coverArtId,
+	coverArtId = this.coverArtId.orEmpty(),
 	songCount = this.songCount,
 	duration = this.duration,
 	year = this.year,
