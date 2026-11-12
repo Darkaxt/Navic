@@ -35,6 +35,20 @@ class ReaderManagedStorageTest {
 	}
 
 	@Test
+	fun requestedStartupClearRemovesPagePreviewsButKeepsFonts() {
+		val root = createTempDirectory("navic-reader-raster-clear").toFile()
+		val managedRoot = root.resolve("managed")
+		val legacyRoot = root.resolve("legacy")
+		managedRoot.resolve("fonts/imported.ttf").writeFixture("FONT")
+		managedRoot.resolve("reader-page-rasters/v1/page.png").writeFixture("RASTER")
+
+		initializeReaderManagedStorage(managedRoot, legacyRoot, clearPageRasters = true)
+
+		assertFalse(managedRoot.resolve("reader-page-rasters").exists())
+		assertEquals("FONT", managedRoot.resolve("fonts/imported.ttf").readText())
+	}
+
+	@Test
 	fun sessionLeaseIsScopedAndIdempotent() {
 		val root = createTempDirectory("navic-reader-session-lease").toFile()
 		val publication = root.resolve("reader-publications/book-1")

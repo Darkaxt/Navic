@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
@@ -42,6 +43,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderPageTurnBundleHydrationTest {
 	@Test

@@ -36,6 +36,8 @@ import navic.composeapp.generated.resources.option_cache_size_on_disk
 import navic.composeapp.generated.resources.option_musicbrainz_cache
 import navic.composeapp.generated.resources.subtitle_image_cache_size_limit
 import navic.composeapp.generated.resources.subtitle_lida_clips_video_cache_size
+import navic.composeapp.generated.resources.subtitle_musicbrainz_cache_limit
+import navic.composeapp.generated.resources.subtitle_page_preview_cache_size_limit
 import navic.composeapp.generated.resources.subtitle_streamed_song_cache_size_limit
 import navic.composeapp.generated.resources.title_bindery_reader_cache
 import navic.composeapp.generated.resources.title_cache_manager
@@ -51,6 +53,8 @@ import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.models.DangerZoneAction
 import paige.navic.domain.models.ImageCacheSizeOptionsMb
 import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
+import paige.navic.domain.models.MusicBrainzCacheMaxSongsOptions
+import paige.navic.domain.models.PagePreviewCacheSizeOptionsMb
 import paige.navic.domain.models.StreamedSongCacheSizeOptionsMb
 import paige.navic.domain.models.cacheSizeLimitLabel
 import paige.navic.domain.models.cacheSizeMbToBytes
@@ -112,6 +116,8 @@ fun SettingsCacheManagerScreen() {
 			}
 			DangerZoneAction.ClearLidaClipsVideoCache -> runInBackground { storageManager.clearLidaClipVideoCache() }
 			DangerZoneAction.ClearBinderyCache -> runInBackground {
+				// Page previews may be held by an open book, so they are removed on the next app start.
+				preferenceManager.clearPagePreviewsOnNextStart = true
 				storageManager.clearReaderPublicationCache()
 				binderyRepository.clearMetadataCache()
 			}
@@ -205,6 +211,14 @@ fun SettingsCacheManagerScreen() {
 				FormTitle(stringResource(Res.string.title_bindery_reader_cache))
 				Form {
 					SizeOnDiskRow(sizeText(readerPublicationSize))
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_cache_size_limit)) },
+						items = PagePreviewCacheSizeOptionsMb.toImmutableList(),
+						label = { cacheSizeLimitLabel(it) },
+						description = stringResource(Res.string.subtitle_page_preview_cache_size_limit),
+						selection = preferenceManager.pagePreviewCacheSizeMb,
+						onSelect = { preferenceManager.pagePreviewCacheSizeMb = it }
+					)
 					ClearCacheRow(DangerZoneAction.ClearBinderyCache) { pendingAction = it }
 				}
 
@@ -222,6 +236,17 @@ fun SettingsCacheManagerScreen() {
 							)
 						},
 						value = musicBrainzCacheValueText(musicBrainzCacheStats.totalSongs)
+					)
+					SettingSelectionRow(
+						title = { Text(stringResource(Res.string.option_cache_size_limit)) },
+						items = MusicBrainzCacheMaxSongsOptions.toImmutableList(),
+						label = { musicBrainzCacheValueText(it) },
+						description = stringResource(Res.string.subtitle_musicbrainz_cache_limit),
+						selection = preferenceManager.musicBrainzCacheMaxSongs,
+						onSelect = {
+							preferenceManager.musicBrainzCacheMaxSongs = it
+							musicBrainzArtworkRepository.applyCacheLimit()
+						}
 					)
 					ClearCacheRow(DangerZoneAction.ClearMusicBrainzCache) { pendingAction = it }
 				}

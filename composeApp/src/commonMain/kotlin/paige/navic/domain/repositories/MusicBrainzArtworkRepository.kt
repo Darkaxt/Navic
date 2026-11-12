@@ -35,7 +35,6 @@ private const val TAG = "MusicBrainzArtworkRepository"
 private const val COVER_ART_ARCHIVE_BASE_URL = "https://coverartarchive.org"
 private const val MUSICBRAINZ_BASE_URL = "https://musicbrainz.org"
 private const val MUSICBRAINZ_USER_AGENT = "Navic/1.0 (https://github.com/Darkaxt/Navic)"
-private const val MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES = 500
 internal const val MUSICBRAINZ_METADATA_CACHE_SCHEMA_VERSION = 4
 private const val MUSICBRAINZ_RECORDING_SEARCH_LIMIT = 5
 private const val MUSICBRAINZ_RECORDING_SEARCH_MIN_SCORE = 90
@@ -111,6 +110,21 @@ class MusicBrainzArtworkRepository(
 	fun clearCache() {
 		synchronized(cacheLock) {
 			preferenceManager.clearMusicBrainzArtworkCache()
+			emitCache()
+		}
+	}
+
+	/** Applies a changed song limit now, dropping the oldest results beyond it. */
+	fun applyCacheLimit() {
+		synchronized(cacheLock) {
+			val entries = loadCacheEntries()
+			val capped = cappedMusicBrainzArtworkCacheEntries(
+				entries = entries,
+				maxEntries = preferenceManager.musicBrainzCacheMaxSongs
+			)
+			if (capped.size != entries.size) {
+				preferenceManager.musicBrainzArtworkCacheJson = json.encodeToString(MusicBrainzArtworkCacheStore(entries = capped))
+			}
 			emitCache()
 		}
 	}
@@ -441,7 +455,7 @@ class MusicBrainzArtworkRepository(
 				MusicBrainzArtworkCacheStore(
 					entries = cappedMusicBrainzArtworkCacheEntries(
 						entries = entries,
-						maxEntries = MUSICBRAINZ_ARTWORK_CACHE_MAX_ENTRIES
+						maxEntries = preferenceManager.musicBrainzCacheMaxSongs
 					)
 				)
 			)

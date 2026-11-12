@@ -9,6 +9,7 @@ import paige.navic.domain.models.LidaClipCacheFileInfo
 import paige.navic.domain.models.lidaClipOfflineFileName
 import paige.navic.domain.models.lidaClipOfflineFilePrefix
 import paige.navic.reader.clearReaderSessionStorage
+import paige.navic.reader.readerPageRasterStorageSizeBytes
 import paige.navic.reader.readerSessionStorageSizeBytes
 import paige.navic.shared.NavidromePlaybackCache
 import java.io.File
@@ -80,7 +81,7 @@ actual class StorageManager(
 	}
 
 	actual fun readerPublicationCacheSizeBytes(): Long {
-		return readerSessionStorageSizeBytes(context)
+		return readerSessionStorageSizeBytes(context) + readerPageRasterStorageSizeBytes(context)
 	}
 
 	actual fun streamedSongCacheSizeBytes(): Long {

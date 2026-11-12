@@ -21,6 +21,8 @@ import paige.navic.domain.models.DefaultNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.DefaultNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
 import paige.navic.domain.models.DefaultImageCacheSizeMb
+import paige.navic.domain.models.DefaultMusicBrainzCacheMaxSongs
+import paige.navic.domain.models.DefaultPagePreviewCacheSizeMb
 import paige.navic.domain.models.DefaultStreamedSongCacheSizeMb
 import paige.navic.domain.models.BinderyDefaultBookGridColumns
 import paige.navic.domain.models.IntegrationService
@@ -80,6 +82,9 @@ class PreferenceManager(
 	var coverArtQuality by preference(CoverArtQuality.High)
 	var streamedSongCacheSizeMb by preference(DefaultStreamedSongCacheSizeMb)
 	var imageCacheSizeMb by preference(DefaultImageCacheSizeMb)
+	var pagePreviewCacheSizeMb by preference(DefaultPagePreviewCacheSizeMb)
+	var clearPagePreviewsOnNextStart by preference(false)
+	var musicBrainzCacheMaxSongs by preference(DefaultMusicBrainzCacheMaxSongs)
 	var artistArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
 	var coverArtworkPriority by preference(ArtworkSourcePriority.AurralFirst)
 	private val integrationEnabledListeners = mutableMapOf<IntegrationService, MutableSet<(Boolean) -> Unit>>()

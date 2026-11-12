@@ -39,6 +39,7 @@ import paige.navic.reader.ReaderPageRelocationRequest
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLeafGeometry
 import paige.navic.reader.ReaderPageTurnPixelRect
+import paige.navic.reader.readerPageRasterDiskMaxBytes
 import paige.navic.reader.readerPageRasterStorageRoot
 import paige.navic.util.core.Logger
 import kotlin.coroutines.resume
@@ -3550,6 +3551,7 @@ internal class ReaderPageTurnBundleSource(
 					ReaderPageRasterCache(
 						root = readerPageRasterStorageRoot(webView.context.applicationContext),
 						codec = ReaderAndroidPageRasterCodec,
+						maxDiskBytes = readerPageRasterDiskMaxBytes(),
 						onDiagnostic = { diagnostic ->
 							Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")
 						},

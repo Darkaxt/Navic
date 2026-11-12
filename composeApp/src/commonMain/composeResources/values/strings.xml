@@ -30,6 +30,8 @@
 	<string name="option_cache_size_on_disk">Size on disk</string>
 	<string name="option_cache_size_limit">Size limit</string>
 	<string name="subtitle_streamed_song_cache_size_limit">Least recently played songs are removed when the limit is reached</string>
+	<string name="subtitle_page_preview_cache_size_limit">Page previews of opened books. Downloaded books are removed when closed. A new limit applies the next time a book opens.</string>
+	<string name="subtitle_musicbrainz_cache_limit">Songs whose MusicBrainz results are remembered; the oldest are removed first</string>
 	<string name="subtitle_image_cache_size_limit">Applies after restarting the app</string>
 	<string name="action_clear_streamed_song_cache">Clear streamed songs cache</string>
 	<string name="info_clear_streamed_song_cache_confirmation">Cached song audio will be removed and streamed again from the server when played.</string>
@@ -1060,7 +1062,7 @@
 	<string name="info_app_version">Navic %1$s</string>
 	<string name="info_action_is_permanent">This action cannot be undone</string>
 	<string name="info_clear_image_cache_confirmation">Cached artwork images will be removed and downloaded again when needed.</string>
-	<string name="info_clear_bindery_cache_confirmation">Cached Bindery books, audiobooks, eBooks, covers, reader files, and Whispersync metadata will be removed and fetched again when opened.</string>
+	<string name="info_clear_bindery_cache_confirmation">Cached Bindery books, audiobooks, eBooks, covers, reader files, and Whispersync metadata will be removed and fetched again when opened. Page previews are removed the next time the app starts.</string>
 	<string name="info_clear_musicbrainz_cache_confirmation">Cached MusicBrainz metadata, Cover Art Archive lookup results, and missing-result entries will be removed and resolved again during playback.</string>
 	<string name="info_clear_lidaclips_video_cache_confirmation">Cached LidaClips videos will be removed. Saved/offline clips kept with downloaded songs are not deleted by this action.</string>
 	<string name="info_ebook_reader_import_font_success">Imported ebook font.</string>

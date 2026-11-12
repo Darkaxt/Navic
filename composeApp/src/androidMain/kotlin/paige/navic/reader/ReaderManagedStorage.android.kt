@@ -1,6 +1,10 @@
 package paige.navic.reader
 
 import android.content.Context
+import org.koin.mp.KoinPlatform
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DefaultPagePreviewCacheSizeMb
+import paige.navic.domain.models.cacheSizeMbToBytes
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -19,10 +23,13 @@ internal fun readerManagedStorageRoot(context: Context): File {
 	val rootIdentity = managedRoot.absoluteFile.normalize().path
 	synchronized(readerStorageInitializationLock) {
 		if (initializedReaderStorageRoots.add(rootIdentity)) {
+			val preferences = readerPreferenceManager()
 			initializeReaderManagedStorage(
 				managedRoot = managedRoot,
-				legacyRoot = File(context.cacheDir, ReaderManagedStorageDirectoryName)
+				legacyRoot = File(context.cacheDir, ReaderManagedStorageDirectoryName),
+				clearPageRasters = preferences?.clearPagePreviewsOnNextStart == true
 			)
+			if (preferences?.clearPagePreviewsOnNextStart == true) preferences.clearPagePreviewsOnNextStart = false
 		}
 	}
 	return managedRoot
@@ -36,6 +43,20 @@ internal fun readerPageRasterStorageRoot(context: Context): File =
 		.resolve(ReaderPageRasterStorageDirectoryName)
 		.resolve(ReaderPageRasterStorageVersion)
 		.also(File::mkdirs)
+
+/** Disk limit for page previews, from the Cache manager; a lowered limit trims when a book next opens. */
+internal fun readerPageRasterDiskMaxBytes(): Long = cacheSizeMbToBytes(
+	readerPreferenceManager()?.pagePreviewCacheSizeMb ?: DefaultPagePreviewCacheSizeMb
+)
+
+internal fun readerPageRasterStorageSizeBytes(context: Context): Long =
+	readerManagedStorageRoot(context).resolve(ReaderPageRasterStorageDirectoryName)
+		.walkTopDown()
+		.filter(File::isFile)
+		.sumOf { file -> file.length().coerceAtLeast(0L) }
+
+private fun readerPreferenceManager(): PreferenceManager? =
+	KoinPlatform.getKoinOrNull()?.getOrNull<PreferenceManager>()
 
 internal fun clearReaderPageRasterStorage(context: Context): Int {
 	val directory = readerManagedStorageRoot(context).resolve(ReaderPageRasterStorageDirectoryName)
@@ -56,9 +77,12 @@ internal fun clearReaderSessionStorage(context: Context): Int =
 
 internal fun initializeReaderManagedStorage(
 	managedRoot: File,
-	legacyRoot: File
+	legacyRoot: File,
+	clearPageRasters: Boolean = false
 ) {
 	managedRoot.mkdirs()
+	// Page previews are cleared at startup, before any reader can hold the raster cache open.
+	if (clearPageRasters) managedRoot.resolve(ReaderPageRasterStorageDirectoryName).deleteRecursively()
 	migrateReaderFontStorage(
 		source = legacyRoot.resolve(ReaderFontStorageDirectoryName),
 		target = managedRoot.resolve(ReaderFontStorageDirectoryName)
