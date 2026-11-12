@@ -52,6 +52,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
@@ -92,6 +93,8 @@ import paige.navic.domain.models.DomainRadio
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.PlaybackOrigin
+import paige.navic.domain.models.PlaybackDiagnosticsLogTag
+import paige.navic.domain.models.playbackDiagnosticMessage
 import paige.navic.domain.models.activeArtworkUrl
 import paige.navic.domain.models.collectionShufflePlaybackPlan
 import paige.navic.domain.models.externalFallbackArtworkUrl
@@ -145,6 +148,12 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private var mediaButtonPreparation: AutoCloseable? = null
 	private var mediaSession: MediaSession? = null
 	private val serviceScope = MainScope()
+	private var streamPrefetcher: NavidromeStreamPrefetcher? = null
+
+	private fun isOnUnmeteredNetwork(): Boolean {
+		val system = getSystemService(android.net.ConnectivityManager::class.java) ?: return false
+		return system.activeNetwork != null && !system.isActiveNetworkMetered
+	}
 	private var scrobbleManager: AndroidScrobbleManager? = null
 	private val resourceProvider: ResourceProvider by inject()
 	private var audioManager: AudioManager? = null
@@ -214,7 +223,42 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 
 		val httpDataSourceFactory = DefaultHttpDataSource.Factory()
 			.setDefaultRequestProperties(preferenceManager.serverRequestHeadersMap())
-		val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
+		val streamDataSourceFactory = NavidromeCachedTranscodeDataSource.Factory(
+			httpDataSourceFactory,
+			NavidromeCachedTranscodeDataSource.Policy(onUncachedFallback = { songId, waitedMs ->
+				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
+					"stream-uncached-fallback", "songId" to songId, "waitedMs" to waitedMs, "seekable" to false))
+			})
+		)
+		val playbackCache = NavidromePlaybackCache.get(this)
+		val cachedStreamDataSourceFactory = NavidromeStreamCacheDataSource.Factory(
+			playbackCache,
+			streamDataSourceFactory,
+			httpDataSourceFactory,
+			onOpen = { requested, served, fullyCached ->
+				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
+					"stream-open", "songId" to requested.songId, "requested" to requested.quality,
+					"served" to served.quality, "fullyCached" to fullyCached))
+			}
+		)
+		val dataSourceFactory = DefaultDataSource.Factory(this, cachedStreamDataSourceFactory)
+		val prefetcher = NavidromeStreamPrefetcher(
+			cache = playbackCache,
+			upstreamFactory = streamDataSourceFactory,
+			isUnmetered = ::isOnUnmeteredNetwork,
+			originalUriForSong = { songId ->
+				runCatching { NavidromeStreamCacheKey.originalUri(sessionManager.getStreamUrl(songId).toUri()) }.getOrNull()
+			},
+			isDownloaded = { songId -> downloadManager.getDownloadedFilePath(songId) != null },
+			onTransfer = { event, key, outcome ->
+				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
+					"stream-cache-$event", "songId" to key.songId, "quality" to key.quality, "outcome" to outcome))
+			}
+		)
+		streamPrefetcher = prefetcher
+		serviceScope.launch {
+			connectivityManager.isCellular.collect { prefetcher.upgradeCachedTranscodes() }
+		}
 		val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
 		val player = ExoPlayer.Builder(this)
@@ -257,7 +301,17 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				Logger.w("PlaybackLifecycle", "Foreground playback start denied; retained queue paused")
 			}
 		})
+		val transcodeWarmer = NavidromeTranscodeWarmer(httpDataSourceFactory, Dispatchers.IO.asExecutor())
 		player.addListener(object : Player.Listener {
+			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+				transcodeWarmer.warmUpcoming(player)
+				prefetcher.prefetchNext(player)
+				prefetcher.upgradeCachedTranscodes()
+			}
+			override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+				transcodeWarmer.warmUpcoming(player)
+				prefetcher.prefetchNext(player)
+			}
 			override fun onEvents(player: Player, events: Player.Events) {
 				if (player.playWhenReady && player.playbackState in listOf(Player.STATE_BUFFERING, Player.STATE_READY) ||
 					player.playerError != null || player.playbackState == Player.STATE_ENDED) finishMediaButtonPreparation()
@@ -403,6 +457,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		unregisterAudioDeviceCallback()
 		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
+		streamPrefetcher?.close()
+		streamPrefetcher = null
 		releaseAudioEffects()
 		serviceScope.cancel()
 		stopForeground(STOP_FOREGROUND_REMOVE)

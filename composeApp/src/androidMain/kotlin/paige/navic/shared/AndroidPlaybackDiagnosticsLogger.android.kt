@@ -84,14 +84,22 @@ internal class AndroidPlaybackDiagnosticsLogger {
 		pendingRecoverySongId: String?
 	) {
 		if (isPlaying) return
+		// With playWhenReady still true the user did not pause: playback stalled (buffering, seek
+		// rebuffer, end, error or suppression). Logging it as the last play/pause reason mislabels
+		// stalls as user pauses.
+		val stalled = player.playWhenReady
 		Logger.i(
 			PlaybackDiagnosticsLogTag,
 			playbackDiagnosticMessage(
-				"paused",
-				"reason" to (lastPlayWhenReadyReason ?: "unknown"),
+				if (stalled) "stalled" else "paused",
+				"reason" to if (stalled) playbackStateLabel(player.playbackState) else (lastPlayWhenReadyReason ?: "unknown"),
 				"songId" to (currentSong?.id ?: player.currentMediaItem?.mediaId),
 				"title" to currentSong?.title,
 				"index" to player.currentMediaItemIndex,
+				"positionMs" to player.currentPosition,
+				"source" to player.currentMediaItem?.localConfiguration?.uri?.scheme?.let { scheme ->
+					if (scheme == "http" || scheme == "https") "stream" else "local"
+				},
 				"playWhenReady" to player.playWhenReady,
 				"state" to playbackStateLabel(player.playbackState),
 				"suppression" to lastSuppressionReason,

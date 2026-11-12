@@ -17,6 +17,8 @@ internal fun playbackStreamUri(
 		if (isCellular) preferenceManager.streamingQualityCellular.bitrateAndroid else preferenceManager.streamingQualityWifi.bitrateAndroid
 	}
 	val container = if (isCellular) preferenceManager.streamingQualityCellular.containerAndroid else preferenceManager.streamingQualityWifi.containerAndroid
-	return sessionManager.getStreamUrl(id, bitrate, container).toUri().buildUpon()
-		.appendQueryParameter("estimateContentLength", "true").build()
+	// No estimateContentLength: Navidrome's bitrate-based estimate is usually smaller than the real
+	// transcode and the server stops at the declared length, truncating songs. Seekability comes from
+	// NavidromeCachedTranscodeDataSource switching to the completed transcoding cache instead.
+	return sessionManager.getStreamUrl(id, bitrate, container).toUri()
 }

@@ -37,3 +37,29 @@ class AndroidPlaybackErrorDiagnosticsTest {
 		}
 	}
 }
+
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [35])
+class AndroidPlaybackStallDiagnosticsTest {
+	@Test
+	fun notPlayingWhilePlayWhenReadyIsLoggedAsStallNotUserPause() {
+		val preferences = PreferenceManager(MapSettings())
+		val logs = AppLogManager(preferences)
+		val player = ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build()
+		logs.start()
+		try {
+			val diagnostics = AndroidPlaybackDiagnosticsLogger()
+			diagnostics.onPlayWhenReadyChanged(player, true, androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST, null, null)
+			player.playWhenReady = true
+			diagnostics.onIsPlayingChanged(player, false, null, null)
+			player.playWhenReady = false
+			diagnostics.onIsPlayingChanged(player, false, null, null)
+			val text = AppLogManager(preferences).exportText()
+			assertTrue(text.contains("stalled reason=idle"), text)
+			assertTrue(text.contains("paused reason=user-request"), text)
+		} finally {
+			Logger.configureIssueLogSink(null)
+			player.release()
+		}
+	}
+}
