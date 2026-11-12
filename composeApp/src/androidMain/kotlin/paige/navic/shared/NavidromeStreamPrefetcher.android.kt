@@ -32,6 +32,8 @@ internal class NavidromeStreamPrefetcher(
 	private val originalUriForSong: (songId: String) -> Uri?,
 	private val isDownloaded: (songId: String) -> Boolean,
 	private val onTransfer: (event: String, key: NavidromeStreamCacheKey, outcome: String) -> Unit = { _, _, _ -> },
+	/** True while the player has the song open; its transcoded copy is kept until it is released. */
+	private val isInUse: (songId: String) -> Boolean = { false },
 	private val executor: Executor = Executors.newSingleThreadExecutor { runnable ->
 		Thread(runnable, "navic-stream-prefetch").apply { priority = Thread.MIN_PRIORITY; isDaemon = true }
 	},
@@ -80,7 +82,7 @@ internal class NavidromeStreamPrefetcher(
 					?.takeIf { NavidromeStreamCacheKey.of(it)?.server == original.server }
 					?: return@submit
 				val complete = cache.isFullyCached(original.value) || write("upgrade", original, uri)
-				if (complete) keys.forEach { cache.removeResource(it.value) }
+				if (complete && !isInUse(original.songId)) keys.forEach { cache.removeResource(it.value) }
 			}
 		}
 	}

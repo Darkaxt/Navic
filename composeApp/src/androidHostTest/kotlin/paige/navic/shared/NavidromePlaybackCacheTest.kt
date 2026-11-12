@@ -80,7 +80,13 @@ class NavidromePlaybackCacheTest {
 		return out.toByteArray()
 	}
 
-	private fun prefetcher(fake: FakeServer, unmetered: Boolean, downloaded: Set<String> = emptySet(), events: MutableList<String> = mutableListOf()) =
+	private fun prefetcher(
+		fake: FakeServer,
+		unmetered: Boolean,
+		downloaded: Set<String> = emptySet(),
+		events: MutableList<String> = mutableListOf(),
+		isInUse: (String) -> Boolean = { false },
+	) =
 		NavidromeStreamPrefetcher(
 			cache = cache,
 			upstreamFactory = fake,
@@ -88,6 +94,7 @@ class NavidromePlaybackCacheTest {
 			originalUriForSong = { id -> original(id, salt = "fresh") },
 			isDownloaded = { it in downloaded },
 			onTransfer = { event, key, outcome -> events += "$event:${key.songId}:${key.quality}:$outcome" },
+			isInUse = isInUse,
 			executor = Executor(Runnable::run),
 		)
 
@@ -171,6 +178,31 @@ class NavidromePlaybackCacheTest {
 	}
 
 	@Test
+	fun openSongKeepsItsVariantUntilThePlayerReleasesIt() {
+		val fake = FakeServer()
+		val opens = mutableListOf<String>()
+		val factory = NavidromeStreamCacheDataSource.Factory(cache, fake, fake) { requested, served, _ ->
+			opens += "${requested.quality}->${served.quality}"
+		}
+		val transcodeBytes = readAll(factory.createDataSource(), transcoded("song"))
+
+		// The original finishes downloading while the transcode is still playing.
+		prefetcher(fake, unmetered = true, isInUse = factory::isInUse).upgradeCachedTranscodes()
+		assertTrue(cache.isFullyCached(NavidromeStreamCacheKey.of(original("song"))!!.value))
+		assertTrue(cache.isFullyCached(NavidromeStreamCacheKey.of(transcoded("song"))!!.value), "in-use transcode kept")
+
+		// A seek or load retry reopens the same request: it must get the same bytes the decoder expects.
+		assertContentEquals(transcodeBytes, readAll(factory.createDataSource(), transcoded("song", salt = "seek")))
+
+		// Once the song leaves the current/next window, a replay uses the original.
+		factory.retainPinsFor(setOf("other"))
+		val replay = readAll(factory.createDataSource(), transcoded("song", salt = "replay"))
+		assertTrue(replay.all { it == 'O'.code.toByte() })
+		assertEquals(listOf("opus-192->opus-192", "opus-192->opus-192", "opus-192->original"), opens)
+		assertEquals(listOf("song:transcode@0", "song:original@0"), fake.opened)
+	}
+
+	@Test
 	fun nonNavidromeStreamsBypassTheCache() {
 		val fake = FakeServer()
 		val factory = NavidromeStreamCacheDataSource.Factory(cache, fake, fake)
@@ -184,6 +216,8 @@ class NavidromePlaybackCacheTest {
 		assertTrue(player.contains("DefaultDataSource.Factory(this, cachedStreamDataSourceFactory)"))
 		assertTrue(player.contains("prefetcher.prefetchNext(player)"))
 		assertTrue(player.contains("prefetcher.upgradeCachedTranscodes()"))
+		assertTrue(player.contains("isInUse = cachedStreamDataSourceFactory::isInUse"))
+		assertEquals(2, Regex("""\n\s*releaseStreamPins\(\)""").findAll(player).count(), "pins released on transitions and queue changes")
 		assertTrue(player.contains("streamPrefetcher?.close()"))
 	}
 }

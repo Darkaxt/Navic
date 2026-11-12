@@ -15,6 +15,7 @@ import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Identity of a Navidrome stream in the local playback cache: server, song and quality.
@@ -92,6 +93,11 @@ internal fun Cache.isFullyCached(key: String): Boolean {
  * Reads Navidrome song streams through the local playback cache, so a song is downloaded once and
  * replays (and seeks) from local storage. When a complete original copy is cached, it is used in
  * place of any transcoded request for the same song. Other URLs (radio, artwork) bypass the cache.
+ *
+ * The variant chosen at a song's first open is pinned: the extractor and decoder are bound to that
+ * file's format, so every later open of the same request (seeks, load retries) must serve the same
+ * bytes even if the original finishes downloading meanwhile. [Factory.retainPinsFor] releases pins
+ * of songs that left the player's current/next window, so a later replay can pick the original.
  */
 @OptIn(UnstableApi::class)
 internal class NavidromeStreamCacheDataSource(
@@ -99,6 +105,7 @@ internal class NavidromeStreamCacheDataSource(
 	private val cachedSource: DataSource,
 	private val bypassSource: DataSource,
 	private val onOpen: (key: NavidromeStreamCacheKey, servedKey: NavidromeStreamCacheKey, fullyCached: Boolean) -> Unit = { _, _, _ -> },
+	private val pins: MutableMap<NavidromeStreamCacheKey, NavidromeStreamCacheKey> = ConcurrentHashMap(),
 ) : DataSource {
 	private var active: DataSource? = null
 
@@ -110,9 +117,19 @@ internal class NavidromeStreamCacheDataSource(
 		private val onOpen: (NavidromeStreamCacheKey, NavidromeStreamCacheKey, Boolean) -> Unit = { _, _, _ -> },
 	) : DataSource.Factory {
 		private val cachedFactory = cacheDataSourceFactory(cache, upstreamFactory)
+		private val pins = ConcurrentHashMap<NavidromeStreamCacheKey, NavidromeStreamCacheKey>()
+
 		override fun createDataSource(): DataSource = NavidromeStreamCacheDataSource(
-			cache, cachedFactory.createDataSource(), bypassFactory.createDataSource(), onOpen
+			cache, cachedFactory.createDataSource(), bypassFactory.createDataSource(), onOpen, pins
 		)
+
+		/** Drops the pinned variants of every song not in [songIds] (the player's current and next items). */
+		fun retainPinsFor(songIds: Set<String>) {
+			pins.keys.removeAll { it.songId !in songIds }
+		}
+
+		/** True while a song's served variant is pinned by the player, so its cached copies must stay. */
+		fun isInUse(songId: String): Boolean = pins.keys.any { it.songId == songId }
 	}
 
 	override fun addTransferListener(transferListener: TransferListener) {
@@ -127,8 +144,10 @@ internal class NavidromeStreamCacheDataSource(
 			return bypassSource.open(dataSpec)
 		}
 		val original = key.original()
-		val useOriginal = !key.isOriginal && cache.isFullyCached(original.value)
-		val served = if (useOriginal) original else key
+		val served = pins.getOrPut(key) {
+			if (!key.isOriginal && cache.isFullyCached(original.value)) original else key
+		}
+		val useOriginal = served != key
 		val spec = dataSpec.buildUpon()
 			.setKey(served.value)
 			.apply { if (useOriginal) setUri(NavidromeStreamCacheKey.originalUri(dataSpec.uri)) }

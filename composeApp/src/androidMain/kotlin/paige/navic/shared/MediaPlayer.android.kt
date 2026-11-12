@@ -250,6 +250,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				runCatching { NavidromeStreamCacheKey.originalUri(sessionManager.getStreamUrl(songId).toUri()) }.getOrNull()
 			},
 			isDownloaded = { songId -> downloadManager.getDownloadedFilePath(songId) != null },
+			isInUse = cachedStreamDataSourceFactory::isInUse,
 			onTransfer = { event, key, outcome ->
 				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
 					"stream-cache-$event", "songId" to key.songId, "quality" to key.quality, "outcome" to outcome))
@@ -302,13 +303,25 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			}
 		})
 		val transcodeWarmer = NavidromeTranscodeWarmer(httpDataSourceFactory, Dispatchers.IO.asExecutor())
+		// Release the pinned stream variant of songs that left the current/next window.
+		fun releaseStreamPins() {
+			val timeline = player.currentTimeline
+			val next = if (timeline.isEmpty) C.INDEX_UNSET
+				else timeline.getNextWindowIndex(player.currentMediaItemIndex, player.repeatMode, player.shuffleModeEnabled)
+			val items = listOfNotNull(player.currentMediaItem, next.takeIf { it != C.INDEX_UNSET }?.let(player::getMediaItemAt))
+			cachedStreamDataSourceFactory.retainPinsFor(
+				items.mapNotNull { item -> item.localConfiguration?.uri?.let(NavidromeStreamCacheKey::of)?.songId }.toSet()
+			)
+		}
 		player.addListener(object : Player.Listener {
 			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+				releaseStreamPins()
 				transcodeWarmer.warmUpcoming(player)
 				prefetcher.prefetchNext(player)
 				prefetcher.upgradeCachedTranscodes()
 			}
 			override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+				releaseStreamPins()
 				transcodeWarmer.warmUpcoming(player)
 				prefetcher.prefetchNext(player)
 			}
