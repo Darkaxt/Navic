@@ -19,6 +19,9 @@ expect class StorageManager {
 	fun listLidaClipVideoCacheFiles(): List<LidaClipCacheFileInfo>
 	fun listLidaClipOfflineFiles(): List<LidaClipCacheFileInfo>
 	fun readerPublicationCacheSizeBytes(): Long
+	fun streamedSongCacheSizeBytes(): Long
+	fun setStreamedSongCacheMaxBytes(bytes: Long)
+	fun clearStreamedSongCache()
 	suspend fun saveFile(path: String, channel: ByteReadChannel)
 	fun clearDownloads()
 	fun clearLidaClipVideoCache()

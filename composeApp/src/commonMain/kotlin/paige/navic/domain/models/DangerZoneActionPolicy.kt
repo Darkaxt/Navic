@@ -9,6 +9,7 @@ import navic.composeapp.generated.resources.action_clear_image_cache
 import navic.composeapp.generated.resources.action_clear_lidaclips_video_cache
 import navic.composeapp.generated.resources.action_clear_musicbrainz_cache
 import navic.composeapp.generated.resources.action_clear_pending_actions
+import navic.composeapp.generated.resources.action_clear_streamed_song_cache
 import navic.composeapp.generated.resources.action_rebuild_database
 import navic.composeapp.generated.resources.info_clear_downloads_confirmation
 import navic.composeapp.generated.resources.info_clear_bindery_cache_confirmation
@@ -16,6 +17,7 @@ import navic.composeapp.generated.resources.info_clear_image_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_lidaclips_video_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_musicbrainz_cache_confirmation
 import navic.composeapp.generated.resources.info_clear_pending_actions_confirmation
+import navic.composeapp.generated.resources.info_clear_streamed_song_cache_confirmation
 import navic.composeapp.generated.resources.info_rebuild_database_confirmation
 import org.jetbrains.compose.resources.StringResource
 
@@ -24,6 +26,10 @@ enum class DangerZoneAction(
 	val confirmationMessage: StringResource,
 	val requiresConfirmation: Boolean = true
 ) {
+	ClearStreamedSongCache(
+		Res.string.action_clear_streamed_song_cache,
+		Res.string.info_clear_streamed_song_cache_confirmation
+	),
 	ClearImageCache(
 		Res.string.action_clear_image_cache,
 		Res.string.info_clear_image_cache_confirmation
@@ -54,12 +60,9 @@ enum class DangerZoneAction(
 	)
 }
 
+/** Destructive actions that stay in Data & Storage; per-cache clears live in the Cache manager. */
 fun dangerZoneActions(): ImmutableList<DangerZoneAction> =
 	persistentListOf(
-		DangerZoneAction.ClearImageCache,
-		DangerZoneAction.ClearMusicBrainzCache,
-		DangerZoneAction.ClearLidaClipsVideoCache,
-		DangerZoneAction.ClearBinderyCache,
 		DangerZoneAction.ClearPendingSyncActions,
 		DangerZoneAction.ClearDownloads,
 		DangerZoneAction.RebuildDatabase

@@ -12,8 +12,11 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.ContentMetadata
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import org.koin.mp.KoinPlatform
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DefaultStreamedSongCacheSizeMb
+import paige.navic.domain.models.cacheSizeMbToBytes
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -66,21 +69,58 @@ private fun Uri.serverIdentity(): String {
 	return "${host.orEmpty()}:${if (port == -1) 0 else port}$base"
 }
 
-/** Process-wide streamed-song cache. SimpleCache allows exactly one instance per folder. */
+/**
+ * Process-wide streamed-song cache. SimpleCache allows exactly one instance per folder.
+ * Its size limit comes from the `streamedSongCacheSizeMb` preference and can change at runtime.
+ */
 @OptIn(UnstableApi::class)
 internal object NavidromePlaybackCache {
-	const val MAX_BYTES = 2L * 1024 * 1024 * 1024
-
 	@Volatile
 	private var cache: SimpleCache? = null
 
+	@Volatile
+	private var evictor: ResizableLruCacheEvictor? = null
+
+	/** Limit set from Settings during this process; wins over the stored preference at creation. */
+	@Volatile
+	private var requestedMaxBytes: Long? = null
+
 	fun get(context: Context): Cache = cache ?: synchronized(this) {
-		cache ?: SimpleCache(
-			File(context.applicationContext.cacheDir, "playback-audio"),
-			LeastRecentlyUsedCacheEvictor(MAX_BYTES),
-			StandaloneDatabaseProvider(context.applicationContext)
-		).also { cache = it }
+		cache ?: run {
+			val lruEvictor = ResizableLruCacheEvictor(initialMaxBytes())
+			SimpleCache(
+				File(context.applicationContext.cacheDir, "playback-audio"),
+				lruEvictor,
+				StandaloneDatabaseProvider(context.applicationContext)
+			).also {
+				evictor = lruEvictor
+				cache = it
+			}
+		}
 	}
+
+	/** Bytes currently stored on disk. */
+	fun sizeBytes(context: Context): Long = get(context).cacheSpace
+
+	/** Changes the limit, trimming least-recently-used songs immediately when it is lowered. */
+	fun setMaxBytes(bytes: Long) {
+		synchronized(this) {
+			requestedMaxBytes = bytes
+			val current = cache ?: return
+			evictor?.setMaxBytes(current, bytes)
+		}
+	}
+
+	/** Removes every cached song; safe while playback runs (open readers re-fetch from the server). */
+	fun clear(context: Context) {
+		val current = get(context)
+		current.keys.forEach { key -> current.removeResource(key) }
+	}
+
+	private fun initialMaxBytes(): Long = requestedMaxBytes ?: cacheSizeMbToBytes(
+		KoinPlatform.getKoinOrNull()?.getOrNull<PreferenceManager>()?.streamedSongCacheSizeMb
+			?: DefaultStreamedSongCacheSizeMb
+	)
 }
 
 @OptIn(UnstableApi::class)

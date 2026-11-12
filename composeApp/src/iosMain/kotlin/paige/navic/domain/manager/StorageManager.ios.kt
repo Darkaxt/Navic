@@ -99,6 +99,13 @@ actual class StorageManager {
 		return directorySizeBytes(readerPublicationCacheDir())
 	}
 
+	// iOS has no streamed-song cache.
+	actual fun streamedSongCacheSizeBytes(): Long = 0L
+
+	actual fun setStreamedSongCacheMaxBytes(bytes: Long) = Unit
+
+	actual fun clearStreamedSongCache() = Unit
+
 	private fun listFiles(directoryUrl: NSURL): List<LidaClipCacheFileInfo> {
 		val manager = NSFileManager.defaultManager
 		val dir = directoryUrl.path ?: return emptyList()

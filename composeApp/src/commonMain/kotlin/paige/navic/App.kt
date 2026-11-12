@@ -125,6 +125,7 @@ import paige.navic.ui.screens.settings.SettingsAppearanceScreen
 import paige.navic.ui.screens.settings.SettingsBinderyScreen
 import paige.navic.ui.screens.settings.SettingsCustomHeadersScreen
 import paige.navic.ui.screens.settings.SettingsDataStorageScreen
+import paige.navic.ui.screens.settings.SettingsCacheManagerScreen
 import paige.navic.ui.screens.settings.SettingsDeveloperScreen
 import paige.navic.ui.screens.settings.SettingsEbooksScreen
 import paige.navic.ui.screens.settings.SettingsIntegrationsScreen
@@ -546,6 +547,9 @@ private fun entryProvider(
 		}
 		entry<Screen.Settings.DataStorage>(metadata = detailPane("settings")) {
 			SettingsDataStorageScreen()
+		}
+		entry<Screen.Settings.CacheManager>(metadata = detailPane("settings")) {
+			SettingsCacheManagerScreen()
 		}
 		entry<Screen.Settings.Integrations>(metadata = detailPane("settings")) {
 			SettingsIntegrationsScreen()

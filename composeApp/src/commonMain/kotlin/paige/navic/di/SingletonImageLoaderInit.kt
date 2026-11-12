@@ -7,6 +7,10 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import coil3.serviceLoaderEnabled
 import okio.FileSystem
+import org.koin.mp.KoinPlatform
+import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.models.DefaultImageCacheSizeMb
+import paige.navic.domain.models.cacheSizeMbToBytes
 import coil3.PlatformContext as CoilPlatformContext
 
 private var sharedMemoryCache: MemoryCache? = null
@@ -22,7 +26,7 @@ private fun getMemoryCache(context: CoilPlatformContext): MemoryCache {
 private fun getDiskCache(): DiskCache {
 	return sharedDiskCache ?: DiskCache.Builder()
 		.directory(FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "image_cache")
-		.maxSizeBytes(2L shl 30)
+		.maxSizeBytes(configuredImageDiskCacheMaxBytes())
 		.build().also { sharedDiskCache = it }
 }
 
@@ -48,3 +52,9 @@ fun getStaticImageLoader(context: CoilPlatformContext): ImageLoader {
 		.crossfade(true)
 		.build()
 }
+
+/** Coil fixes the disk cache size at construction, so a changed limit applies after an app restart. */
+private fun configuredImageDiskCacheMaxBytes(): Long = cacheSizeMbToBytes(
+	KoinPlatform.getKoinOrNull()?.getOrNull<PreferenceManager>()?.imageCacheSizeMb
+		?: DefaultImageCacheSizeMb
+)

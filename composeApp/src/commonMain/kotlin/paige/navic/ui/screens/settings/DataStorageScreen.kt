@@ -29,7 +29,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +44,6 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import navic.composeapp.generated.resources.Res
@@ -58,7 +56,6 @@ import navic.composeapp.generated.resources.info_library_download
 import navic.composeapp.generated.resources.info_library_download_warning
 import navic.composeapp.generated.resources.info_not_available_offline
 import navic.composeapp.generated.resources.info_progress
-import navic.composeapp.generated.resources.info_status_calculating
 import navic.composeapp.generated.resources.info_status_downloading
 import navic.composeapp.generated.resources.info_sync_date_format
 import navic.composeapp.generated.resources.info_sync_hours_ago
@@ -70,13 +67,10 @@ import navic.composeapp.generated.resources.option_auto_download_starred_songs
 import navic.composeapp.generated.resources.option_cover_art_quality
 import navic.composeapp.generated.resources.option_download_queue
 import navic.composeapp.generated.resources.option_downloaded_songs
-import navic.composeapp.generated.resources.option_bindery_reader_cache_size
-import navic.composeapp.generated.resources.option_image_cache_size
 import navic.composeapp.generated.resources.option_last_sync
 import navic.composeapp.generated.resources.option_live_status
 import navic.composeapp.generated.resources.option_lida_clips_offline_clips
 import navic.composeapp.generated.resources.option_max_concurrent_downloads
-import navic.composeapp.generated.resources.option_musicbrainz_cache
 import navic.composeapp.generated.resources.option_musicbrainz_artwork_fallback
 import navic.composeapp.generated.resources.option_offline_mode
 import navic.composeapp.generated.resources.option_pause_search_history
@@ -93,6 +87,8 @@ import navic.composeapp.generated.resources.subtitle_pending_actions_with_failur
 import navic.composeapp.generated.resources.subtitle_rebuild_database
 import navic.composeapp.generated.resources.subtitle_trigger_sync
 import navic.composeapp.generated.resources.title_cache_management
+import navic.composeapp.generated.resources.subtitle_cache_manager
+import navic.composeapp.generated.resources.title_cache_manager
 import navic.composeapp.generated.resources.title_danger_zone
 import navic.composeapp.generated.resources.title_data_storage
 import navic.composeapp.generated.resources.title_library_download
@@ -102,15 +98,13 @@ import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.models.DangerZoneAction
 import paige.navic.domain.models.dangerZoneActions
 import paige.navic.domain.models.settings.CoverArtQuality
 import paige.navic.domain.models.settings.OfflineMode
-import paige.navic.domain.repositories.BinderyRepository
-import paige.navic.domain.repositories.MusicBrainzArtworkRepository
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Delete
 import paige.navic.icons.outlined.Offline
@@ -137,9 +131,7 @@ fun SettingsDataStorageScreen() {
 
 	val platformContext = LocalPlatformContext.current
 	val preferenceManager = koinInject<PreferenceManager>()
-	val storageManager = koinInject<StorageManager>()
-	val musicBrainzArtworkRepository = koinInject<MusicBrainzArtworkRepository>()
-	val binderyRepository = koinInject<BinderyRepository>()
+	val backStack = LocalNavStack.current
 	val scope = rememberCoroutineScope()
 	val coilPlatformContext = LocalCoilPlatformContext.current
 	val imageLoader = SingletonImageLoader.get(coilPlatformContext)
@@ -152,7 +144,6 @@ fun SettingsDataStorageScreen() {
 	val downloadQueueItems by viewModel.downloadQueueItems.collectAsStateWithLifecycle()
 	val lidaClipOfflineClipCount by viewModel.lidaClipOfflineClipCount.collectAsStateWithLifecycle()
 	val lidaClipOfflineStorageSize by viewModel.lidaClipOfflineStorageSize.collectAsStateWithLifecycle()
-	val musicBrainzCacheStats by musicBrainzArtworkRepository.cacheStats.collectAsStateWithLifecycle()
 
 	var showLibraryDownloadDialog by remember { mutableStateOf(false) }
 	var showDownloadQueueDialog by remember { mutableStateOf(false) }
@@ -161,10 +152,6 @@ fun SettingsDataStorageScreen() {
 	val libraryDownloadProgress by viewModel.libraryDownloadProgress.collectAsStateWithLifecycle()
 
 	val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
-
-	val calculating = stringResource(Res.string.info_status_calculating)
-	var imageCacheSizeText by remember { mutableStateOf(calculating) }
-	var readerPublicationCacheSizeText by remember { mutableStateOf(calculating) }
 
 	val downloadedSize = remember(downloadSize) { downloadStorageSizeText(downloadSize) }
 	val lidaClipOfflineSize = remember(lidaClipOfflineStorageSize) {
@@ -186,25 +173,11 @@ fun SettingsDataStorageScreen() {
 
 	fun runDangerZoneAction(action: DangerZoneAction) {
 		when (action) {
-			DangerZoneAction.ClearImageCache -> {
-				imageLoader.memoryCache?.clear()
-				scope.launch(Dispatchers.IO) {
-					imageLoader.diskCache?.clear()
-					imageCacheSizeText = imageCacheStorageSizeText(0)
-				}
-			}
-			DangerZoneAction.ClearMusicBrainzCache -> musicBrainzArtworkRepository.clearCache()
-			DangerZoneAction.ClearLidaClipsVideoCache -> scope.launch(Dispatchers.IO) {
-				storageManager.clearLidaClipVideoCache()
-			}
-			DangerZoneAction.ClearBinderyCache -> scope.launch(Dispatchers.IO) {
-				storageManager.clearReaderPublicationCache()
-				binderyRepository.clearMetadataCache()
-				readerPublicationCacheSizeText = readerPublicationCacheStorageSizeText(0)
-			}
 			DangerZoneAction.ClearPendingSyncActions -> viewModel.removeAllActions()
 			DangerZoneAction.ClearDownloads -> viewModel.clearAllDownloads()
 			DangerZoneAction.RebuildDatabase -> if (isOnline) viewModel.rebuildDatabase()
+			// Per-cache clears are handled by the Cache manager screen.
+			else -> Unit
 		}
 	}
 
@@ -215,16 +188,6 @@ fun SettingsDataStorageScreen() {
 				Icons.Outlined.Offline,
 				stringResource(Res.string.info_not_available_offline),
 				modifier = Modifier.size(20.dp)
-			)
-		}
-	}
-
-	LaunchedEffect(Unit) {
-		withContext(Dispatchers.IO) {
-			val sizeBytes = imageLoader.diskCache?.size ?: 0L
-			imageCacheSizeText = imageCacheStorageSizeText(sizeBytes)
-			readerPublicationCacheSizeText = readerPublicationCacheStorageSizeText(
-				storageManager.readerPublicationCacheSizeBytes()
 			)
 		}
 	}
@@ -295,7 +258,6 @@ fun SettingsDataStorageScreen() {
 							imageLoader.memoryCache?.clear()
 							scope.launch(Dispatchers.IO) {
 								imageLoader.diskCache?.clear()
-								imageCacheSizeText = imageCacheStorageSizeText(0)
 							}
 						}
 					)
@@ -448,29 +410,16 @@ fun SettingsDataStorageScreen() {
 						onSelect = { preferenceManager.maxConcurrentDownloads = it }
 					)
 
-					SettingValueRow(
-						title = { Text(stringResource(Res.string.option_image_cache_size)) },
-						value = imageCacheSizeText
-					)
-
-					SettingValueRow(
-						title = { Text(stringResource(Res.string.option_bindery_reader_cache_size)) },
-						value = readerPublicationCacheSizeText
-					)
-
-					SettingValueRow(
-						title = { Text(stringResource(Res.string.option_musicbrainz_cache)) },
-						subtitle = {
+					FormRow(onClick = { backStack.add(Screen.Settings.CacheManager) }) {
+						Column(Modifier.weight(1f)) {
+							Text(stringResource(Res.string.title_cache_manager))
 							Text(
-								musicBrainzCacheSummaryText(
-									artworkSongs = musicBrainzCacheStats.artworkSongs,
-									metadataSongs = musicBrainzCacheStats.metadataSongs,
-									missingSongs = musicBrainzCacheStats.missingSongs
-								)
+								stringResource(Res.string.subtitle_cache_manager),
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant
 							)
-						},
-						value = musicBrainzCacheValueText(musicBrainzCacheStats.totalSongs)
-					)
+						}
+					}
 
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_auto_download_starred_songs)) },
@@ -593,7 +542,7 @@ fun SettingsDataStorageScreen() {
 }
 
 @Composable
-private fun DangerZoneConfirmationDialog(
+internal fun DangerZoneConfirmationDialog(
 	action: DangerZoneAction?,
 	onDismissRequest: () -> Unit,
 	onConfirm: (DangerZoneAction) -> Unit

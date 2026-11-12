@@ -14,10 +14,6 @@ class DangerZoneActionPolicyTest {
 	fun dangerZoneActionsKeepDestructiveStorageOrder() {
 		assertEquals(
 			listOf(
-				DangerZoneAction.ClearImageCache,
-				DangerZoneAction.ClearMusicBrainzCache,
-				DangerZoneAction.ClearLidaClipsVideoCache,
-				DangerZoneAction.ClearBinderyCache,
 				DangerZoneAction.ClearPendingSyncActions,
 				DangerZoneAction.ClearDownloads,
 				DangerZoneAction.RebuildDatabase

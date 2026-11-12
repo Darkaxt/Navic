@@ -306,6 +306,9 @@ sealed interface Screen : NavKey {
 		data object DataStorage : Settings
 		@Immutable
 		@Serializable
+		data object CacheManager : Settings
+		@Immutable
+		@Serializable
 		data object Integrations : Settings
 		@Immutable
 		@Serializable

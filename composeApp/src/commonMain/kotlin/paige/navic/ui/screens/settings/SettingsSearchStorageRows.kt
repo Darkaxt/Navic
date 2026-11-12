@@ -11,7 +11,13 @@ import paige.navic.domain.models.MaxNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MaxNowPlayingBackgroundDimPercent
 import paige.navic.domain.models.MinNowPlayingBackgroundBlurDp
 import paige.navic.domain.models.MinNowPlayingBackgroundDimPercent
+import org.koin.compose.koinInject
+import paige.navic.domain.manager.StorageManager
+import paige.navic.domain.models.ImageCacheSizeOptionsMb
+import paige.navic.domain.models.cacheSizeMbToBytes
 import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
+import paige.navic.domain.models.StreamedSongCacheSizeOptionsMb
+import paige.navic.domain.models.cacheSizeLimitLabel
 import paige.navic.domain.models.lidaClipsVideoCacheSizeLabel
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
 import paige.navic.domain.models.nowPlayingBackgroundBlurDp
@@ -33,6 +39,8 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun settingsSearchStorageRows(context: SettingsSearchContext): List<SearchableSettingsRow> = with(context) {
+	val cacheManager = stringResource(Res.string.title_cache_manager)
+	val storageManager = koinInject<StorageManager>()
 	buildList {
 		add(selectionRow(
 			id = "data.offline-mode",
@@ -67,7 +75,7 @@ internal fun settingsSearchStorageRows(context: SettingsSearchContext): List<Sea
 		))
 		add(valueRow(
 			id = "data.bindery-cache",
-			path = path(dataStorage, cacheManagement),
+			path = path(dataStorage, cacheManager),
 			title = stringResource(Res.string.option_bindery_reader_cache_size),
 			subtitle = stringResource(Res.string.info_clear_bindery_cache_confirmation),
 			keywords = listOf("bindery", "whispersync", "audiobook", "ebook", "epub", "pdf", "reader", "cache", "clear cache"),
@@ -75,7 +83,7 @@ internal fun settingsSearchStorageRows(context: SettingsSearchContext): List<Sea
 		))
 		add(valueRow(
 			id = "data.musicbrainz-cache",
-			path = path(dataStorage, cacheManagement),
+			path = path(dataStorage, cacheManager),
 			title = stringResource(Res.string.option_musicbrainz_cache),
 			subtitle = musicBrainzCacheSummaryText(
 				artworkSongs = musicBrainzCacheStats.artworkSongs,
@@ -95,11 +103,36 @@ internal fun settingsSearchStorageRows(context: SettingsSearchContext): List<Sea
 		))
 		add(valueRow(
 			id = "data.lida-video-cache",
-			path = path(dataStorage, cacheManagement),
+			path = path(dataStorage, cacheManager),
 			title = stringResource(Res.string.action_clear_lidaclips_video_cache),
 			subtitle = stringResource(Res.string.info_clear_lidaclips_video_cache_confirmation),
 			keywords = listOf("lida", "music video clips", "video cache", "clear cache"),
 			value = ""
+		))
+		add(selectionRow(
+			id = "data.streamed-song-cache-size",
+			path = path(dataStorage, cacheManager, stringResource(Res.string.title_streamed_song_cache)),
+			title = stringResource(Res.string.option_cache_size_limit),
+			subtitle = stringResource(Res.string.subtitle_streamed_song_cache_size_limit),
+			keywords = listOf("streamed songs", "stream cache", "playback cache", "audio cache", "cache size", "clear cache"),
+			items = StreamedSongCacheSizeOptionsMb,
+			label = { cacheSizeLimitLabel(it) },
+			selection = preferenceManager.streamedSongCacheSizeMb,
+			onSelect = {
+				preferenceManager.streamedSongCacheSizeMb = it
+				storageManager.setStreamedSongCacheMaxBytes(cacheSizeMbToBytes(it))
+			}
+		))
+		add(selectionRow(
+			id = "data.image-cache-size",
+			path = path(dataStorage, cacheManager, stringResource(Res.string.title_image_cache)),
+			title = stringResource(Res.string.option_cache_size_limit),
+			subtitle = stringResource(Res.string.subtitle_image_cache_size_limit),
+			keywords = listOf("image cache", "artwork", "cover art", "cache size", "clear cache"),
+			items = ImageCacheSizeOptionsMb,
+			label = { cacheSizeLimitLabel(it) },
+			selection = preferenceManager.imageCacheSizeMb,
+			onSelect = { preferenceManager.imageCacheSizeMb = it }
 		))
 		add(switchRow(
 			id = "data.pause-search-history",
