@@ -133,6 +133,24 @@ data class WhispersyncTimeline(
 			?: matchingSegments.nearestBoundarySnap(position)
 	}
 
+	/** The segment of the same audio that ended most recently at or before [positionMs]. */
+	fun precedingSegment(
+		audioResource: String,
+		positionMs: Long,
+		audioTrackIndex: Int? = null
+	): WhispersyncSegment? {
+		val normalizedAudioCandidates = audioResource.normalizedWhispersyncResourceCandidates()
+		return segments
+			.filter { segment ->
+				segment.endMs <= positionMs &&
+					segment.matchesAudioResourceOrTrack(
+						normalizedAudioCandidates = normalizedAudioCandidates,
+						audioTrackIndex = audioTrackIndex
+					)
+			}
+			.maxByOrNull { segment -> segment.endMs }
+	}
+
 	fun seekTargetForVisibleTextRange(
 		textHref: String,
 		visibleStart: Int,

@@ -44,6 +44,18 @@ class WhispersyncOverlaySyncAdapter(
 	override fun playbackCue(input: WhispersyncPlaybackSyncInput): ReaderOverlayCue? =
 		playbackResolution(input)?.cue
 
+	/**
+	 * True when [input] sits in the silence right after the cue keyed [activeCueKey], i.e. playback
+	 * simply ran past it. The painted (persistent) highlight should then stay until the next cue.
+	 */
+	fun gapFollowsCue(input: WhispersyncPlaybackSyncInput, activeCueKey: String?): Boolean =
+		activeCueKey != null &&
+			timeline.precedingSegment(
+				audioResource = input.audioResource,
+				positionMs = input.positionMs,
+				audioTrackIndex = input.audioTrackIndex
+			)?.overlaySyncKey() == activeCueKey
+
 	fun playbackResolution(
 		input: WhispersyncPlaybackSyncInput
 	): WhispersyncPlaybackSyncResolution? {

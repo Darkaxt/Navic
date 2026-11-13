@@ -256,15 +256,24 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 		return ReaderWhispersyncPlaybackPositionStep(state = this)
 	}
 	val adapter = WhispersyncOverlaySyncAdapter(timeline)
-	val resolution = adapter.playbackResolution(
-		WhispersyncPlaybackSyncInput(
-			audioResource = audioResource,
-			positionMs = positionMs,
-			audioTrackIndex = audioTrackIndex,
-			playbackSpeed = playbackSpeed,
-			highlightLeadMs = highlightLeadMs
-		)
-	) ?: run {
+	val input = WhispersyncPlaybackSyncInput(
+		audioResource = audioResource,
+		positionMs = positionMs,
+		audioTrackIndex = audioTrackIndex,
+		playbackSpeed = playbackSpeed,
+		highlightLeadMs = highlightLeadMs
+	)
+	val resolution = adapter.playbackResolution(input) ?: run {
+			val noActiveCue = ReaderWhispersyncStatus(
+				kind = ReaderWhispersyncStatusKind.NoActiveCue,
+				message = ReaderWhispersyncStatusMessage.NoActiveCue,
+				audioResource = audioResource,
+				positionMs = positionMs
+			)
+			// Silence after the cue just narrated keeps its highlight until the next cue starts.
+			if (adapter.gapFollowsCue(input, activeCueKey)) {
+				return ReaderWhispersyncPlaybackPositionStep(state = this, status = noActiveCue)
+			}
 			if (activeCueKey != null) {
 				Logger.w(
 					WhispersyncSyncLogTag,
@@ -274,12 +283,7 @@ fun ReaderWhispersyncSyncState.onAudiobookPlaybackPositionStep(
 			}
 			return ReaderWhispersyncPlaybackPositionStep(
 				state = clearOverlayIfNeeded(),
-				status = ReaderWhispersyncStatus(
-					kind = ReaderWhispersyncStatusKind.NoActiveCue,
-					message = ReaderWhispersyncStatusMessage.NoActiveCue,
-					audioResource = audioResource,
-					positionMs = positionMs
-				)
+				status = noActiveCue
 			)
 	}
 	val segment = resolution.segment

@@ -271,7 +271,7 @@ class ReaderWhispersyncSyncCoordinatorTest {
 	}
 
 	@Test
-	fun playbackPositionInTimelineGapClearsOverlayWithoutMismatchRepairPrompt() {
+	fun silenceAfterTheNarratedCueKeepsItsHighlightUntilTheNextCue() {
 		val timeline = whispersyncTimeline()
 		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
 			timeline = timeline,
@@ -279,6 +279,35 @@ class ReaderWhispersyncSyncCoordinatorTest {
 			positionMs = 1_500
 		)
 
+		val gap = active.onAudiobookPlaybackPositionStep(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 4_000
+		)
+
+		assertEquals(active, gap.state)
+		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, assertNotNull(gap.status).kind)
+		val next = gap.state.onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 5_500
+		)
+		assertEquals(
+			"seg-2",
+			assertIs<ReaderEngineCommand.ApplyMediaOverlay>(next.engineCommand).fragment.fragmentId
+		)
+	}
+
+	@Test
+	fun playbackPositionInTimelineGapClearsOverlayWithoutMismatchRepairPrompt() {
+		val timeline = whispersyncTimeline()
+		val active = ReaderWhispersyncSyncState().onAudiobookPlaybackPosition(
+			timeline = timeline,
+			audioResource = "Audio/chapter01.m4b",
+			positionMs = 6_000
+		)
+
+		// Seeking back into the silence after seg-1 is not a continuation of the active seg-2.
 		val gap = active.onAudiobookPlaybackPositionStep(
 			timeline = timeline,
 			audioResource = "Audio/chapter01.m4b",
