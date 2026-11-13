@@ -26,9 +26,9 @@ internal data class ReaderPlayLikeCurlRasterProfile(
 	val sourceIdentity: String,
 	val orientation: ReaderPlayLikeCurlOrientation,
 	val quality: ReaderPageBitmapQuality,
+	/** Foliate ordinals: pages in portrait, whole spreads in landscape. */
 	val pageCount: Int = 1,
 	val readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-	val spreadAnchorParity: Int = 0,
 	val rasterGeneration: Long = 0L
 )
 

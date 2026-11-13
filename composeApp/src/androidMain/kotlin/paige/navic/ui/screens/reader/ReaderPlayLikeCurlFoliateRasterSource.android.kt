@@ -312,15 +312,30 @@ internal fun readerPlayLikeCurlRasterLayout(
 	)
 }
 
+/** Foliate ordinals index whole snapshots: one portrait page or one landscape spread. */
+internal fun readerPlayLikeCurlSourcePageIndex(
+	foliateOrdinal: Int,
+	pageCount: Int
+): Int {
+	require(pageCount > 0) { "Foliate page count must be positive" }
+	return foliateOrdinal.coerceIn(0, pageCount - 1)
+}
+
+/**
+ * Resolves a native leaf ordinal (raster adapter key) to its Foliate snapshot and leaf.
+ * [pageCount] counts Foliate ordinals, i.e. whole spreads in landscape.
+ */
 internal fun readerPlayLikeCurlFoliatePageRequest(
 	orientation: ReaderPlayLikeCurlOrientation,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
 	logicalOrdinal: Int,
-	pageCount: Int,
-	spreadAnchorParity: Int = 0
+	pageCount: Int
 ): ReaderPlayLikeCurlFoliatePageRequest {
 	require(pageCount > 0) { "Foliate page count must be positive" }
-	val boundedOrdinal = logicalOrdinal.coerceIn(0, pageCount - 1)
+	val boundedOrdinal = logicalOrdinal.coerceIn(
+		0,
+		readerPlayLikeCurlLeafOrdinalCount(orientation, pageCount) - 1
+	)
 	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
 		return ReaderPlayLikeCurlFoliatePageRequest(
 			logicalOrdinal = boundedOrdinal,
@@ -332,8 +347,7 @@ internal fun readerPlayLikeCurlFoliatePageRequest(
 	val slot = readerPlayLikeCurlSpreadSlot(
 		logicalOrdinal = boundedOrdinal,
 		pageCount = pageCount,
-		readerDirection = readerDirection,
-		spreadAnchorParity = spreadAnchorParity
+		readerDirection = readerDirection
 	)
 	return ReaderPlayLikeCurlFoliatePageRequest(
 		logicalOrdinal = boundedOrdinal,
@@ -353,8 +367,7 @@ internal fun readerPlayLikeCurlProtectedSourcePageIndices(
 		orientation = profile.orientation,
 		readerDirection = profile.readerDirection,
 		logicalOrdinal = ordinal,
-		pageCount = profile.pageCount,
-		spreadAnchorParity = profile.spreadAnchorParity
+		pageCount = profile.pageCount
 	).sourcePageIndex
 }
 
@@ -515,9 +528,11 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		ReaderPlayLikeCurlOrientation.Landscape -> ReaderPageTurnTransitionKind.LandscapeSpreadSlide
 	}
 	private val fallbackRasterRequestEpochs = AtomicLong()
+	private val leafOrdinalCount =
+		readerPlayLikeCurlLeafOrdinalCount(profile.orientation, profile.pageCount)
 
 	override suspend fun load(key: ReaderPlayLikeCurlRasterKey): ReaderPlayLikeCurlRasterImage? {
-		if (key.profile != profile || key.pageIndex !in 0 until profile.pageCount) return null
+		if (key.profile != profile || key.pageIndex !in 0 until leafOrdinalCount) return null
 		if (consumeQaMiss(key)) return null
 		val request = pageRequest(key.pageIndex)
 		val snapshot = resolve(request, key.publicationFence::isCurrent)
@@ -555,7 +570,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 	internal suspend fun consumeQaMiss(key: ReaderPlayLikeCurlRasterKey): Boolean {
 		if (
 			key.profile != profile ||
-			key.pageIndex !in 0 until profile.pageCount ||
+			key.pageIndex !in 0 until leafOrdinalCount ||
 			key.missingRasterPolicy == ReaderPlayLikeCurlMissingRasterPolicy.CacheOnly
 		) {
 			return false
@@ -567,7 +582,9 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 				!key.publicationFence.isCurrent() ||
 				!readerPlayLikeCurlQaMissIsEligible(
 					request,
-					qaMissTargetOrdinalProvider()
+					qaMissTargetOrdinalProvider()?.let { foliateOrdinal ->
+						readerPlayLikeCurlAnchorLeafOrdinal(profile.orientation, foliateOrdinal)
+					}
 				) ||
 				!registry.hasQueued(ReaderPageQaFault.MissNextRasterLoad)
 			) {
@@ -575,7 +592,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 			}
 			val diagnosticOperation = diagnostics?.startOperation(
 				rasterGeneration = profile.rasterGeneration,
-				ordinal = request.logicalOrdinal
+				ordinal = request.sourcePageIndex
 			)
 			val rasterRequestEpoch = diagnosticOperation?.attempt
 				?: fallbackRasterRequestEpochs.incrementAndGet()
@@ -609,7 +626,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		logicalOrdinal: Int,
 		isStillCurrent: () -> Boolean
 	): Boolean {
-		if (logicalOrdinal !in 0 until profile.pageCount) return false
+		if (logicalOrdinal !in 0 until leafOrdinalCount) return false
 		val snapshot = resolve(pageRequest(logicalOrdinal), isStillCurrent) ?: return false
 		snapshot.release()
 		return true
@@ -619,8 +636,7 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 		orientation = profile.orientation,
 		readerDirection = profile.readerDirection,
 		logicalOrdinal = logicalOrdinal,
-		pageCount = profile.pageCount,
-		spreadAnchorParity = profile.spreadAnchorParity
+		pageCount = profile.pageCount
 	)
 
 	private suspend fun resolve(

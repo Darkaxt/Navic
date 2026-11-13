@@ -111,8 +111,7 @@ internal fun readerWhispersyncNativeOverlayTargets(
 				orientation = profile.orientation,
 				readerDirection = profile.readerDirection,
 				logicalOrdinal = currentOrdinal,
-				pageCount = profile.pageCount,
-				spreadAnchorParity = profile.spreadAnchorParity
+				pageCount = profile.pageCount
 			)
 			if (
 				receipt.captureGeometry.mode != ReaderPageTurnLayoutMode.Single ||
@@ -127,10 +126,11 @@ internal fun readerWhispersyncNativeOverlayTargets(
 		}
 
 		ReaderPlayLikeCurlOrientation.Landscape -> {
+			// currentOrdinal and visualPageOrdinal are Foliate spread ordinals; targets are the
+			// spread's leaf ordinals, matching the curl deck's current left/right pages.
 			val spread = readerPlayLikeCurlVisualSpreadWindow(
 				currentOrdinal = currentOrdinal,
 				pageCount = profile.pageCount,
-				spreadAnchorParity = profile.spreadAnchorParity,
 				readerDirection = profile.readerDirection
 			).current
 			if (

@@ -1211,12 +1211,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				val pages = activePages
 				val targetOrdinal = pages?.let { prepared ->
 					readerPlayLikeCurlSettlementTargetOrdinal(
-						orientation = prepared.profile.orientation,
 						currentOrdinal = currentOrdinal,
 						pageCount = prepared.profile.pageCount,
-						pageChange = pageChange,
-						readerDirection = prepared.profile.readerDirection,
-						spreadAnchorParity = prepared.profile.spreadAnchorParity
+						pageChange = pageChange
 					)
 				}
 				if (pages != null && targetOrdinal != null) {
@@ -1238,9 +1235,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 				gestureId: Long,
 				generationId: Long,
 				currentLogicalPageId: String,
-				currentPageOrdinal: Int,
+				settledLeafOrdinal: Int,
 				pageChange: PageChange
 			) {
+				// Curl pages carry leaf ordinals; landscape leaves resolve to their whole spread.
+				val currentPageOrdinal = (generationOwners[generationId] ?: activePages)
+					?.profile
+					?.let { profile ->
+						readerPlayLikeCurlFoliateOrdinal(profile.orientation, settledLeafOrdinal)
+					}
+					?: settledLeafOrdinal
 				try {
 					if (pageChange == PageChange.NONE) {
 						if (!finishGesture(
@@ -1610,7 +1614,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPagePreparedActiveDeck(
 				rasterProfileEpoch = profileEpoch,
 				rasterEpoch = pages.profile.rasterGeneration,
-				sourceCenterPageIndex = pages.profile.pageRequest(sourceOrdinal).sourcePageIndex,
+				sourceCenterPageIndex = pages.profile.sourcePageIndex(sourceOrdinal),
 				generationId = generationId,
 				preparationGeneration = generationPreparationGenerations[generationId]
 					?: preparationGeneration
@@ -1982,7 +1986,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return false
 		}
 		val sourcePageIndex = runCatching {
-			profile.pageRequest(currentOrdinal).sourcePageIndex
+			profile.sourcePageIndex(currentOrdinal)
 		}.getOrNull() ?: return false
 		val snapshot = bundleSource.retainedCurrentLayoutSnapshot(
 			pageIndex = sourcePageIndex,
@@ -2099,6 +2103,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					presentedSurfaceGestureId = gestureId
 					surfaceView.alpha = 1f
 					inlineRasterShield.dismiss()
+					Logger.i(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl surface revealed gestureId=$gestureId currentOrdinal=$currentOrdinal"
+					)
 				}
 			}
 		} catch (failure: Throwable) {
@@ -2907,7 +2915,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			profile = profile,
 			webViewProvider = webViewProvider,
 			referenceSnapshotProvider = {
-				val preferred = profile.pageRequest(currentOrdinal).sourcePageIndex
+				val preferred = profile.sourcePageIndex(currentOrdinal)
 				bundleSource.retainedReferenceSnapshot(
 					preferred,
 					profile.transitionKind()
@@ -3055,11 +3063,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 				quality = bitmapQuality,
 				pageCount = plan.pageCount,
 				readerDirection = plan.readerDirection,
-				spreadAnchorParity = if (orientation == ReaderPlayLikeCurlOrientation.Landscape) {
-					Math.floorMod(plan.centerPageIndex, 2)
-				} else {
-					0
-				},
 				rasterGeneration = bundleSource.currentGeneration()
 			)
 			prepareProfile(request, profile, plan.centerPageIndex)
@@ -3096,12 +3099,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val profile = requestedProfile ?: return
 		val pages = activePages?.takeIf { prepared -> prepared.profile == profile } ?: return
 		val targetOrdinal = readerPlayLikeCurlSettlementTargetOrdinal(
-			orientation = profile.orientation,
 			currentOrdinal = currentOrdinal,
 			pageCount = profile.pageCount,
-			pageChange = PageChange.NEXT,
-			readerDirection = profile.readerDirection,
-			spreadAnchorParity = profile.spreadAnchorParity
+			pageChange = PageChange.NEXT
 		) ?: return
 		if (pages.deck.pageIndices.containsAll(profile.preparedPageIndices(targetOrdinal))) return
 		startDecodedWorkingSetPrefetch(null, targetOrdinal)
@@ -3512,25 +3512,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	/** Raster adapter leaf ordinals for the Foliate ordinal [centerOrdinal]. */
 	private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(
 		centerOrdinal: Int
 	): List<Int> = readerPlayLikeCurlPreparedPageIndices(
 		orientation = orientation,
 		currentOrdinal = centerOrdinal,
-		pageCount = pageCount,
-		readerDirection = readerDirection,
-		spreadAnchorParity = spreadAnchorParity
+		pageCount = pageCount
 	)
 
+	/** Resolves a raster adapter leaf ordinal, never a Foliate ordinal. */
 	private fun ReaderPlayLikeCurlRasterProfile.pageRequest(
 		logicalOrdinal: Int
 	): ReaderPlayLikeCurlFoliatePageRequest = readerPlayLikeCurlFoliatePageRequest(
 		orientation = orientation,
 		readerDirection = readerDirection,
 		logicalOrdinal = logicalOrdinal,
-		pageCount = pageCount,
-		spreadAnchorParity = spreadAnchorParity
+		pageCount = pageCount
 	)
+
+	/** Snapshot index of a Foliate ordinal: a portrait page or a whole landscape spread. */
+	private fun ReaderPlayLikeCurlRasterProfile.sourcePageIndex(
+		foliateOrdinal: Int
+	): Int = readerPlayLikeCurlSourcePageIndex(foliateOrdinal, pageCount)
 
 	private fun ReaderPlayLikeCurlRasterProfile.transitionKind(): ReaderPageTurnTransitionKind =
 		when (orientation) {
@@ -3966,7 +3970,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			return false
 		}
-		val expectedSourceCenter = profile.pageRequest(currentOrdinal).sourcePageIndex
+		val expectedSourceCenter = profile.sourcePageIndex(currentOrdinal)
 		return readerPlayLikeCurlRepairTargetMatches(
 			repairedCenterOrdinal = centerOrdinal,
 			expectedSourceCenter = expectedSourceCenter
@@ -4646,7 +4650,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 		currentOrdinal = ordinal,
 		pageCount = pages.profile.pageCount,
 		readerDirection = pages.profile.readerDirection,
-		spreadAnchorParity = pages.profile.spreadAnchorParity,
 		requireCompleteMaterial = true,
 		filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
 			pages.filler(
@@ -5077,8 +5080,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		val kind = profile.transitionKind()
 		val snapshotPageIndices = runCatching {
-			profile.pageRequest(request.destinationOrdinal).sourcePageIndex to
-				profile.pageRequest(request.sourceOrdinal).sourcePageIndex
+			profile.sourcePageIndex(request.destinationOrdinal) to
+				profile.sourcePageIndex(request.sourceOrdinal)
 		}.getOrNull()
 		if (snapshotPageIndices == null) {
 			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
@@ -6205,6 +6208,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		presentedSurfaceGestureId = null
 		surfaceView.animate().cancel()
 		surfaceView.alpha = 0f
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl surface hidden currentOrdinal=$currentOrdinal " +
+				"webViewOrdinal=$currentWebViewOrdinal shield=${inlineRasterShield.ownsPresentation()}"
+		)
 	}
 
 	private fun preparedInteractionState(): ReaderPageInteractionState =

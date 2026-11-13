@@ -6,96 +6,66 @@ import karacken.curl.PageDeck
 import karacken.curl.PageImage
 import karacken.curl.PortraitPageDeck
 
-internal fun readerPlayLikeCurlLibraryDeckPageIndices(
+/**
+ * Raster adapter keys for the Foliate ordinals within [radius] of the current ordinal. Portrait keys
+ * are Foliate pages; landscape keys are the two leaf ordinals of each whole Foliate spread.
+ */
+private fun readerPlayLikeCurlWindowLeafOrdinals(
 	orientation: ReaderPlayLikeCurlOrientation,
 	currentOrdinal: Int,
 	pageCount: Int,
-	readerDirection: ReaderPlayLikeCurlReaderDirection =
-		ReaderPlayLikeCurlReaderDirection.Ltr,
-	spreadAnchorParity: Int = 0
+	radius: Int
 ): List<Int> {
 	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
 	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
-	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
-		return listOf(
-			boundedCurrent - 1,
-			boundedCurrent,
-			boundedCurrent + 1
-		)
-			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
-			.distinct()
-	}
-	val window = readerPlayLikeCurlVisualSpreadWindow(
-		boundedCurrent,
-		pageCount,
-		spreadAnchorParity,
-		readerDirection
-	)
-	return listOfNotNull(window.previous, window.current, window.next)
-		.flatMap(ReaderPlayLikeCurlVisualSpread::logicalOrdinals)
+	val ordinals = (boundedCurrent - radius..boundedCurrent + radius)
+		.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
 		.distinct()
+	return when (orientation) {
+		ReaderPlayLikeCurlOrientation.Portrait -> ordinals
+		ReaderPlayLikeCurlOrientation.Landscape -> ordinals.flatMap { spread ->
+			val readingFirst = readerPlayLikeCurlAnchorLeafOrdinal(orientation, spread)
+			listOf(readingFirst, readingFirst + 1)
+		}
+	}
 }
+
+internal fun readerPlayLikeCurlLibraryDeckPageIndices(
+	orientation: ReaderPlayLikeCurlOrientation,
+	currentOrdinal: Int,
+	pageCount: Int
+): List<Int> = readerPlayLikeCurlWindowLeafOrdinals(
+	orientation = orientation,
+	currentOrdinal = currentOrdinal,
+	pageCount = pageCount,
+	radius = 1
+)
 
 internal fun readerPlayLikeCurlPreparedPageIndices(
 	orientation: ReaderPlayLikeCurlOrientation,
 	currentOrdinal: Int,
-	pageCount: Int,
-	readerDirection: ReaderPlayLikeCurlReaderDirection =
-		ReaderPlayLikeCurlReaderDirection.Ltr,
-	spreadAnchorParity: Int = 0
-): List<Int> {
-	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
-	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
-	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
-		return (boundedCurrent - 2..boundedCurrent + 2)
-			.map { ordinal -> ordinal.coerceIn(0, pageCount - 1) }
-			.distinct()
-	}
-	val spreads = readerPlayLikeCurlVisualSpreads(
-		pageCount,
-		spreadAnchorParity,
-		readerDirection
-	)
-	val currentIndex = spreads.indexOfFirst { spread ->
-		boundedCurrent in spread.logicalOrdinals
-	}
-	check(currentIndex >= 0) { "Current ordinal has no visual spread" }
-	return (currentIndex - 2..currentIndex + 2)
-		.mapNotNull(spreads::getOrNull)
-		.flatMap(ReaderPlayLikeCurlVisualSpread::logicalOrdinals)
-		.distinct()
-}
+	pageCount: Int
+): List<Int> = readerPlayLikeCurlWindowLeafOrdinals(
+	orientation = orientation,
+	currentOrdinal = currentOrdinal,
+	pageCount = pageCount,
+	radius = 2
+)
 
+/** Foliate destination of a committed turn: one page in portrait, one whole spread in landscape. */
 internal fun readerPlayLikeCurlSettlementTargetOrdinal(
-	orientation: ReaderPlayLikeCurlOrientation,
 	currentOrdinal: Int,
 	pageCount: Int,
-	pageChange: PageChange,
-	readerDirection: ReaderPlayLikeCurlReaderDirection =
-		ReaderPlayLikeCurlReaderDirection.Ltr,
-	spreadAnchorParity: Int = 0
+	pageChange: PageChange
 ): Int? {
 	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
 	val boundedCurrent = currentOrdinal.coerceIn(0, pageCount - 1)
-	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
-		val target = when (pageChange) {
-			PageChange.PREVIOUS -> boundedCurrent - 1
-			PageChange.NEXT -> boundedCurrent + 1
-			PageChange.NONE -> return null
-		}
-		return target.takeIf { ordinal -> ordinal in 0 until pageCount }
+	val target = when (pageChange) {
+		PageChange.PREVIOUS -> boundedCurrent - 1
+		PageChange.NEXT -> boundedCurrent + 1
+		PageChange.NONE -> return null
 	}
-	val window = readerPlayLikeCurlVisualSpreadWindow(
-		boundedCurrent,
-		pageCount,
-		spreadAnchorParity,
-		readerDirection
-	)
-	return when (pageChange) {
-		PageChange.PREVIOUS -> window.previous?.logicalOrdinals?.first()
-		PageChange.NEXT -> window.next?.logicalOrdinals?.first()
-		PageChange.NONE -> null
-	}
+	return target.takeIf { ordinal -> ordinal in 0 until pageCount }
 }
 
 internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
@@ -115,7 +85,6 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		currentOrdinal = currentOrdinal,
 		pageCount = pageCount,
 		readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-		spreadAnchorParity = 0,
 		filler = { _, _, _, _, _ ->
 			error("Compatibility overload admitted a partial deck")
 		},
@@ -123,13 +92,16 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	)
 }
 
+/**
+ * Builds the curl deck around the Foliate ordinal [currentOrdinal]. [page] receives native leaf
+ * ordinals: Foliate pages in portrait, `2 * spread + reading position` in landscape.
+ */
 internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	orientation: ReaderPlayLikeCurlOrientation,
 	generationId: Long,
 	currentOrdinal: Int,
 	pageCount: Int,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
-	spreadAnchorParity: Int,
 	requireCompleteMaterial: Boolean = false,
 	filler: (
 		generationId: Long,
@@ -152,10 +124,10 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 			}
 		}
 	}
-	fun boundedPage(ordinal: Int): PageImage<T> =
-		requireMaterial(page(generationId, ordinal.coerceIn(0, pageCount - 1)))
 
 	if (orientation == ReaderPlayLikeCurlOrientation.Portrait) {
+		fun boundedPage(ordinal: Int): PageImage<T> =
+			requireMaterial(page(generationId, ordinal.coerceIn(0, pageCount - 1)))
 		val canTurnPrevious = boundedCurrent > 0
 		val canTurnNext = boundedCurrent < pageCount - 1
 		val previous = if (canTurnPrevious) {
@@ -196,30 +168,21 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	val window = readerPlayLikeCurlVisualSpreadWindow(
 		boundedCurrent,
 		pageCount,
-		spreadAnchorParity,
 		readerDirection
 	)
-	val currentAnchorOrdinal = window.current.logicalOrdinals.first()
 	fun slotPage(
 		role: ReaderPlayLikeCurlDeckSlotRole,
 		spread: ReaderPlayLikeCurlVisualSpread?,
-		leaf: ReaderPlayLikeCurlPhysicalLeaf,
-		fallbackOrdinal: Int
+		leaf: ReaderPlayLikeCurlPhysicalLeaf
 	): PageImage<T> {
-		val ordinal = when (leaf) {
-			ReaderPlayLikeCurlPhysicalLeaf.Left -> spread?.physicalLeftOrdinal
-			ReaderPlayLikeCurlPhysicalLeaf.Right -> spread?.physicalRightOrdinal
-		}
-		if (ordinal != null) return boundedPage(ordinal)
-		val sourcePageIndex = spread?.sourcePageIndex
-			?: window.current.sourcePageIndex
+		if (spread != null) return requireMaterial(page(generationId, spread.leafOrdinal(leaf)))
 		return requireMaterial(
 			filler(
 				generationId,
 				role,
-				sourcePageIndex,
+				window.current.sourcePageIndex,
 				leaf,
-				fallbackOrdinal.coerceIn(0, pageCount - 1)
+				window.current.leafOrdinal(leaf)
 			)
 		).also { resource ->
 			check(resource.isFiller) {
@@ -231,39 +194,34 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	val previousLeft = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Previous,
 		window.previous,
-		ReaderPlayLikeCurlPhysicalLeaf.Left,
-		window.current.physicalLeftOrdinal ?: currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Left
 	)
 	val previousRight = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Previous,
 		window.previous,
-		ReaderPlayLikeCurlPhysicalLeaf.Right,
-		window.current.physicalRightOrdinal ?: currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Right
 	)
 	val currentLeft = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Current,
 		window.current,
-		ReaderPlayLikeCurlPhysicalLeaf.Left,
-		currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Left
 	)
 	val currentRight = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Current,
 		window.current,
-		ReaderPlayLikeCurlPhysicalLeaf.Right,
-		currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Right
 	)
 	val nextLeft = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Next,
 		window.next,
-		ReaderPlayLikeCurlPhysicalLeaf.Left,
-		window.current.physicalLeftOrdinal ?: currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Left
 	)
 	val nextRight = slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Next,
 		window.next,
-		ReaderPlayLikeCurlPhysicalLeaf.Right,
-		window.current.physicalRightOrdinal ?: currentAnchorOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Right
 	)
+	// The reading-first leaf identifies its whole spread when the curl settles.
 	fun settlementPage(
 		spread: ReaderPlayLikeCurlVisualSpread?,
 		left: PageImage<T>,
@@ -271,10 +229,9 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		fallback: PageImage<T>
 	): PageImage<T> {
 		val present = spread ?: return fallback
-		val ordinal = present.logicalOrdinals.first()
-		return when {
-			present.physicalLeftOrdinal == ordinal -> left
-			present.physicalRightOrdinal == ordinal -> right
+		return when (present.logicalOrdinals.first()) {
+			present.physicalLeftOrdinal -> left
+			present.physicalRightOrdinal -> right
 			else -> error("Settlement ordinal has no physical leaf")
 		}
 	}

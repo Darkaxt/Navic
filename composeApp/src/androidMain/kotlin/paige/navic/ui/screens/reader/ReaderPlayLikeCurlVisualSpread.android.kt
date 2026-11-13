@@ -1,11 +1,31 @@
 package paige.navic.ui.screens.reader
 
+/*
+ * Foliate's spread paginator counts whole spreads: in landscape a Foliate ordinal (and its raster
+ * snapshot index) is one complete two-leaf spread, exactly like JS `readerPageTurnPlan` steps ±1.
+ * The curl library, the raster adapter and Whispersync overlays need one identity per physical
+ * leaf, so landscape leaves use leaf ordinals: 2 * spread + reading position (0 for the
+ * reading-first leaf, 1 for the second). Portrait leaf ordinals equal Foliate ordinals.
+ */
+
 internal data class ReaderPlayLikeCurlVisualSpread(
+	/** Foliate spread ordinal; also the raster snapshot index that holds both leaves. */
 	val sourcePageIndex: Int,
-	val logicalOrdinals: List<Int>,
-	val physicalLeftOrdinal: Int?,
-	val physicalRightOrdinal: Int?
-)
+	val physicalLeftOrdinal: Int,
+	val physicalRightOrdinal: Int
+) {
+	/** Leaf ordinals in reading order; the first one is the spread's settlement identity. */
+	val logicalOrdinals: List<Int>
+		get() = listOf(
+			minOf(physicalLeftOrdinal, physicalRightOrdinal),
+			maxOf(physicalLeftOrdinal, physicalRightOrdinal)
+		)
+
+	fun leafOrdinal(leaf: ReaderPlayLikeCurlPhysicalLeaf): Int = when (leaf) {
+		ReaderPlayLikeCurlPhysicalLeaf.Left -> physicalLeftOrdinal
+		ReaderPlayLikeCurlPhysicalLeaf.Right -> physicalRightOrdinal
+	}
+}
 
 internal data class ReaderPlayLikeCurlVisualSpreadWindow(
 	val previous: ReaderPlayLikeCurlVisualSpread?,
@@ -32,84 +52,101 @@ internal data class ReaderPlayLikeCurlSpreadSlot(
 	val physicalLeaf: ReaderPlayLikeCurlPhysicalLeaf
 )
 
+/** Number of native leaf ordinals (raster adapter keys and curl page ordinals). */
+internal fun readerPlayLikeCurlLeafOrdinalCount(
+	orientation: ReaderPlayLikeCurlOrientation,
+	pageCount: Int
+): Int = when (orientation) {
+	ReaderPlayLikeCurlOrientation.Portrait -> pageCount
+	ReaderPlayLikeCurlOrientation.Landscape -> Math.multiplyExact(pageCount, 2)
+}
+
+/** Foliate ordinal that owns a native leaf ordinal, e.g. a settled curl page. */
+internal fun readerPlayLikeCurlFoliateOrdinal(
+	orientation: ReaderPlayLikeCurlOrientation,
+	leafOrdinal: Int
+): Int = when (orientation) {
+	ReaderPlayLikeCurlOrientation.Portrait -> leafOrdinal
+	ReaderPlayLikeCurlOrientation.Landscape -> Math.floorDiv(leafOrdinal, 2)
+}
+
+/** Reading-first leaf ordinal of a Foliate ordinal: the curl settlement page identity. */
+internal fun readerPlayLikeCurlAnchorLeafOrdinal(
+	orientation: ReaderPlayLikeCurlOrientation,
+	foliateOrdinal: Int
+): Int = when (orientation) {
+	ReaderPlayLikeCurlOrientation.Portrait -> foliateOrdinal
+	ReaderPlayLikeCurlOrientation.Landscape -> Math.multiplyExact(foliateOrdinal, 2)
+}
+
+private fun readerPlayLikeCurlReadingFirstLeaf(
+	readerDirection: ReaderPlayLikeCurlReaderDirection
+): ReaderPlayLikeCurlPhysicalLeaf = when (readerDirection) {
+	ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlPhysicalLeaf.Left
+	ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlPhysicalLeaf.Right
+}
+
+private fun ReaderPlayLikeCurlPhysicalLeaf.opposite(): ReaderPlayLikeCurlPhysicalLeaf = when (this) {
+	ReaderPlayLikeCurlPhysicalLeaf.Left -> ReaderPlayLikeCurlPhysicalLeaf.Right
+	ReaderPlayLikeCurlPhysicalLeaf.Right -> ReaderPlayLikeCurlPhysicalLeaf.Left
+}
+
+/** Maps a landscape leaf ordinal to its spread snapshot and physical half. */
 internal fun readerPlayLikeCurlSpreadSlot(
 	logicalOrdinal: Int,
 	pageCount: Int,
-	readerDirection: ReaderPlayLikeCurlReaderDirection,
-	spreadAnchorParity: Int
+	readerDirection: ReaderPlayLikeCurlReaderDirection
 ): ReaderPlayLikeCurlSpreadSlot {
 	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
-	val ordinal = logicalOrdinal.coerceIn(0, pageCount - 1)
-	val relativeParity = Math.floorMod(
-		ordinal - Math.floorMod(spreadAnchorParity, 2),
-		2
+	val leafOrdinal = logicalOrdinal.coerceIn(
+		0,
+		readerPlayLikeCurlLeafOrdinalCount(ReaderPlayLikeCurlOrientation.Landscape, pageCount) - 1
 	)
-	val sourcePageIndex = (ordinal - relativeParity).coerceAtLeast(0)
-	val anchorLeaf = when (readerDirection) {
-		ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlPhysicalLeaf.Left
-		ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlPhysicalLeaf.Right
-	}
-	val physicalLeaf = if (relativeParity == 0) {
-		anchorLeaf
-	} else if (anchorLeaf == ReaderPlayLikeCurlPhysicalLeaf.Left) {
-		ReaderPlayLikeCurlPhysicalLeaf.Right
-	} else {
-		ReaderPlayLikeCurlPhysicalLeaf.Left
-	}
+	val readingFirstLeaf = readerPlayLikeCurlReadingFirstLeaf(readerDirection)
 	return ReaderPlayLikeCurlSpreadSlot(
-		sourcePageIndex = sourcePageIndex,
-		physicalLeaf = physicalLeaf
+		sourcePageIndex = leafOrdinal / 2,
+		physicalLeaf = if (leafOrdinal % 2 == 0) readingFirstLeaf else readingFirstLeaf.opposite()
 	)
 }
 
-internal fun readerPlayLikeCurlVisualSpreads(
-	pageCount: Int,
-	spreadAnchorParity: Int,
+internal fun readerPlayLikeCurlVisualSpread(
+	sourcePageIndex: Int,
 	readerDirection: ReaderPlayLikeCurlReaderDirection
-): List<ReaderPlayLikeCurlVisualSpread> =
-	(0 until pageCount)
-		.map { ordinal ->
-			ordinal to readerPlayLikeCurlSpreadSlot(
-				logicalOrdinal = ordinal,
-				pageCount = pageCount,
-				readerDirection = readerDirection,
-				spreadAnchorParity = spreadAnchorParity
-			)
-		}
-		.groupBy { (_, slot) -> slot.sourcePageIndex }
-		.values
-		.map { entries ->
-			ReaderPlayLikeCurlVisualSpread(
-				sourcePageIndex = entries.first().second.sourcePageIndex,
-				logicalOrdinals = entries.map { (ordinal, _) -> ordinal },
-				physicalLeftOrdinal = entries.firstOrNull { (_, slot) ->
-					slot.physicalLeaf == ReaderPlayLikeCurlPhysicalLeaf.Left
-				}?.first,
-				physicalRightOrdinal = entries.firstOrNull { (_, slot) ->
-					slot.physicalLeaf == ReaderPlayLikeCurlPhysicalLeaf.Right
-				}?.first
-			)
-		}
+): ReaderPlayLikeCurlVisualSpread {
+	require(sourcePageIndex >= 0) { "PlayLikeCurl spread ordinal must not be negative" }
+	val readingFirst = readerPlayLikeCurlAnchorLeafOrdinal(
+		ReaderPlayLikeCurlOrientation.Landscape,
+		sourcePageIndex
+	)
+	val readingSecond = readingFirst + 1
+	return when (readerPlayLikeCurlReadingFirstLeaf(readerDirection)) {
+		ReaderPlayLikeCurlPhysicalLeaf.Left -> ReaderPlayLikeCurlVisualSpread(
+			sourcePageIndex = sourcePageIndex,
+			physicalLeftOrdinal = readingFirst,
+			physicalRightOrdinal = readingSecond
+		)
+		ReaderPlayLikeCurlPhysicalLeaf.Right -> ReaderPlayLikeCurlVisualSpread(
+			sourcePageIndex = sourcePageIndex,
+			physicalLeftOrdinal = readingSecond,
+			physicalRightOrdinal = readingFirst
+		)
+	}
+}
 
+/** Previous, current and next whole spreads around a Foliate spread ordinal. */
 internal fun readerPlayLikeCurlVisualSpreadWindow(
 	currentOrdinal: Int,
 	pageCount: Int,
-	spreadAnchorParity: Int,
 	readerDirection: ReaderPlayLikeCurlReaderDirection
 ): ReaderPlayLikeCurlVisualSpreadWindow {
-	val spreads = readerPlayLikeCurlVisualSpreads(
-		pageCount,
-		spreadAnchorParity,
-		readerDirection
-	)
+	require(pageCount > 0) { "PlayLikeCurl page count must be positive" }
 	val bounded = currentOrdinal.coerceIn(0, pageCount - 1)
-	val currentIndex = spreads.indexOfFirst { spread ->
-		bounded in spread.logicalOrdinals
-	}
-	check(currentIndex >= 0) { "Current ordinal has no visual spread" }
+	fun spread(ordinal: Int): ReaderPlayLikeCurlVisualSpread? =
+		ordinal.takeIf { it in 0 until pageCount }
+			?.let { present -> readerPlayLikeCurlVisualSpread(present, readerDirection) }
 	return ReaderPlayLikeCurlVisualSpreadWindow(
-		previous = spreads.getOrNull(currentIndex - 1),
-		current = spreads[currentIndex],
-		next = spreads.getOrNull(currentIndex + 1)
+		previous = spread(bounded - 1),
+		current = readerPlayLikeCurlVisualSpread(bounded, readerDirection),
+		next = spread(bounded + 1)
 	)
 }

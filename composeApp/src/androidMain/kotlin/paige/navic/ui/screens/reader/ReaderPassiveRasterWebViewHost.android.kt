@@ -27,11 +27,13 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.webkit.WebViewAssetLoader
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 import org.json.JSONTokener
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.util.core.Logger
 
 private const val ReaderPassiveRasterAssetDomain = "appassets.androidplatform.net"
 private const val ReaderPassiveRasterAssetsPathPrefix = "/assets/"
@@ -164,6 +166,10 @@ internal fun readerPassiveRasterCreateBitmap(
 	null
 }
 
+// Leak diagnostics: each window owns a host-backed VirtualDisplay, ImageReader and Presentation.
+private val passiveOffscreenWindowsLive = AtomicInteger()
+private val passiveOffscreenWindowsTotal = AtomicInteger()
+
 private class ReaderPassiveRasterOffscreenWindow(
 	activity: Activity,
 	geometry: ReaderPassiveRasterGeometry,
@@ -216,6 +222,11 @@ private class ReaderPassiveRasterOffscreenWindow(
 		}
 		presentation.show()
 		captureWindow.setLayout(geometry.viewportWidth, geometry.viewportHeight)
+		Logger.i(
+			"ReaderPassiveRaster",
+			"Passive offscreen window created live=${passiveOffscreenWindowsLive.incrementAndGet()} " +
+				"total=${passiveOffscreenWindowsTotal.incrementAndGet()}"
+		)
 	}
 
 	override fun close() {
@@ -226,6 +237,11 @@ private class ReaderPassiveRasterOffscreenWindow(
 		if (presentation.isShowing) presentation.dismiss()
 		virtualDisplay.release()
 		imageReader.close()
+		Logger.i(
+			"ReaderPassiveRaster",
+			"Passive offscreen window closed live=${passiveOffscreenWindowsLive.decrementAndGet()} " +
+				"total=${passiveOffscreenWindowsTotal.get()}"
+		)
 	}
 }
 

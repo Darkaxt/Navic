@@ -1,10 +1,13 @@
 package karacken.curl;
 
 import android.graphics.Bitmap;
+import android.opengl.EGL14;
+import android.opengl.EGLContext;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
+import android.util.Log;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -154,6 +157,35 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private long appliedPageOverlayEpoch;
     private boolean glReady;
     private boolean disposed;
+    // GLSurfaceView runs queued events while paused or surfaceless, when no EGL context is current
+    // (a preserved context is unbound on pause). GL calls then silently no-op: deletes orphan the
+    // texture inside the preserved context and uploads yield texture id 0. Deletes are deferred to
+    // the next frame with a current context and decks uploaded there instead.
+    private final List<Integer> orphanedTextureIds = new ArrayList<>();
+    private boolean deckUploadPending;
+    private static final AtomicLong contextlessGlOperations = new AtomicLong();
+
+    private static boolean glContextCurrent() {
+        EGLContext current = EGL14.eglGetCurrentContext();
+        return current != null && !current.equals(EGL14.EGL_NO_CONTEXT);
+    }
+
+    private static void noteContextlessGlOperation(String kind) {
+        long count = contextlessGlOperations.incrementAndGet();
+        Log.w("PlayLikeCurlGl", "GL op without current context kind=" + kind + " n=" + count);
+    }
+
+    private void drainOrphanedTextures() {
+        if (orphanedTextureIds.isEmpty()) {
+            return;
+        }
+        int[] ids = new int[orphanedTextureIds.size()];
+        for (int index = 0; index < ids.length; index++) {
+            ids[index] = orphanedTextureIds.get(index);
+        }
+        orphanedTextureIds.clear();
+        GLES20.glDeleteTextures(ids.length, ids, 0);
+    }
 
     PageRenderer(Events events) {
         this.events = events;
@@ -213,9 +245,12 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             }
             retained = true;
             retainDeckTextures();
-            if (glReady) {
+            if (glReady && glContextCurrent()) {
                 uploadDeck(deck);
                 events.onDeckPrepared(deck.getGenerationId());
+            } else if (glReady) {
+                noteContextlessGlOperation("upload");
+                deckUploadPending = true;
             }
         } catch (RuntimeException exception) {
             reportFailure(
@@ -312,6 +347,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                             page,
                             overlay);
                     replacements.put(page.identityKey(), texture);
+                }
+                if (!glContextCurrent()) {
+                    noteContextlessGlOperation("overlay-upload");
+                    throw new IllegalStateException("No current GL context for overlay upload");
                 }
                 for (DynamicPageOverlayTexture texture : replacements.values()) {
                     texture.ensureUploaded();
@@ -490,9 +529,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         activeDeck = null;
         replacementDeck = null;
         clearActiveDeck();
+        DisposalFailure failure = new DisposalFailure();
+        failure.capture(dynamicPageOverlays::clear);
         glReady = false;
 
-        DisposalFailure failure = new DisposalFailure();
         List<GpuTexture> textures =
                 new ArrayList<>(textureCache.values());
         textureCache.clear();
@@ -593,6 +633,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         appliedPageOverlayEpoch = dynamicPageOverlayEpoch.get();
         glReady = false;
         dynamicPageOverlays.clear();
+        orphanedTextureIds.clear();
+        deckUploadPending = false;
         try {
             program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
             positionAttribute = GLES20.glGetAttribLocation(program, "aPosition");
@@ -674,6 +716,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     boolean drawFrame(GL10 ignored) {
         if (disposed || !glReady) {
             return false;
+        }
+        drainOrphanedTextures();
+        if (deckUploadPending) {
+            deckUploadPending = false;
+            rehydrateRetainedDecks();
         }
         try {
             GLES20.glViewport(0, 0, viewportWidth, viewportHeight);
@@ -1783,8 +1830,13 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
         void deleteGl() {
             if (textureId != 0) {
-                int[] ids = {textureId};
-                GLES20.glDeleteTextures(1, ids, 0);
+                if (glContextCurrent()) {
+                    int[] ids = {textureId};
+                    GLES20.glDeleteTextures(1, ids, 0);
+                } else {
+                    noteContextlessGlOperation("delete");
+                    orphanedTextureIds.add(textureId);
+                }
             }
             textureId = 0;
             uploaded = false;

@@ -735,8 +735,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertContains(validation, "profile.rasterGeneration != request.rasterGeneration")
 		assertContains(validation, "profile.transitionKind()")
-		assertContains(validation, "profile.pageRequest(request.destinationOrdinal).sourcePageIndex")
-		assertContains(validation, "profile.pageRequest(request.sourceOrdinal).sourcePageIndex")
+		assertContains(validation, "profile.sourcePageIndex(request.destinationOrdinal)")
+		assertContains(validation, "profile.sourcePageIndex(request.sourceOrdinal)")
 		assertContains(validation, "bundleSource.retainedCurrentLayoutSnapshot(")
 		assertContains(validation, "expectedGeneration = request.rasterGeneration")
 		assertContains(validation, "expectedQuality = profile.quality")
@@ -1434,7 +1434,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(publication, "sourceOrdinal: Int = currentOrdinal")
 		assertContains(
 			publication,
-			"sourceCenterPageIndex = pages.profile.pageRequest(sourceOrdinal).sourcePageIndex"
+			"sourceCenterPageIndex = pages.profile.sourcePageIndex(sourceOrdinal)"
 		)
 		assertContains(promotion, "publishPreparedActiveDeck(currentPageOrdinal)")
 	}
@@ -3245,11 +3245,14 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
-	fun controllerPassesDirectionAndParityToEverySpreadAuthority() {
+	fun controllerPassesDirectionToLeafAuthoritiesAndSettlesWholeSpreads() {
 		val source = controllerFile.readText()
-		val settlement = source
+		val settlementStart = source
 			.substringAfter("override fun onSettlementStarted(")
 			.substringBefore("override fun onSettlementCompleted(")
+		val settlementCompletion = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("override fun onSettlementCancelled(")
 		val profileMapping = source
 			.substringAfter("private fun ReaderPlayLikeCurlRasterProfile.preparedPageIndices(")
 			.substringBefore("private fun publishProtectedWindow(")
@@ -3260,10 +3263,20 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun submitLibraryDeck(")
 			.substringBefore("private fun updateSurfaceBounds(")
 
-		listOf(settlement, profileMapping, deckFactory).forEach { callSite ->
+		// Foliate counts landscape spreads; only leaf-level authorities need the reading direction.
+		assertFalse(source.contains("spreadAnchorParity"))
+		listOf(profileMapping, deckFactory).forEach { callSite ->
 			assertContains(callSite, "readerDirection =")
-			assertContains(callSite, "spreadAnchorParity =")
 		}
+		assertContains(settlementStart, "readerPlayLikeCurlSettlementTargetOrdinal(")
+		assertContains(
+			settlementCompletion,
+			"readerPlayLikeCurlFoliateOrdinal(profile.orientation, settledLeafOrdinal)"
+		)
+		assertTrue(
+			settlementCompletion.indexOf("readerPlayLikeCurlFoliateOrdinal(") <
+				settlementCompletion.indexOf("try {")
+		)
 		assertContains(submit, "setSurfaceReadingDirection(pages.profile)")
 		assertTrue(
 			submit.indexOf("setSurfaceReadingDirection(pages.profile)") <

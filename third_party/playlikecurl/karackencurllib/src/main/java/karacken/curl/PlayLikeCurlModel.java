@@ -93,7 +93,9 @@ public final class PlayLikeCurlModel {
                 gestureStartCurlPosition = activePageState().getCurlPosition();
             }
             float value = gestureStartCurlPosition + movedFraction * GRID;
-            if (value <= GRID) activePageState().setCurlPosition(value);
+            // Pin past-the-leaf samples (landscape drags span one leaf) instead of dropping them,
+            // so a slow backward release commits like a forward one.
+            activePageState().setCurlPosition(Math.min(value, GRID));
         } else if (delta < 0f) {
             float value = (1f - Math.abs(movedFraction)) * GRID
                     - (GRID - gestureStartCurlPosition);

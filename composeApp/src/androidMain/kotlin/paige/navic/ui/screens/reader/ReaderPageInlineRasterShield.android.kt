@@ -8,8 +8,10 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.util.core.Logger
 
 private const val ReaderPageInlineRasterShieldTimeoutMillis = 1_000L
+private const val ReaderPageInlineRasterShieldTag = "ReaderPageInlineRasterShield"
 
 internal class ReaderPageInlineRasterShield(
 	private val host: ViewGroup,
@@ -79,6 +81,10 @@ internal class ReaderPageInlineRasterShield(
 		rasterView.setImageBitmap(snapshot.bitmap)
 		view.alpha = 1f
 		view.visibility = View.VISIBLE
+		Logger.i(
+			ReaderPageInlineRasterShieldTag,
+			"inline-shield presented visualPageIndex=${snapshot.key.visualPageIndex} request=$request"
+		)
 		onOwnershipMutated()
 
 		val timeoutAction = Runnable { complete(request, false) }
@@ -356,6 +362,12 @@ internal class ReaderPageInlineRasterShield(
 
 	private fun clearPresentation() {
 		val hadPresentation = ownedSnapshot != null || view.visibility != View.GONE
+		if (hadPresentation) {
+			Logger.i(
+				ReaderPageInlineRasterShieldTag,
+				"inline-shield cleared visualPageIndex=${ownedSnapshot?.key?.visualPageIndex}"
+			)
+		}
 		clearWhispersyncOverlay()
 		rasterView.setImageDrawable(null)
 		view.alpha = 1f

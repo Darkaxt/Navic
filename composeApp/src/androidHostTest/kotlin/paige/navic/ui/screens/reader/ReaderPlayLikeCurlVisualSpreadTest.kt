@@ -6,55 +6,95 @@ import kotlin.test.assertNull
 
 class ReaderPlayLikeCurlVisualSpreadTest {
 	@Test
-	fun parityZeroKeepsLogicalSpreadsAndMirrorsOnlyPhysicalLeaves() {
-		val ltr = readerPlayLikeCurlVisualSpreads(
-			pageCount = 6,
-			spreadAnchorParity = 0,
+	fun eachFoliateOrdinalIsOneWholeSpreadWithMirroredPhysicalLeaves() {
+		val ltr = readerPlayLikeCurlVisualSpread(
+			sourcePageIndex = 10,
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr
 		)
-		val rtl = readerPlayLikeCurlVisualSpreads(
-			pageCount = 6,
-			spreadAnchorParity = 0,
+		val rtl = readerPlayLikeCurlVisualSpread(
+			sourcePageIndex = 10,
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl
 		)
 
-		assertEquals(
-			listOf(listOf(0, 1), listOf(2, 3), listOf(4, 5)),
-			ltr.map(ReaderPlayLikeCurlVisualSpread::logicalOrdinals)
-		)
-		assertEquals(
-			ltr.map(ReaderPlayLikeCurlVisualSpread::logicalOrdinals),
-			rtl.map(ReaderPlayLikeCurlVisualSpread::logicalOrdinals)
-		)
-		assertEquals(2, ltr[1].physicalLeftOrdinal)
-		assertEquals(3, ltr[1].physicalRightOrdinal)
-		assertEquals(3, rtl[1].physicalLeftOrdinal)
-		assertEquals(2, rtl[1].physicalRightOrdinal)
+		assertEquals(10, ltr.sourcePageIndex)
+		assertEquals(10, rtl.sourcePageIndex)
+		assertEquals(listOf(20, 21), ltr.logicalOrdinals)
+		assertEquals(listOf(20, 21), rtl.logicalOrdinals)
+		assertEquals(20, ltr.physicalLeftOrdinal)
+		assertEquals(21, ltr.physicalRightOrdinal)
+		assertEquals(21, rtl.physicalLeftOrdinal)
+		assertEquals(20, rtl.physicalRightOrdinal)
 	}
 
 	@Test
-	fun parityOnePreservesLeadingAndTrailingPartialsInBothDirections() {
-		val ltr = readerPlayLikeCurlVisualSpreads(
-			pageCount = 6,
-			spreadAnchorParity = 1,
+	fun leafOrdinalsResolveBackToTheirOwningSpreadSnapshot() {
+		listOf(
+			ReaderPlayLikeCurlReaderDirection.Ltr,
+			ReaderPlayLikeCurlReaderDirection.Rtl
+		).forEach { direction ->
+			(0 until 6).forEach { spread ->
+				val visual = readerPlayLikeCurlVisualSpread(spread, direction)
+				ReaderPlayLikeCurlPhysicalLeaf.values().forEach { leaf ->
+					val leafOrdinal = visual.leafOrdinal(leaf)
+					assertEquals(
+						ReaderPlayLikeCurlSpreadSlot(spread, leaf),
+						readerPlayLikeCurlSpreadSlot(
+							logicalOrdinal = leafOrdinal,
+							pageCount = 6,
+							readerDirection = direction
+						)
+					)
+					assertEquals(
+						spread,
+						readerPlayLikeCurlFoliateOrdinal(
+							ReaderPlayLikeCurlOrientation.Landscape,
+							leafOrdinal
+						)
+					)
+				}
+				assertEquals(
+					visual.logicalOrdinals.first(),
+					readerPlayLikeCurlAnchorLeafOrdinal(
+						ReaderPlayLikeCurlOrientation.Landscape,
+						spread
+					)
+				)
+			}
+		}
+		assertEquals(
+			7,
+			readerPlayLikeCurlFoliateOrdinal(ReaderPlayLikeCurlOrientation.Portrait, 7)
+		)
+		assertEquals(
+			7,
+			readerPlayLikeCurlAnchorLeafOrdinal(ReaderPlayLikeCurlOrientation.Portrait, 7)
+		)
+	}
+
+	@Test
+	fun windowStepsOneWholeSpreadAndStopsAtBookBoundaries() {
+		val middle = readerPlayLikeCurlVisualSpreadWindow(
+			currentOrdinal = 10,
+			pageCount = 30,
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr
 		)
-		val rtl = readerPlayLikeCurlVisualSpreads(
-			pageCount = 6,
-			spreadAnchorParity = 1,
+		val first = readerPlayLikeCurlVisualSpreadWindow(
+			currentOrdinal = 0,
+			pageCount = 30,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr
+		)
+		val last = readerPlayLikeCurlVisualSpreadWindow(
+			currentOrdinal = 29,
+			pageCount = 30,
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl
 		)
 
-		val expected = listOf(listOf(0), listOf(1, 2), listOf(3, 4), listOf(5))
-		assertEquals(expected, ltr.map(ReaderPlayLikeCurlVisualSpread::logicalOrdinals))
-		assertEquals(expected, rtl.map(ReaderPlayLikeCurlVisualSpread::logicalOrdinals))
-		assertNull(ltr.first().physicalLeftOrdinal)
-		assertEquals(0, ltr.first().physicalRightOrdinal)
-		assertEquals(5, ltr.last().physicalLeftOrdinal)
-		assertNull(ltr.last().physicalRightOrdinal)
-		assertEquals(0, rtl.first().physicalLeftOrdinal)
-		assertNull(rtl.first().physicalRightOrdinal)
-		assertNull(rtl.last().physicalLeftOrdinal)
-		assertEquals(5, rtl.last().physicalRightOrdinal)
+		assertEquals(9, middle.previous?.sourcePageIndex)
+		assertEquals(10, middle.current.sourcePageIndex)
+		assertEquals(11, middle.next?.sourcePageIndex)
+		assertNull(first.previous)
+		assertEquals(1, first.next?.sourcePageIndex)
+		assertEquals(28, last.previous?.sourcePageIndex)
+		assertNull(last.next)
 	}
 }

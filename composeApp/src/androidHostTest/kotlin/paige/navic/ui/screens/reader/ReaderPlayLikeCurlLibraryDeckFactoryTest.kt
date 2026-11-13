@@ -81,7 +81,6 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			quality = ReaderPageBitmapQuality.Balanced,
 			pageCount = 10,
 			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-			spreadAnchorParity = 0,
 			rasterGeneration = 31L
 		)
 		val receipt = anchorReceipt(
@@ -93,10 +92,11 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			)
 		)
 
+		// Foliate spread 4 is presented by the curl leaves 8 (left) and 9 (right).
 		assertEquals(
 			listOf(
-				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Left, 4),
-				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Right, 5)
+				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Left, 8),
+				ReaderWhispersyncNativeOverlayTarget(ReaderPageTurnPageRole.Right, 9)
 			),
 			readerWhispersyncNativeOverlayTargets(
 				receipt = receipt,
@@ -233,8 +233,9 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 
 	@Test
 	fun landscapePreparedWindowKeepsTwoCompleteSpreadsInEachDirection() {
+		// Foliate spreads 6..10 around spread 8, each contributing its two leaf ordinals.
 		assertEquals(
-			(4..13).toList(),
+			(12..21).toList(),
 			readerPlayLikeCurlPreparedPageIndices(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				currentOrdinal = 8,
@@ -246,43 +247,35 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	@Test
 	fun preparedWindowsNeverExceedForegroundPublicationBound() {
 		ReaderPlayLikeCurlOrientation.values().forEach { orientation ->
-			ReaderPlayLikeCurlReaderDirection.values().forEach { direction ->
-				(0..1).forEach { parity ->
-					(1..40).forEach { pageCount ->
-						(0 until pageCount).forEach { currentOrdinal ->
-							val prepared = readerPlayLikeCurlPreparedPageIndices(
-								orientation = orientation,
-								currentOrdinal = currentOrdinal,
-								pageCount = pageCount,
-								readerDirection = direction,
-								spreadAnchorParity = parity
-							)
-							assertTrue(
-								prepared.size <=
-									ReaderPageMaximumForegroundPublicationEntries
-							)
-						}
-					}
+			(1..40).forEach { pageCount ->
+				(0 until pageCount).forEach { currentOrdinal ->
+					val prepared = readerPlayLikeCurlPreparedPageIndices(
+						orientation = orientation,
+						currentOrdinal = currentOrdinal,
+						pageCount = pageCount
+					)
+					assertTrue(
+						prepared.size <=
+							ReaderPageMaximumForegroundPublicationEntries
+					)
 				}
 			}
 		}
 	}
 
 	@Test
-	fun settlementTargetUsesOnePageOrOneSpreadWithoutCrossingBoundaries() {
+	fun settlementTargetUsesOneFoliateOrdinalWithoutCrossingBoundaries() {
 		assertEquals(
 			5,
 			readerPlayLikeCurlSettlementTargetOrdinal(
-				orientation = ReaderPlayLikeCurlOrientation.Portrait,
 				currentOrdinal = 4,
 				pageCount = 9,
 				pageChange = PageChange.NEXT
 			)
 		)
 		assertEquals(
-			2,
+			3,
 			readerPlayLikeCurlSettlementTargetOrdinal(
-				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				currentOrdinal = 4,
 				pageCount = 9,
 				pageChange = PageChange.PREVIOUS
@@ -291,10 +284,25 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		assertEquals(
 			null,
 			readerPlayLikeCurlSettlementTargetOrdinal(
-				orientation = ReaderPlayLikeCurlOrientation.Portrait,
 				currentOrdinal = 0,
 				pageCount = 9,
 				pageChange = PageChange.PREVIOUS
+			)
+		)
+		assertEquals(
+			null,
+			readerPlayLikeCurlSettlementTargetOrdinal(
+				currentOrdinal = 8,
+				pageCount = 9,
+				pageChange = PageChange.NEXT
+			)
+		)
+		assertEquals(
+			null,
+			readerPlayLikeCurlSettlementTargetOrdinal(
+				currentOrdinal = 4,
+				pageCount = 9,
+				pageChange = PageChange.NONE
 			)
 		)
 	}
@@ -313,25 +321,13 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 
 	@Test
 	fun landscapeDeckWindowUsesThreeCompleteSpreads() {
+		// Foliate spreads 3, 4 and 5 own leaf ordinals 6..11.
 		assertEquals(
-			listOf(2, 3, 4, 5, 6, 7),
+			listOf(6, 7, 8, 9, 10, 11),
 			readerPlayLikeCurlLibraryDeckPageIndices(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				currentOrdinal = 4,
 				pageCount = 10
-			)
-		)
-	}
-
-	@Test
-	fun landscapeDeckWindowPreservesAnOddFoliateSpreadAnchor() {
-		assertEquals(
-			listOf(11, 12, 13, 14, 15, 16),
-			readerPlayLikeCurlLibraryDeckPageIndices(
-				orientation = ReaderPlayLikeCurlOrientation.Landscape,
-				currentOrdinal = 13,
-				pageCount = 30,
-				spreadAnchorParity = 1
 			)
 		)
 	}
@@ -351,6 +347,14 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			readerPlayLikeCurlLibraryDeckPageIndices(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				currentOrdinal = 0,
+				pageCount = 4
+			)
+		)
+		assertEquals(
+			listOf(4, 5, 6, 7),
+			readerPlayLikeCurlLibraryDeckPageIndices(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				currentOrdinal = 3,
 				pageCount = 4
 			)
 		)
@@ -399,20 +403,22 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	}
 
 	@Test
-	fun landscapeMapsThreeAdjacentSpreadsFromTheFoliateCurrentLeftLeaf() {
+	fun landscapeMapsThreeAdjacentWholeSpreadsAroundTheFoliateSpread() {
 		val landscape = assertIs<LandscapePageDeck<String>>(
 			deck(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				generationId = 10L,
 				currentOrdinal = 3,
-				pageCount = 8,
-				spreadAnchorParity = 1
+				pageCount = 8
 			)
 		)
 
-		assertEquals(listOf(1, 2, 3, 4, 5, 6), landscape.pages.map(PageImage<String>::getOrdinal))
-		assertEquals(3, landscape.currentLeft.ordinal)
-		assertEquals(4, landscape.currentRight.ordinal)
+		assertEquals(listOf(4, 5, 6, 7, 8, 9), landscape.pages.map(PageImage<String>::getOrdinal))
+		assertEquals(6, landscape.currentLeft.ordinal)
+		assertEquals(7, landscape.currentRight.ordinal)
+		assertEquals(4, landscape.getSettlementPage(PageChange.PREVIOUS).ordinal)
+		assertEquals(6, landscape.getSettlementPage(PageChange.NONE).ordinal)
+		assertEquals(8, landscape.getSettlementPage(PageChange.NEXT).ordinal)
 	}
 
 	@Test
@@ -422,8 +428,7 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				generationId = 11L,
 				currentOrdinal = 0,
-				pageCount = 8,
-				spreadAnchorParity = 1
+				pageCount = 8
 			)
 		)
 		val last = assertIs<LandscapePageDeck<String>>(
@@ -431,8 +436,7 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				generationId = 12L,
 				currentOrdinal = 7,
-				pageCount = 8,
-				spreadAnchorParity = 1
+				pageCount = 8
 			)
 		)
 
@@ -440,55 +444,42 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			listOf(
 				"filler-Previous-0-Left",
 				"filler-Previous-0-Right",
-				"filler-Current-0-Left",
 				"page-0",
 				"page-1",
-				"page-2"
+				"page-2",
+				"page-3"
 			),
 			first.pages.map(PageImage<String>::getLogicalPageId)
 		)
 		assertTrue(first.previousLeft.isFiller)
 		assertTrue(first.previousRight.isFiller)
-		assertTrue(first.currentLeft.isFiller)
+		assertFalse(first.currentLeft.isFiller)
 		assertFalse(first.currentRight.isFiller)
 		assertFalse(first.canTurn(PageChange.PREVIOUS))
 		assertTrue(first.canTurn(PageChange.NEXT))
 		assertEquals(0, first.getSettlementPage(PageChange.NONE).ordinal)
-		assertEquals(1, first.getSettlementPage(PageChange.NEXT).ordinal)
+		assertEquals(2, first.getSettlementPage(PageChange.NEXT).ordinal)
+		assertEquals(
+			listOf(
+				"page-12",
+				"page-13",
+				"page-14",
+				"page-15",
+				"filler-Next-7-Left",
+				"filler-Next-7-Right"
+			),
+			last.pages.map(PageImage<String>::getLogicalPageId)
+		)
+		assertTrue(last.canTurn(PageChange.PREVIOUS))
 		assertFalse(last.canTurn(PageChange.NEXT))
-		assertEquals(7, last.getSettlementPage(PageChange.NONE).ordinal)
+		assertEquals(12, last.getSettlementPage(PageChange.PREVIOUS).ordinal)
+		assertEquals(14, last.getSettlementPage(PageChange.NONE).ordinal)
 		assertTrue(last.nextLeft.isFiller)
 		assertTrue(last.nextRight.isFiller)
 	}
 
 	@Test
-	fun landscapeKeepsAnOddFinalPageReachableAsTheLastLeftLeaf() {
-		val last = assertIs<LandscapePageDeck<String>>(
-			deck(
-				orientation = ReaderPlayLikeCurlOrientation.Landscape,
-				generationId = 13L,
-				currentOrdinal = 6,
-				pageCount = 7
-			)
-		)
-
-		assertEquals(
-			listOf(
-				"page-4",
-				"page-5",
-				"page-6",
-				"filler-Current-6-Right",
-				"filler-Next-6-Left",
-				"filler-Next-6-Right"
-			),
-			last.pages.map(PageImage<String>::getLogicalPageId)
-		)
-		assertEquals(6, last.getSettlementPage(PageChange.NONE).ordinal)
-		assertFalse(last.canTurn(PageChange.NEXT))
-	}
-
-	@Test
-	fun parityZeroRtlUsesLogicalAnchorInsteadOfPhysicalLeftLeaf() {
+	fun rtlSpreadMirrorsLeavesAndSettlesOnTheReadingFirstRightLeaf() {
 		val deck = assertIs<LandscapePageDeck<String>>(
 			deck(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
@@ -499,51 +490,124 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 			)
 		)
 
-		assertEquals(3, deck.currentLeft.ordinal)
-		assertEquals(2, deck.currentRight.ordinal)
+		assertEquals(5, deck.currentLeft.ordinal)
+		assertEquals(4, deck.currentRight.ordinal)
 		assertSame(deck.currentRight, deck.getSettlementPage(PageChange.NONE))
-		assertEquals(0, deck.getSettlementPage(PageChange.PREVIOUS).ordinal)
-		assertEquals(4, deck.getSettlementPage(PageChange.NEXT).ordinal)
+		assertSame(deck.previousRight, deck.getSettlementPage(PageChange.PREVIOUS))
+		assertSame(deck.nextRight, deck.getSettlementPage(PageChange.NEXT))
+		assertEquals(2, deck.getSettlementPage(PageChange.PREVIOUS).ordinal)
+		assertEquals(6, deck.getSettlementPage(PageChange.NEXT).ordinal)
 		assertTrue(deck.canTurn(PageChange.PREVIOUS))
 		assertTrue(deck.canTurn(PageChange.NEXT))
 	}
 
 	@Test
-	fun parityOnePartialBoundariesUseFillerWithoutInventingCapabilities() {
-		val firstLtr = assertIs<LandscapePageDeck<String>>(
-			deck(
+	fun landscapeSpreadTurnsStepOneWholeSpreadWithBoundaryFillers() {
+		val spreadCount = 6
+		ReaderPlayLikeCurlReaderDirection.values().forEach { direction ->
+			val readingFirst = when (direction) {
+				ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Left
+				ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Right
+			}
+			val readingSecond = when (direction) {
+				ReaderPlayLikeCurlReaderDirection.Ltr -> ReaderPlayLikeCurlFoliateLeaf.Right
+				ReaderPlayLikeCurlReaderDirection.Rtl -> ReaderPlayLikeCurlFoliateLeaf.Left
+			}
+			fun request(leafOrdinal: Int) = readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
-				generationId = 21L,
-				currentOrdinal = 0,
-				pageCount = 6,
-				spreadAnchorParity = 1
+				readerDirection = direction,
+				logicalOrdinal = leafOrdinal,
+				pageCount = spreadCount
 			)
-		)
-		val lastRtl = assertIs<LandscapePageDeck<String>>(
-			deck(
-				orientation = ReaderPlayLikeCurlOrientation.Landscape,
-				generationId = 22L,
-				currentOrdinal = 5,
-				pageCount = 6,
-				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
-				spreadAnchorParity = 1
-			)
-		)
+			fun assertSpreadLeaves(
+				spread: Int,
+				left: PageImage<String>,
+				right: PageImage<String>
+			) {
+				assertFalse(left.isFiller)
+				assertFalse(right.isFiller)
+				assertEquals(spread, request(left.ordinal).sourcePageIndex)
+				assertEquals(spread, request(right.ordinal).sourcePageIndex)
+				assertEquals(ReaderPlayLikeCurlFoliateLeaf.Left, request(left.ordinal).leaf)
+				assertEquals(ReaderPlayLikeCurlFoliateLeaf.Right, request(right.ordinal).leaf)
+				val (readingFirstPage, readingSecondPage) = when (direction) {
+					ReaderPlayLikeCurlReaderDirection.Ltr -> left to right
+					ReaderPlayLikeCurlReaderDirection.Rtl -> right to left
+				}
+				assertEquals(2 * spread, readingFirstPage.ordinal)
+				assertEquals(2 * spread + 1, readingSecondPage.ordinal)
+				assertEquals(readingFirst, request(readingFirstPage.ordinal).leaf)
+				assertEquals(readingSecond, request(readingSecondPage.ordinal).leaf)
+			}
 
-		assertTrue(firstLtr.currentLeft.isFiller)
-		assertEquals("filler-Current-0-Left", firstLtr.currentLeft.logicalPageId)
-		assertFalse(firstLtr.currentRight.isFiller)
-		assertFalse(firstLtr.canTurn(PageChange.PREVIOUS))
-		assertTrue(firstLtr.canTurn(PageChange.NEXT))
-		assertSame(firstLtr.currentRight, firstLtr.getSettlementPage(PageChange.NONE))
-		assertEquals(1, firstLtr.getSettlementPage(PageChange.NEXT).ordinal)
-		assertTrue(lastRtl.canTurn(PageChange.PREVIOUS))
-		assertFalse(lastRtl.canTurn(PageChange.NEXT))
-		assertTrue(lastRtl.currentLeft.isFiller)
-		assertEquals("filler-Current-5-Left", lastRtl.currentLeft.logicalPageId)
-		assertFalse(lastRtl.currentRight.isFiller)
-		assertSame(lastRtl.currentRight, lastRtl.getSettlementPage(PageChange.NONE))
-		assertEquals(3, lastRtl.getSettlementPage(PageChange.PREVIOUS).ordinal)
+			(0 until spreadCount).forEach { current ->
+				val landscape = assertIs<LandscapePageDeck<String>>(
+					deck(
+						orientation = ReaderPlayLikeCurlOrientation.Landscape,
+						generationId = 30L + current,
+						currentOrdinal = current,
+						pageCount = spreadCount,
+						readerDirection = direction
+					)
+				)
+				assertSpreadLeaves(current, landscape.currentLeft, landscape.currentRight)
+				assertEquals(
+					current,
+					readerPlayLikeCurlFoliateOrdinal(
+						ReaderPlayLikeCurlOrientation.Landscape,
+						landscape.getSettlementPage(PageChange.NONE).ordinal
+					)
+				)
+
+				val hasPrevious = current > 0
+				assertEquals(hasPrevious, landscape.canTurn(PageChange.PREVIOUS))
+				if (hasPrevious) {
+					assertSpreadLeaves(current - 1, landscape.previousLeft, landscape.previousRight)
+					assertEquals(
+						current - 1,
+						readerPlayLikeCurlFoliateOrdinal(
+							ReaderPlayLikeCurlOrientation.Landscape,
+							landscape.getSettlementPage(PageChange.PREVIOUS).ordinal
+						)
+					)
+				} else {
+					assertTrue(landscape.previousLeft.isFiller)
+					assertTrue(landscape.previousRight.isFiller)
+				}
+				assertEquals(
+					(current - 1).takeIf { hasPrevious },
+					readerPlayLikeCurlSettlementTargetOrdinal(
+						currentOrdinal = current,
+						pageCount = spreadCount,
+						pageChange = PageChange.PREVIOUS
+					)
+				)
+
+				val hasNext = current < spreadCount - 1
+				assertEquals(hasNext, landscape.canTurn(PageChange.NEXT))
+				if (hasNext) {
+					assertSpreadLeaves(current + 1, landscape.nextLeft, landscape.nextRight)
+					assertEquals(
+						current + 1,
+						readerPlayLikeCurlFoliateOrdinal(
+							ReaderPlayLikeCurlOrientation.Landscape,
+							landscape.getSettlementPage(PageChange.NEXT).ordinal
+						)
+					)
+				} else {
+					assertTrue(landscape.nextLeft.isFiller)
+					assertTrue(landscape.nextRight.isFiller)
+				}
+				assertEquals(
+					(current + 1).takeIf { hasNext },
+					readerPlayLikeCurlSettlementTargetOrdinal(
+						currentOrdinal = current,
+						pageCount = spreadCount,
+						pageChange = PageChange.NEXT
+					)
+				)
+			}
+		}
 	}
 
 	private fun ReaderWhispersyncAnchorReceipt.nativePresentationProof() =
@@ -627,15 +691,13 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		generationId: Long,
 		currentOrdinal: Int,
 		pageCount: Int,
-		readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-		spreadAnchorParity: Int = 0
+		readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr
 	) = readerPlayLikeCurlLibraryDeck(
 		orientation = orientation,
 		generationId = generationId,
 		currentOrdinal = currentOrdinal,
 		pageCount = pageCount,
 		readerDirection = readerDirection,
-		spreadAnchorParity = spreadAnchorParity,
 		filler = ::fillerPage,
 		page = ::page
 	)

@@ -72,7 +72,12 @@ internal fun ReaderPlayLikeCurlBitmapSource.profile(
 	sourceIdentity = sourceIdentity,
 	orientation = orientation,
 	quality = quality,
-	pageCount = pageCount
+	// Reference bitmaps are single physical pages; landscape pairs them into whole spreads whose
+	// leaf ordinals are the page indices.
+	pageCount = when (orientation) {
+		ReaderPlayLikeCurlOrientation.Portrait -> pageCount
+		ReaderPlayLikeCurlOrientation.Landscape -> pageCount / 2
+	}
 )
 
 private fun Context.decodeScaledAsset(

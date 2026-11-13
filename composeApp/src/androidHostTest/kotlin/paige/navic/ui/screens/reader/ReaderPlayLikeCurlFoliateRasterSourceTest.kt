@@ -34,77 +34,75 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
 				logicalOrdinal = 2,
-				sourcePageIndex = 2,
+				sourcePageIndex = 1,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
 				logicalOrdinal = 2,
-				pageCount = 8,
-				spreadAnchorParity = 0
+				pageCount = 8
 			)
 		)
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
 				logicalOrdinal = 3,
-				sourcePageIndex = 2,
+				sourcePageIndex = 1,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
 				logicalOrdinal = 3,
-				pageCount = 8,
-				spreadAnchorParity = 0
+				pageCount = 8
 			)
 		)
 	}
 
 	@Test
-	fun landscapeUsesTheFoliateSpreadAnchorParityInsteadOfAssumingEvenSnapshots() {
+	fun landscapeLeafOrdinalsAddressWholeFoliateSpreadSnapshots() {
+		// Foliate spread 10 owns leaves 20/21; the next spread snapshot is 11, never 12.
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
-				logicalOrdinal = 13,
-				sourcePageIndex = 13,
+				logicalOrdinal = 20,
+				sourcePageIndex = 10,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-				logicalOrdinal = 13,
-				pageCount = 30,
-				spreadAnchorParity = 1
+				logicalOrdinal = 20,
+				pageCount = 30
 			)
 		)
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
-				logicalOrdinal = 14,
-				sourcePageIndex = 13,
+				logicalOrdinal = 21,
+				sourcePageIndex = 10,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-				logicalOrdinal = 14,
-				pageCount = 30,
-				spreadAnchorParity = 1
+				logicalOrdinal = 21,
+				pageCount = 30
 			)
 		)
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
-				logicalOrdinal = 12,
+				logicalOrdinal = 22,
 				sourcePageIndex = 11,
-				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-				logicalOrdinal = 12,
-				pageCount = 30,
-				spreadAnchorParity = 1
+				logicalOrdinal = 22,
+				pageCount = 30
 			)
 		)
+		assertEquals(10, readerPlayLikeCurlSourcePageIndex(foliateOrdinal = 10, pageCount = 30))
+		assertEquals(29, readerPlayLikeCurlSourcePageIndex(foliateOrdinal = 40, pageCount = 30))
 	}
 
 	@Test
@@ -112,29 +110,27 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
 				logicalOrdinal = 2,
-				sourcePageIndex = 2,
+				sourcePageIndex = 1,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
 				logicalOrdinal = 2,
-				pageCount = 8,
-				spreadAnchorParity = 0
+				pageCount = 8
 			)
 		)
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
 				logicalOrdinal = 3,
-				sourcePageIndex = 2,
+				sourcePageIndex = 1,
 				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
 				logicalOrdinal = 3,
-				pageCount = 8,
-				spreadAnchorParity = 0
+				pageCount = 8
 			)
 		)
 	}
@@ -143,16 +139,38 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 	fun requestsClampAtTheBookBoundaryBeforeChoosingTheLeaf() {
 		assertEquals(
 			ReaderPlayLikeCurlFoliatePageRequest(
-				logicalOrdinal = 6,
+				logicalOrdinal = 13,
 				sourcePageIndex = 6,
-				leaf = ReaderPlayLikeCurlFoliateLeaf.Left
+				leaf = ReaderPlayLikeCurlFoliateLeaf.Right
 			),
 			readerPlayLikeCurlFoliatePageRequest(
 				orientation = ReaderPlayLikeCurlOrientation.Landscape,
 				readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
-				logicalOrdinal = 9,
-				pageCount = 7,
-				spreadAnchorParity = 0
+				logicalOrdinal = 20,
+				pageCount = 7
+			)
+		)
+	}
+
+	@Test
+	fun protectedSourcesAreTheWholeSpreadsOfTheLeafWindow() {
+		val profile = ReaderPlayLikeCurlRasterProfile(
+			sourceIdentity = "book",
+			orientation = ReaderPlayLikeCurlOrientation.Landscape,
+			quality = paige.navic.reader.ReaderPageBitmapQuality.Balanced,
+			pageCount = 30,
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl
+		)
+
+		assertEquals(
+			setOf(8, 9, 10, 11, 12),
+			readerPlayLikeCurlProtectedSourcePageIndices(
+				profile = profile,
+				logicalOrdinals = readerPlayLikeCurlPreparedPageIndices(
+					orientation = profile.orientation,
+					currentOrdinal = 10,
+					pageCount = profile.pageCount
+				)
 			)
 		)
 	}

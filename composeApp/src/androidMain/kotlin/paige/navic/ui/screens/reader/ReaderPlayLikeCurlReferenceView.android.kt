@@ -108,8 +108,12 @@ class ReaderPlayLikeCurlReferenceView(
 				pageChange: PageChange
 			) {
 				if (pageChange == PageChange.NONE) return
-				currentOrdinal = currentPageOrdinal
-				activePages?.let(::submitLibraryDeck)
+				val pages = activePages ?: return
+				currentOrdinal = readerPlayLikeCurlFoliateOrdinal(
+					pages.profile.orientation,
+					currentPageOrdinal
+				)
+				submitLibraryDeck(pages)
 			}
 
 			override fun onRenderFailure(failure: RenderFailure) {
@@ -164,7 +168,8 @@ class ReaderPlayLikeCurlReferenceView(
 
 		val preparation = rasterAdapter.prepare(
 			profile = profile,
-			pageIndices = (0 until bitmapSource.pageCount).toList()
+			pageIndices = (0 until readerPlayLikeCurlLeafOrdinalCount(orientation, profile.pageCount))
+				.toList()
 		) { progress ->
 			post {
 				if (requestedProfile == profile && !disposedByOwner) {
@@ -197,7 +202,7 @@ class ReaderPlayLikeCurlReferenceView(
 				val pages = PreparedPages(profile, deck)
 				preparedPageSets += pages
 				activePages = pages
-				currentOrdinal = currentOrdinal.coerceIn(0, bitmapSource.pageCount - 1)
+				currentOrdinal = currentOrdinal.coerceIn(0, profile.pageCount - 1)
 				deck.value(0)?.let(onPreparationCoverReady)
 				submitInitialDeckIfReady()
 			}
@@ -218,9 +223,8 @@ class ReaderPlayLikeCurlReferenceView(
 			orientation = pages.profile.orientation,
 			generationId = generationId,
 			currentOrdinal = currentOrdinal,
-			pageCount = bitmapSource.pageCount,
+			pageCount = pages.profile.pageCount,
 			readerDirection = pages.profile.readerDirection,
-			spreadAnchorParity = pages.profile.spreadAnchorParity,
 			requireCompleteMaterial = true,
 			filler = { pageGenerationId, role, sourcePageIndex, leaf, fallbackOrdinal ->
 				pages.filler(
@@ -256,8 +260,7 @@ class ReaderPlayLikeCurlReferenceView(
 			orientation = profile.orientation,
 			readerDirection = profile.readerDirection,
 			logicalOrdinal = ordinal,
-			pageCount = profile.pageCount,
-			spreadAnchorParity = profile.spreadAnchorParity
+			pageCount = profile.pageCount
 		).leaf
 		val displayRect = referenceDisplayRect(leaf)
 		return PageImage(

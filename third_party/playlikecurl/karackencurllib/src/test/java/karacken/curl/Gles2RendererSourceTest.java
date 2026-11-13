@@ -485,6 +485,33 @@ public class Gles2RendererSourceTest {
         }
     }
 
+    @Test
+    public void glWorkWithoutCurrentContextIsDeferredInsteadOfOrphaned() throws IOException {
+        String renderer = source("PageRenderer.java");
+        String deleteGl = methodBody(renderer, "void deleteGl()");
+        assertTrue(deleteGl.contains("glContextCurrent()"));
+        assertTrue(deleteGl.contains("orphanedTextureIds.add(textureId)"));
+
+        String prepare = methodBody(renderer, "void prepareDeck(");
+        assertTrue(prepare.contains("glReady && glContextCurrent()"));
+        assertTrue(prepare.contains("deckUploadPending = true"));
+
+        String draw = methodBody(renderer, "boolean drawFrame(GL10 ignored)");
+        int guard = draw.indexOf("if (disposed || !glReady)");
+        int drain = draw.indexOf("drainOrphanedTextures()");
+        int rehydrate = draw.indexOf("rehydrateRetainedDecks()");
+        int firstGlCall = draw.indexOf("GLES20.glViewport");
+        assertTrue(guard >= 0 && drain > guard && rehydrate > drain && firstGlCall > rehydrate);
+
+        String created = methodBody(renderer, "public void onSurfaceCreated(");
+        assertTrue(created.contains("orphanedTextureIds.clear()"));
+
+        String dispose = methodBody(renderer, "void dispose() {\n        if (disposed)");
+        int overlays = dispose.indexOf("dynamicPageOverlays::clear");
+        int notReady = dispose.indexOf("glReady = false");
+        assertTrue(overlays >= 0 && notReady > overlays);
+    }
+
     private static String source(String fileName) throws IOException {
         return Files.readString(
                 Path.of("src/main/java/karacken/curl/" + fileName),

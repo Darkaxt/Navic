@@ -65,6 +65,18 @@ public class LandscapeSpreadModelTest {
     }
 
     @Test
+    public void slowBackwardReleaseDraggedPastTheLeafCommitsThePreviousSpread() {
+        LandscapeSpreadModel model = new LandscapeSpreadModel(4, 2);
+        model.beginGesture(0f);
+        model.dragTo(40f, 100f);
+        model.dragTo(180f, 100f);
+
+        Settlement settlement = model.release();
+
+        assertEquals(PageChange.PREVIOUS, settlement.getPageChange());
+    }
+
+    @Test
     public void slowBackwardReleaseAtTheBindingCommitsThePreviousSpread() {
         LandscapeSpreadModel model = new LandscapeSpreadModel(4, 2);
         model.beginGesture(0f);
