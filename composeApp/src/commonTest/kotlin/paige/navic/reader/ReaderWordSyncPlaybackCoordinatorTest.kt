@@ -605,6 +605,52 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun readerPreparedStartBeginsAtFirstVisibleWordWhenSegmentStartsOnPreviousPage() {
+		val ready = readyCoordinatorAndController()
+		val commitIdentity = ReaderDestinationCommitIdentity("session-a", 3L)
+		// The prepared segment starts at word 0 (raw bytes 0..2), which belongs to the previous page.
+		val segmentTarget = WhispersyncAudioSeekTarget(
+			audioResource = "audio-a",
+			positionMs = 1_000L,
+			segment = cueSegment().copy(audioResourceId = "audio-a", audioTrackIndex = 0),
+			audioTrackIndex = 0
+		)
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				destinationCommitIdentity = commitIdentity,
+				whispersync = ready.second.state.whispersync.copy(
+					visibleTextRange = ReaderWhispersyncVisibleTextRange(
+						textHref = "Text/chapter.xhtml",
+						visibleStart = 20,
+						visibleEnd = 30,
+						rawProvenanceId = descriptor().id,
+						rawSpineIndex = 2,
+						rawByteStart = 3,
+						rawByteEnd = 9,
+						destinationCommitIdentity = commitIdentity
+					),
+					pendingAudioSeek = ReaderWhispersyncPendingAudioSeek(
+						overlayRequestId = 41L,
+						target = segmentTarget
+					),
+					playbackStartPending = true
+				)
+			)
+		)
+
+		val exact = ready.first.coordinate(
+			ReaderControllerStep(controller = controller, engineCommands = listOf(cueCommand()))
+		)
+
+		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			exact.controllerStep.engineCommands.single()
+		).fragment
+		assertEquals(3, fragment.rawByteStart)
+		assertEquals(4, fragment.rawByteEnd)
+		assertEquals(1_300L, exact.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
+	}
+
+	@Test
 	fun exactWordSeekCarriesVerifiedTrackIdentity() {
 		val exactTrackIndex = 3
 		val exactChapter = chapter.copy(

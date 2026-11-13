@@ -157,13 +157,29 @@ data class ReaderWordSyncPlaybackCoordinator(
 			controllerStep = controllerStep,
 			effects = loadDecision.effects
 		)
-		val candidate = coordinatorWithDemand.rawCandidate(
-			controller = controllerStep.controller,
-			cueFragment = cueFragment,
-			playback = playbackForCue,
-			rawPoint = rawPoint,
-			readerEvent = readerEvent
-		)
+		// A reader-prepared Play starts at the first word of the visible page. The prepared
+		// Whispersync segment may begin on the previous page, and its first word would be off-page.
+		val preparedVisibleRange = controllerStep.controller.state
+			.takeIf { readerPreparedStart && playback == null && !readerEvent }
+			?.let { state ->
+				state.whispersync.visibleTextRange
+					?.takeIf { range -> range.destinationCommitIdentity == state.destinationCommitIdentity }
+			}
+		val candidate = preparedVisibleRange
+			?.let { range ->
+				coordinatorWithDemand.candidateForVisibleRange(
+					range = range,
+					audioTrackIndex = preparedPlayback?.audioTrackIndex
+				)
+			}
+			?.let { visible -> coordinatorWithDemand.admittedCandidate(controllerStep.controller, cueFragment, visible) }
+			?: coordinatorWithDemand.rawCandidate(
+				controller = controllerStep.controller,
+				cueFragment = cueFragment,
+				playback = playbackForCue,
+				rawPoint = rawPoint,
+				readerEvent = readerEvent
+			)
 		val requestId = cueFragment.overlayRequestId
 		if (candidate == null || requestId == null) {
 			return ReaderWordSyncDecision(
@@ -583,11 +599,35 @@ data class ReaderWordSyncPlaybackCoordinator(
 				playback?.let(::candidateForPlayback)
 			}
 		) ?: return null
+		return admittedCandidate(controller, cueFragment, candidate)
+	}
+
+	private fun admittedCandidate(
+		controller: ReaderController,
+		cueFragment: ReaderOverlayFragment,
+		candidate: ReaderWordSyncCandidate
+	): ReaderWordSyncCandidate? {
 		if (candidate.word.status !in 1..4) return null
 		if (candidate.word.ebookHref != cueFragment.textHref) return null
 		val status = controller.state.rawTextProvenanceById[candidate.verified.descriptor.id]
 		if (status?.status != RawTextProvenanceStatus.Ready) return null
 		return candidate
+	}
+
+	private fun candidateForVisibleRange(
+		range: ReaderWhispersyncVisibleTextRange,
+		audioTrackIndex: Int?
+	): ReaderWordSyncCandidate? {
+		val provenanceId = range.rawProvenanceId ?: return null
+		val byteStart = range.rawByteStart ?: return null
+		val byteEnd = range.rawByteEnd?.takeIf { it > byteStart } ?: return null
+		val verified = chapters.values.singleOrNull { it.descriptor.id == provenanceId } ?: return null
+		val start = verified.chapter.ebookStart.toLong() + byteStart
+		val end = verified.chapter.ebookStart.toLong() + byteEnd
+		if (end > Int.MAX_VALUE) return null
+		val word = verified.chapter.firstMatchedWordInEbookRange(start.toInt(), end.toInt(), audioTrackIndex)
+			?: return null
+		return ReaderWordSyncCandidate(verified, word)
 	}
 
 	private fun candidateForPlayback(playback: ReaderWordSyncPlaybackIdentity): ReaderWordSyncCandidate? =

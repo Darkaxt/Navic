@@ -138,6 +138,31 @@ data class WordSyncChapter(
 		}
 		return match
 	}
+
+	/** The first matched word starting inside [start, end) in ebook order, optionally on one audio track. */
+	fun firstMatchedWordInEbookRange(start: Int, end: Int, audioTrackIndex: Int? = null): WordSyncWord? {
+		var low = 0
+		var high = ebookLookup.lastIndex
+		var first = ebookLookup.size
+		while (low <= high) {
+			val middle = (low + high).ushr(1)
+			if (ebookLookup[middle].ebookStart >= start) {
+				first = middle
+				high = middle - 1
+			} else {
+				low = middle + 1
+			}
+		}
+		for (index in first until ebookLookup.size) {
+			val entry = ebookLookup[index]
+			if (entry.ebookStart >= end) return null
+			val word = tracks.getOrNull(entry.trackIndex)?.words?.getOrNull(entry.wordIndex) ?: continue
+			if (word.status in 1..4 && (audioTrackIndex == null || word.audioTrackIndex == audioTrackIndex)) {
+				return word
+			}
+		}
+		return null
+	}
 }
 
 data class WordSyncTrack(
