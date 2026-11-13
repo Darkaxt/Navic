@@ -127,7 +127,8 @@ data class ReaderWhispersyncSessionState(
 	val canonicalRetryHasFreshRawRange: Boolean = false,
 	val canonicalRecoveryRequiresFreshVisibleRange: Boolean = false,
 	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null,
-	val cueMap: ReaderWhispersyncCueMapState = ReaderWhispersyncCueMapState()
+	val cueMap: ReaderWhispersyncCueMapState = ReaderWhispersyncCueMapState(),
+	val pageCurlPausedPlayback: Boolean = false
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline

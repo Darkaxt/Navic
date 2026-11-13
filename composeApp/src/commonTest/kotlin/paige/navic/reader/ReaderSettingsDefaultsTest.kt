@@ -405,8 +405,8 @@ class ReaderSettingsDefaultsTest {
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("standard"))
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("curl"))
 		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
-		assertEquals("None", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
-		assertEquals("Canvas", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
+		assertEquals("Slide", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
+		assertEquals("Page curl", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
 		assertEquals(
 			ReaderDragAnimationCanvas,
 			normalizedReaderSettings(

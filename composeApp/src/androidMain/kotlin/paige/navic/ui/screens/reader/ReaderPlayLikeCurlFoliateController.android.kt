@@ -60,6 +60,7 @@ import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
 import paige.navic.reader.ReaderWhispersyncPageLocalRect
+import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnPageRole
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -670,6 +671,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private val onCanonicalLiveCommitIssued: () -> Boolean = { false },
 	private val onCanonicalLiveCommitRecoveryFailed: (Long) -> Boolean = { false },
 	private val onBoundaryTurn: (ReaderPageTurnDirection) -> Unit = {},
+	private val onTurnPhase: (ReaderPageCurlTurnPhase) -> Unit = {},
 	private val onRasterProfileEpochChanged: (Long?) -> Unit = {},
 	private val onProtectedRasterSourcePageIndicesChanged: (Set<Int>) -> Unit = {},
 	private val onPreparedActiveDeckChanged: (ReaderPagePreparedActiveDeck?) -> Unit = {},
@@ -1200,6 +1202,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					gestureId = gestureId,
 					sourceGenerationId = generationId
 				)
+				if (pageChange != PageChange.NONE) onTurnPhase(ReaderPageCurlTurnPhase.Settling)
 				updateReadiness(
 					textureDeck = ReaderTextureDeckState.Settling,
 					interaction = ReaderPageInteractionState.Settling,
@@ -6386,6 +6389,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			null
 		}
+		onTurnPhase(
+			when (outcome) {
+				ReaderPageGestureTerminalOutcome.CommittedForward,
+				ReaderPageGestureTerminalOutcome.CommittedBackward -> ReaderPageCurlTurnPhase.Committed
+				else -> ReaderPageCurlTurnPhase.Abandoned
+			}
+		)
 		val published = when {
 			gestureId in hostOwnedTerminalGestureIds -> true
 			tapSink == null -> onGestureTerminal(gestureId, outcome, detail)

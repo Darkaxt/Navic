@@ -51,7 +51,9 @@ import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderListeningSettings
 import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderOverlayCoordinateMode
+import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
+import paige.navic.reader.onPageCurlTurnPhase
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -360,11 +362,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 										)
 									}
 								},
-								onFailure = {
+								onFailure = { error ->
 									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
 										wordSyncVerificationSession = null
 										applyCoordinatorStep(coordinator.onWordSyncIndexFailed(effect.generation))
-										Logger.w(ReaderScreenTag, "WordSync index load or verification failed")
+										Logger.w(ReaderScreenTag, "WordSync index load or verification failed", error)
 									}
 								}
 							)
@@ -396,7 +398,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 										)
 									}
 								},
-								onFailure = {
+								onFailure = { error ->
 									if (coordinator.acceptsWordSyncGeneration(effect.generation)) {
 										applyCoordinatorStep(
 											coordinator.onWordSyncChapterFailed(
@@ -404,7 +406,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 												effect.summary.chapterKey
 											)
 										)
-										Logger.w(ReaderScreenTag, "WordSync chapter load or verification failed")
+										Logger.w(ReaderScreenTag, "WordSync chapter load or verification failed", error)
 									}
 								}
 							)
@@ -937,6 +939,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 				"Reader renderer boundary direction=$direction " +
 					"shellCover=$beforeShellCoverVisible->${step.coordinator.controller.state.shellCoverVisible}"
 			)
+			applyCoordinatorStep(step)
+		},
+		onPageCurlTurnPhase = { phase ->
+			val step = coordinator.dispatch { onPageCurlTurnPhase(phase) }
+			Logger.i(ReaderScreenTag, "Reader page curl turn phase=$phase")
 			applyCoordinatorStep(step)
 		},
 		onWhispersyncPlaybackCommand = { command ->

@@ -114,6 +114,50 @@ internal fun ReaderController.reserveTurnPageNavigation(): ReaderController =
 		requiresPageTurnSettlement = false
 	)
 
+enum class ReaderPageCurlTurnPhase {
+	/** The curl animation is completing a page change. */
+	Settling,
+	/** The curl committed and dispatched its exact settled relocation. */
+	Committed,
+	/** The gesture ended without changing page. */
+	Abandoned
+}
+
+// Native curl turns bypass TurnPage, so they pause narration here for the length of the animation.
+// A committed curl reserves a navigation intent that is matched by the exact settlement token of its
+// relocation (curl relocations carry no causal sequence); preparation of the destination then
+// resumes playback. An abandoned curl resumes the paused audio where it was.
+internal fun ReaderController.onPageCurlTurnPhase(phase: ReaderPageCurlTurnPhase): ReaderControllerStep {
+	val whispersync = state.whispersync
+	return when (phase) {
+		ReaderPageCurlTurnPhase.Settling -> {
+			val pause = whispersync.navigationPauseCommand()
+			ReaderControllerStep(
+				controller = withPageCurlPausedPlayback(whispersync.pageCurlPausedPlayback || pause != null),
+				readaloudPlaybackCommand = pause
+			)
+		}
+		ReaderPageCurlTurnPhase.Committed -> ReaderControllerStep(
+			controller = ReaderWhispersyncReducer.reserveUserNavigation(
+				controller = withPageCurlPausedPlayback(false),
+				requiresPageTurnSettlement = true
+			)
+		)
+		ReaderPageCurlTurnPhase.Abandoned -> ReaderControllerStep(
+			controller = withPageCurlPausedPlayback(false),
+			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Play
+				.takeIf { whispersync.pageCurlPausedPlayback }
+		)
+	}
+}
+
+private fun ReaderController.withPageCurlPausedPlayback(paused: Boolean): ReaderController =
+	if (state.whispersync.pageCurlPausedPlayback == paused) {
+		this
+	} else {
+		copy(state = state.copy(whispersync = state.whispersync.copy(pageCurlPausedPlayback = paused)))
+	}
+
 internal fun ReaderController.pendingWhispersyncCausalSequence(): Long? =
 	state.whispersync.pendingCausalIntent?.sequence
 

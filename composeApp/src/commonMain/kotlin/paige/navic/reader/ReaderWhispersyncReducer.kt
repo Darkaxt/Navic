@@ -1423,7 +1423,8 @@ private fun ReaderController.reduceVisibleTextRange(
 			it.destinationCommitIdentity == destinationCommitIdentity &&
 			(
 				(event.causalSequence != null && event.causalSequence == it.sequence) ||
-					(it.rangeObserved && event.causalSequence == null)
+					// A curl-settled destination carries no causal sequence; its committed identity binds it.
+					((it.rangeObserved || it.requiresPageTurnSettlement) && event.causalSequence == null)
 			)
 	}
 	if (pendingNavigation != null && navigationMatched == null) {
@@ -1892,17 +1893,23 @@ private fun ReaderController.reduceWhispersyncRelocated(
 		it.provenance == ReaderWhispersyncEventProvenance.UserNavigation
 	}
 	val destinationCommitIdentity = event.destinationCommitIdentity
-	val sequenceMatched = pending != null &&
-		event.causalSequence != null &&
-		event.causalSequence == pending.sequence
+	val settledByNativeCurl = state.pageTurnSettlementAck?.let { ack ->
+		event.pageTurnSettleToken != null &&
+			ack.token == event.pageTurnSettleToken &&
+			ack.foliateSessionId == event.foliateSessionId
+	} == true
+	// Native curl relocations (goToVisualPage) carry no causal sequence; their exact settlement token
+	// identifies the committed gesture instead.
+	val sequenceMatched = pending != null && (
+		if (pending.requiresPageTurnSettlement) {
+			settledByNativeCurl
+		} else {
+			event.causalSequence != null && event.causalSequence == pending.sequence
+		}
+	)
 	val destinationMatched = destinationCommitIdentity != null &&
 		destinationCommitIdentity == state.destinationCommitIdentity
-	val settlementMatched = pending?.requiresPageTurnSettlement != true ||
-		state.pageTurnSettlementAck?.let { ack ->
-			event.pageTurnSettleToken != null &&
-				ack.token == event.pageTurnSettleToken &&
-				ack.foliateSessionId == event.foliateSessionId
-		} == true
+	val settlementMatched = pending?.requiresPageTurnSettlement != true || settledByNativeCurl
 	if (!sequenceMatched || !destinationMatched || !settlementMatched) {
 		return ReaderControllerStep(
 			copy(

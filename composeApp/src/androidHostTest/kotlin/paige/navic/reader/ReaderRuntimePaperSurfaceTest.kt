@@ -697,14 +697,13 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(chromeText, "const val ReaderDragAnimationCanvas = \"canvas\"")
 		assertContains(chromeText, "normalizedReaderDragAnimationMode")
 		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationNone")
-		assertFalse(
-			settingsModePagesText.contains("title = \"Page turn\""),
-			"Production reader settings must not expose Canvas page-turn controls before PlayLikeCurl is verified."
+		assertContains(
+			settingsModePagesText,
+			"title = \"Page turn animation\"",
+			message = "Reader settings must let users select the page-turn animation (#32)."
 		)
-		assertFalse(
-			settingsModePagesText.contains("ReaderSupportedDragAnimationModes"),
-			"Production reader settings must not expose Canvas page-turn controls before PlayLikeCurl is verified."
-		)
+		assertContains(settingsModePagesText, "ReaderSupportedDragAnimationModes")
+		assertContains(settingsModePagesText, "settings.copy(dragAnimationMode = mode)")
 		assertContains(bridgeText, "\"dragAnimationMode\"")
 		assertContains(appearanceText, "this.readerDragAnimationModeValue")
 		assertContains(pageTurnsText, "readerDragAnimationModeAllowsCurl")

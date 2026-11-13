@@ -421,6 +421,56 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
+	fun curlTurnPausesForTheAnimationAndResumesOnTheSettledDestination() {
+		val settling = playingController().onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Settling)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, settling.readaloudPlaybackCommand)
+		assertFalse(settling.controller.state.whispersync.userPaused)
+
+		val committed = settling.controller.onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Committed)
+		assertNull(committed.readaloudPlaybackCommand)
+		assertTrue(committed.controller.state.whispersync.pendingCausalIntent?.requiresPageTurnSettlement == true)
+
+		val relocated = committed.controller.onEngineEvent(curlSettledRelocation()).controller
+		assertTrue(relocated.state.whispersync.pendingCausalIntent?.destinationCommitted == true)
+
+		val destination = relocated.onEngineEvent(curlDestinationVisibleRange())
+
+		assertEquals(3_000L, destination.controller.state.whispersync.preparedVisibleTarget?.audioSeekTarget?.positionMs)
+		assertNull(destination.controller.state.whispersync.pendingCausalIntent)
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(destination.engineCommands.single())
+	}
+
+	@Test
+	fun curlIntentIgnoresRelocationsWithoutItsSettlementToken() {
+		val committed = playingController()
+			.onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Settling).controller
+			.onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Committed).controller
+		val sequence = requireNotNull(committed.state.whispersync.pendingCausalIntent?.sequence)
+
+		val unsettled = committed.onEngineEvent(
+			ReaderEngineEvent.Relocated(
+				locator = ReaderLocator(href = TextHref, pageIndex = 1, pageCount = 2),
+				foliateSessionId = FoliateSession,
+				causalSequence = sequence,
+				destinationCommitIdentity = DestinationCommit
+			)
+		).controller
+
+		assertFalse(unsettled.state.whispersync.pendingCausalIntent?.destinationCommitted == true)
+	}
+
+	@Test
+	fun abandonedCurlResumesOnlyNarrationItPaused() {
+		val settling = playingController().onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Settling)
+		val abandoned = settling.controller.onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Abandoned)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, abandoned.readaloudPlaybackCommand)
+		assertFalse(abandoned.controller.state.whispersync.pageCurlPausedPlayback)
+
+		val untouched = preparedController().onPageCurlTurnPhase(ReaderPageCurlTurnPhase.Abandoned)
+		assertNull(untouched.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun controllerOrderedNavigationCommitsBeforePreparingDestination() {
 		val navigation = preparedController().navigateTo(
 			ReaderLocator(href = TextHref, chapterProgress = 0.75)
@@ -556,6 +606,26 @@ class ReaderWhispersyncLifecycleReducerTest {
 			pageTurnSettleRasterGeneration = 4L,
 			pageTurnSettleTextureGeneration = 5L,
 			causalSequence = causalSequence,
+			destinationCommitIdentity = DestinationCommit
+		)
+
+	private fun curlSettledRelocation(): ReaderEngineEvent.Relocated =
+		ReaderEngineEvent.Relocated(
+			locator = ReaderLocator(href = TextHref, pageIndex = 1, pageCount = 2),
+			foliateSessionId = FoliateSession,
+			pageTurnSettleToken = "curl-gesture-1",
+			pageTurnSettleSessionId = FoliateSession,
+			pageTurnSettleRasterGeneration = 1L,
+			pageTurnSettleTextureGeneration = 1L,
+			destinationCommitIdentity = DestinationCommit
+		)
+
+	private fun curlDestinationVisibleRange(): ReaderEngineEvent.VisibleTextRange =
+		ReaderEngineEvent.VisibleTextRange(
+			textHref = TextHref,
+			visibleStart = 80,
+			visibleEnd = 100,
+			source = "reader",
 			destinationCommitIdentity = DestinationCommit
 		)
 

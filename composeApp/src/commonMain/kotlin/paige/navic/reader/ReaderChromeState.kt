@@ -658,8 +658,8 @@ fun readerNavBarTypeShortLabel(navBarType: String?): String =
 
 fun readerDragAnimationModeShortLabel(dragAnimationMode: String?): String =
 	when (normalizedReaderDragAnimationMode(dragAnimationMode)) {
-		ReaderDragAnimationCanvas -> "Canvas"
-		else -> "None"
+		ReaderDragAnimationCanvas -> "Page curl"
+		else -> "Slide"
 	}
 
 fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =

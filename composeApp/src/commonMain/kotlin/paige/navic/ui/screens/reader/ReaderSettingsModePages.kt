@@ -61,6 +61,14 @@ internal fun KomikkuReadingSettingsPage(
 			onSelect = { navBarType -> onSettingsChange(settings.copy(navBarType = navBarType)) }
 		)
 		SettingsSelectableChipRow(
+			title = "Page turn animation",
+			options = ReaderSupportedDragAnimationModes.map { mode ->
+				mode to readerDragAnimationModeShortLabel(mode)
+			},
+			selectedValue = normalizedReaderDragAnimationMode(settings.dragAnimationMode),
+			onSelect = { mode -> onSettingsChange(settings.copy(dragAnimationMode = mode)) }
+		)
+		SettingsSelectableChipRow(
 			title = "Tap zones",
 			options = KomikkuTapZoneOptions,
 			selectedValue = normalizedReaderTapZone(settings.tapZone),
