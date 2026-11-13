@@ -60,6 +60,17 @@ class ReaderChromeStateTest {
 	}
 
 	@Test
+	fun spreadLocationsLabelPhysicalPagesLikeTheFooter() {
+		// Foliate counts two-page spreads; the footer shows "1 / 448", so the header must too (#31).
+		val state = ReaderChromeState().onLocationChanged(
+			locator = ReaderLocator(progress = 0.0, pageIndex = 0, pageCount = 224, pagesPerView = 2),
+			tocTitle = null
+		)
+
+		assertEquals("Page 1 of 448 • 0%", state.progressLabel)
+	}
+
+	@Test
 	fun typographyControlsUpdateReaderSettings() {
 		val larger = ReaderChromeState().adjustFontSize(12)
 		val sepia = larger.toggleTheme()

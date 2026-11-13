@@ -33,6 +33,17 @@ internal data class ReaderPageRasterProfile(
 	val schemaVersion: Int
 )
 
+/**
+ * Whether two profiles belong to the same live raster set. Layout and decoration fingerprints are
+ * observed per spine section, so they distinguish rasters but must not retire or reject another
+ * section's rasters of the same publication, pagination and quality (curl deck needs several sections).
+ */
+internal fun ReaderPageRasterProfile.sameRetentionScope(other: ReaderPageRasterProfile): Boolean =
+	publicationHash == other.publicationHash &&
+		paginationHash == other.paginationHash &&
+		quality == other.quality &&
+		schemaVersion == other.schemaVersion
+
 internal data class ReaderPageRasterChapterKey(
 	val profile: ReaderPageRasterProfile,
 	val spineIndex: Int,

@@ -296,7 +296,8 @@ internal object ReaderOverlayReducer {
 			controller.copy(state = controller.state.copy(externalLinkPrompt = null))
 		)
 
-	fun onBack(controller: ReaderController, includeMenu: Boolean): ReaderControllerBackStep {
+	// Open chrome does not cost an extra BACK: like the app-bar arrow, BACK closes the book (#31).
+	fun onBack(controller: ReaderController): ReaderControllerBackStep {
 		val state = controller.state
 		val closeOverlay = when {
 			state.dialog == ReaderControllerDialog.Search -> controller.closeSearchDialog()
@@ -306,7 +307,6 @@ internal object ReaderOverlayReducer {
 			state.annotationPopup?.visible == true -> controller.dismissAnnotationPopup()
 			state.footnotePopup?.visible == true -> controller.dismissFootnotePopup()
 			state.externalLinkPrompt != null -> controller.dismissExternalLinkPrompt()
-			includeMenu && state.menuVisible -> controller.hideMenus()
 			else -> null
 		}
 		return closeOverlay?.asBackStep() ?: returnToShellCoverBeforeLeaving(controller)

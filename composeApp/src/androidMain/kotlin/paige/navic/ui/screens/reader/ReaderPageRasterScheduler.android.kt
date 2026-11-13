@@ -281,11 +281,11 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	fun activateProfile(profile: ReaderPageRasterProfile) {
 		val stale = synchronized(lock) {
 			if (closed) return
-			if (activeProfile == profile) return
+			if (activeProfile?.sameRetentionScope(profile) == true) return
 			activeProfile = profile
 			activeProfileGeneration += 1L
 			profilePendingRetention = profile
-			val obsolete = queue.filter { work -> work.key.profile != profile }
+			val obsolete = queue.filter { work -> !work.key.profile.sameRetentionScope(profile) }
 			queue.removeAll(obsolete.toSet())
 			obsolete.forEach { work ->
 				pending[work.key.digest]
@@ -319,7 +319,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 				}
 				return@synchronized work.result
 			}
-		if (activeProfile != key.profile) {
+		if (activeProfile?.sameRetentionScope(key.profile) != true) {
 			return@synchronized CompletableDeferred(
 				ReaderPageRasterScheduleResult(
 					key,
@@ -515,7 +515,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 
 	private fun isCurrent(work: Work<T>): Boolean = synchronized(lock) {
 		activeProfileGeneration == work.profileGeneration &&
-			activeProfile == work.key.profile
+			activeProfile?.sameRetentionScope(work.key.profile) == true
 	}
 
 	private fun complete(

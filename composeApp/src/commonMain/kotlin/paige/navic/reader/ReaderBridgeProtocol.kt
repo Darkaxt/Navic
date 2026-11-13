@@ -41,7 +41,9 @@ data class ReaderLocator(
 	val fraction: Double? = null,
 	val size: Double? = null,
 	val tocItemLabel: String? = null,
-	val pageItemLabel: String? = null
+	val pageItemLabel: String? = null,
+	/** Physical pages per paginated view: 2 when [pageIndex]/[pageCount] count two-page spreads. */
+	val pagesPerView: Int? = null
 )
 
 data class ReaderPaginationProfileStatus(
@@ -1174,7 +1176,8 @@ private fun JsonObject.toLocationChanged(): ReaderBridgeEvent.LocationChanged? {
 			fraction = doubleValue("fraction"),
 			size = doubleValue("size"),
 			tocItemLabel = stringValue("tocItemLabel"),
-			pageItemLabel = stringValue("pageItemLabel")
+			pageItemLabel = stringValue("pageItemLabel"),
+			pagesPerView = intValue("pagesPerView")
 		),
 		foliateSessionId = foliateSessionId,
 		tocTitle = stringValue("tocTitle"),
@@ -1433,6 +1436,7 @@ private fun ReaderLocator.toJsonObject(): JsonObject =
 		size?.let { put("size", it) }
 		tocItemLabel?.let { put("tocItemLabel", it) }
 		pageItemLabel?.let { put("pageItemLabel", it) }
+		pagesPerView?.let { put("pagesPerView", it) }
 	}
 
 private val ReaderOverlayCoordinateMode.wireValue: String

@@ -1104,7 +1104,8 @@ data class ReaderChromeState(
 private fun readerPageProgressLabel(locator: ReaderLocator): String? {
 	val pageIndex = locator.pageIndex?.takeIf { it >= 0 } ?: return null
 	val pageCount = locator.pageCount?.takeIf { it > 0 } ?: return null
-	val pageLabel = "Page ${pageIndex + 1} of $pageCount"
+	val span = locator.pagesPerView?.takeIf { it > 1 } ?: 1
+	val pageLabel = "Page ${pageIndex * span + 1} of ${pageCount * span}"
 	val progressLabel = readerProgressPercentLabel(locator.progress)
 	return if (progressLabel == "Progress unavailable") pageLabel else "$pageLabel • $progressLabel"
 }

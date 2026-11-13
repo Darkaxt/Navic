@@ -337,7 +337,7 @@ class ReaderPageRasterCacheTest {
 		val fixture = fixture(maxDiskBytes = 2L, maxDecodedEntries = 0)
 		val active = ownedKey(5)
 		val activeForward = ownedKey(6)
-		val staleProfile = ownedKey(5).copy(layoutHash = "stale-layout")
+		val staleProfile = ownedKey(5).copy(paginationHash = "stale-pagination")
 		fixture.cache.protectEncodedWindow(
 			profile = active.profile,
 			centerPageOrdinal = active.visualPageOrdinal,
@@ -392,9 +392,13 @@ class ReaderPageRasterCacheTest {
 		val fixture = fixture(maxDecodedEntries = 0)
 		val active = key(chapterPageIndex = 1)
 		val obsoleteQuality = active.copy(chapterPageIndex = 2, quality = ReaderPageBitmapQuality.Native)
-		val obsoleteLayout = active.copy(chapterPageIndex = 3, layoutHash = "old-layout")
+		val obsoletePagination = active.copy(chapterPageIndex = 3, paginationHash = "old-pagination")
 		val otherPublication = active.copy(publicationHash = "other", chapterPageIndex = 4)
-		listOf(active, obsoleteQuality, obsoleteLayout, otherPublication).forEach { rasterKey ->
+		// Layout/decoration fingerprints are observed per spine section: another section's raster of
+		// the same publication, pagination and quality stays live (curl decks span sections).
+		val otherSection = active.copy(chapterPageIndex = 5, spineIndex = 9, layoutHash = "section-9-layout",
+			decorationHash = "section-9-decoration")
+		listOf(active, obsoleteQuality, obsoletePagination, otherPublication, otherSection).forEach { rasterKey ->
 			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest.take(1))))
 		}
 
@@ -403,8 +407,9 @@ class ReaderPageRasterCacheTest {
 		assertEquals(2, removed)
 		assertTrue(fixture.cache.pathFor(active).isFile)
 		assertFalse(fixture.cache.pathFor(obsoleteQuality).exists())
-		assertFalse(fixture.cache.pathFor(obsoleteLayout).exists())
+		assertFalse(fixture.cache.pathFor(obsoletePagination).exists())
 		assertTrue(fixture.cache.pathFor(otherPublication).isFile)
+		assertTrue(fixture.cache.pathFor(otherSection).isFile)
 	}
 
 	@Test
@@ -962,7 +967,7 @@ class ReaderPageRasterCacheTest {
 		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
 		assertTrue(cache.write(ownedKey(2), metadata(), shared).persisted)
 
-		cache.retainProfile(ownedKey(1).profile.copy(layoutHash = "replacement"))
+		cache.retainProfile(ownedKey(1).profile.copy(paginationHash = "replacement"))
 
 		assertEquals(listOf(shared), attempts)
 		assertEquals(0, cache.metrics().uniqueDecodedBitmaps)

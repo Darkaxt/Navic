@@ -1234,6 +1234,13 @@ class ReaderControllerTest {
 		assertFalse(back.controller.state.menuVisible)
 		assertNull(back.controller.state.dialog)
 		assertEquals(emptyList(), back.engineCommands)
+
+		// Open chrome must not cost an extra BACK press (#31): BACK closes the book directly.
+		val backWithChrome = readable.showMenus().controller.onBack()
+
+		assertTrue(backWithChrome.handled)
+		assertTrue(backWithChrome.controller.state.shellCoverVisible)
+		assertFalse(backWithChrome.controller.state.menuVisible)
 	}
 
 	@Test

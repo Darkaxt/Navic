@@ -1108,7 +1108,7 @@ class ReaderRuntimeShellProgressTest {
 		assertContains(bridgeProtocolText, "val pageIndex: Int? = null")
 		assertContains(bridgeProtocolText, "val pageCount: Int? = null")
 		assertContains(chromeStateText, "readerPageProgressLabel")
-		assertContains(chromeStateText, "\"Page ${'$'}{pageIndex + 1} of ${'$'}pageCount\"")
+		assertContains(chromeStateText, "\"Page ${'$'}{pageIndex * span + 1} of ${'$'}{pageCount * span}\"")
 	}
 
 	@Test

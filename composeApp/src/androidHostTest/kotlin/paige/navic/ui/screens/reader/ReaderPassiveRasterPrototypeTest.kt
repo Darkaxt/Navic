@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.runner.RunWith
@@ -2510,7 +2511,12 @@ class ReaderPassiveRasterPrototypeTest {
 					onComplete = completions::add
 				)
 			)
-			withTimeout(5_000L) { store.awaitReadStarted() }
+			// The persistent read runs on Dispatchers.IO (a real thread) after main-looper work, so drain
+			// the Robolectric main looper and wait in real time; virtual time would expire immediately (#33).
+			Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(5_000L) { store.awaitReadStarted() }
+			}
 
 			current.adapter.cancel()
 			current.adapter.cancel()

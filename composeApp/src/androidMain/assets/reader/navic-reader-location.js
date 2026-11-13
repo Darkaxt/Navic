@@ -332,6 +332,8 @@ function postLocationChanged(detail, reason = 'relocate', options = {}) {
     progress: optionalNumber(detail.fraction ?? detail.progress ?? detail.totalProgress),
     pageIndex: pagePosition?.pageIndex,
     pageCount: pagePosition?.pageCount,
+    // Spread layouts count whole spreads; the chrome labels physical pages like the footer does.
+    pagesPerView: pagePosition && this.readerPageNumberUsesSpreadSlots(pagePosition) ? 2 : 1,
     chapterProgress: chapterPosition?.progress,
     chapterPageIndex: chapterPosition?.pageIndex,
     chapterPageCount: chapterPosition?.pageCount,

@@ -61,6 +61,29 @@ class ReaderPageRasterSchedulerTest {
 	}
 
 	@Test
+	fun sectionLayoutFingerprintsShareOneActiveRasterSet() = runBlocking {
+		// Curl decks span spine sections whose observed layout/decoration fingerprints differ.
+		// Activating one section must not reject, drop or retire another section's rasters.
+		val store = FakeRasterStore()
+		val generator = FakeRasterGenerator()
+		val sectionA = rasterProfile("deck")
+		val sectionB = sectionA.copy(layoutHash = "layout-section-b", decorationHash = "decoration-section-b")
+		val scheduler = ReaderPageRasterScheduler(
+			scope = scope,
+			store = store,
+			generator = generator,
+			release = { }
+		)
+		scheduler.activateProfile(sectionA)
+		val pageA = scheduler.request(rasterKey(sectionA, page = 3), ReaderPageRasterPriority.Current)
+		scheduler.activateProfile(sectionB)
+		val pageB = scheduler.request(rasterKey(sectionB, page = 11), ReaderPageRasterPriority.NextTransition)
+
+		assertEquals(ReaderPageRasterScheduleStatus.Published, pageA.await().status)
+		assertEquals(ReaderPageRasterScheduleStatus.Published, pageB.await().status)
+	}
+
+	@Test
 	fun queuedRequestsRunInPriorityOrder() = runBlocking {
 		val activeGate = CompletableDeferred<Unit>()
 		val store = FakeRasterStore()

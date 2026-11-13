@@ -556,14 +556,11 @@ private fun ReaderController.reduceWhispersyncPlaybackCommand(
 
 private fun ReaderController.resumeOrBeginWhispersyncPlayback(): ReaderControllerStep {
 	val current = state.whispersync
-	if (current.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused) {
-		return ReaderControllerStep(this)
-	}
+	if (whispersyncPlayBlocker() != null) return ReaderControllerStep(this)
 	if (
 		current.userPaused &&
 		current.userPausedDestinationCommitIdentity == state.destinationCommitIdentity
 	) {
-		if (!hasCurrentCanonicalAdmission()) return ReaderControllerStep(this)
 		return ReaderControllerStep(
 			controller = copy(
 				state = state.copy(
@@ -577,6 +574,51 @@ private fun ReaderController.resumeOrBeginWhispersyncPlayback(): ReaderControlle
 		)
 	}
 	return beginPreparedWhispersyncPlayback()
+}
+
+/**
+ * Why a Whispersync Play request cannot start right now, or null when it may proceed.
+ * The reducer refuses on exactly these conditions; the screen logs the reason so a refused
+ * Play is observable instead of silent.
+ */
+internal fun ReaderController.whispersyncPlayBlocker(): String? {
+	val current = state.whispersync
+	if (current.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused) return "boundary-paused"
+	if (
+		current.userPaused &&
+		current.userPausedDestinationCommitIdentity == state.destinationCommitIdentity
+	) {
+		return if (hasCurrentCanonicalAdmission()) null else "user-paused-without-canonical-admission"
+	}
+	return preparedPlaybackBlocker()
+}
+
+/** The conditions under which a prepared visible target may not begin playback (any caller). */
+private fun ReaderController.preparedPlaybackBlocker(): String? {
+	val current = state.whispersync
+	if (current.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused) return "boundary-paused"
+	val prepared = current.preparedVisibleTarget ?: return "no-prepared-visible-target"
+	val preparedSegment = prepared.audioSeekTarget.segment
+	if (current.sidecar?.coordinateBasis != null) {
+		if (current.canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open) {
+			return "canonical-generation-${current.canonicalGenerationState}"
+		}
+		if (
+			!current.canonicalPreflightAdmits(
+				sidecar = current.sidecar,
+				destination = prepared.destinationCommitIdentity,
+				provenanceId = preparedSegment.rawProvenanceId,
+				rawSpineIndex = preparedSegment.spineIndex
+			)
+		) {
+			return "canonical-preflight-not-admitted"
+		}
+		val provenanceStatus = preparedSegment.rawProvenanceId?.let { state.rawTextProvenanceById[it]?.status }
+		if (provenanceStatus != RawTextProvenanceStatus.Ready) return "raw-provenance-$provenanceStatus"
+	}
+	if (state.shellCoverVisible) return "shell-cover-visible"
+	if (prepared.destinationCommitIdentity != state.destinationCommitIdentity) return "prepared-destination-stale"
+	return null
 }
 
 private fun ReaderController.pauseWhispersyncPlayback(): ReaderControllerStep {
@@ -598,33 +640,8 @@ private fun ReaderController.pauseWhispersyncPlayback(): ReaderControllerStep {
 
 private fun ReaderController.beginPreparedWhispersyncPlayback(): ReaderControllerStep {
 	val currentWhispersync = state.whispersync
+	if (preparedPlaybackBlocker() != null) return ReaderControllerStep(this)
 	val prepared = currentWhispersync.preparedVisibleTarget ?: return ReaderControllerStep(this)
-	val preparedSegment = prepared.audioSeekTarget.segment
-	if (
-		currentWhispersync.sidecar?.coordinateBasis != null &&
-			(
-				currentWhispersync.canonicalGenerationState !=
-					ReaderWhispersyncCanonicalGenerationState.Open ||
-					!currentWhispersync.canonicalPreflightAdmits(
-					sidecar = currentWhispersync.sidecar,
-					destination = prepared.destinationCommitIdentity,
-					provenanceId = preparedSegment.rawProvenanceId,
-					rawSpineIndex = preparedSegment.spineIndex
-				) ||
-					preparedSegment.rawProvenanceId?.let { provenanceId ->
-						state.rawTextProvenanceById[provenanceId]?.status
-					} != RawTextProvenanceStatus.Ready
-			)
-	) {
-		return ReaderControllerStep(this)
-	}
-	if (
-		state.shellCoverVisible ||
-		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused ||
-		prepared.destinationCommitIdentity != state.destinationCommitIdentity
-	) {
-		return ReaderControllerStep(this)
-	}
 	val enabledSync = currentWhispersync.sync.setSyncEnabled(true)
 	val readerStep = enabledSync.followReaderTarget(prepared.readerTarget())
 	val requestId = readerStep.state.activeOverlayRequestId

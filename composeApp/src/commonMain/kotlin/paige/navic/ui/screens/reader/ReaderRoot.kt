@@ -473,11 +473,15 @@ private fun KomikkuComposeOverlay(
 				)
 			}
 		}
-		if (whispersyncPlaybackControl.visible || controllerState.whispersync.available) {
+		// The badges live in the top margin; with the chrome open they would sit on the text (#31).
+		if (
+			!controllerState.menuVisible &&
+			(whispersyncPlaybackControl.visible || controllerState.whispersync.available)
+		) {
 			Row(
 				modifier = Modifier
 					.align(Alignment.TopStart)
-					.padding(top = if (controllerState.menuVisible) 116.dp else 28.dp, start = 28.dp)
+					.padding(top = 28.dp, start = 28.dp)
 			) {
 				if (whispersyncPlaybackControl.visible) {
 					KomikkuWhispersyncPlaybackControl(

@@ -54,6 +54,7 @@ import paige.navic.reader.ReaderOverlayCoordinateMode
 import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.onPageCurlTurnPhase
+import paige.navic.reader.whispersyncPlayBlocker
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -950,7 +951,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 			Logger.i(
 				WhispersyncSyncLogTag,
 				"Whispersync playback command state=controller-owned active=true " +
-					"command=${command.whispersyncPlaybackCommandLogValue()}"
+					"command=${command.whispersyncPlaybackCommandLogValue()}" +
+					if (command == ReaderReadaloudPlaybackCommand.Play) {
+						" blocker=${coordinator.controller.whispersyncPlayBlocker() ?: "none"}"
+					} else {
+						""
+					}
 			)
 			applyCoordinatorStep(
 				coordinator.dispatch { onWhispersyncPlaybackCommand(command) }

@@ -462,11 +462,9 @@ data class ReaderController(
 			}
 		}
 
-	fun onBack(): ReaderControllerBackStep =
-		ReaderOverlayReducer.onBack(this, includeMenu = true)
+	fun onBack(): ReaderControllerBackStep = ReaderOverlayReducer.onBack(this)
 
-	fun onNavigateBack(): ReaderControllerBackStep =
-		ReaderOverlayReducer.onBack(this, includeMenu = false)
+	fun onNavigateBack(): ReaderControllerBackStep = ReaderOverlayReducer.onBack(this)
 
 	fun applySettings(settings: ReaderSettings): ReaderControllerStep {
 		val normalized = settings.normalizedReaderSettings()

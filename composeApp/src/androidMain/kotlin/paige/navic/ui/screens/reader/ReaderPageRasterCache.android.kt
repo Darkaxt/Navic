@@ -517,7 +517,7 @@ internal class ReaderPageRasterCache<T : Any>(
 		val removed = synchronized(this) {
 			val obsolete = entries.values.filter { entry ->
 				entry.key.publicationHash == profile.publicationHash &&
-					entry.key.profile != profile
+					!entry.key.profile.sameRetentionScope(profile)
 			}
 			if (obsolete.isEmpty()) return@synchronized 0
 			val obsoleteIds = obsolete.mapTo(mutableSetOf()) { entry ->
@@ -1056,7 +1056,7 @@ internal class ReaderPageRasterCache<T : Any>(
 				)
 		} else {
 			val activeProfile = candidates.filter { entry ->
-				entry.key.profile == protection.profile
+				entry.key.profile.sameRetentionScope(protection.profile)
 			}
 			val pinned = activeProfile
 				.filter { entry ->
@@ -1078,7 +1078,7 @@ internal class ReaderPageRasterCache<T : Any>(
 				}
 				.sortedByDescending { entry -> entry.key.visualPageOrdinal }
 			val otherProfiles = candidates
-				.filterNot { entry -> entry.key.profile == protection.profile }
+				.filterNot { entry -> entry.key.profile.sameRetentionScope(protection.profile) }
 				.sortedByDescending { entry -> entry.lastAccessEpochMillis }
 			pinned + forward + behind + otherProfiles
 		}
