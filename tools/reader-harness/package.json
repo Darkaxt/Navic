@@ -10,7 +10,8 @@
     "test:paginator-commit-consumers": "node --no-warnings --test src/paginator-commit-consumers.test.mjs",
     "test:presentation-receipt": "node --no-warnings --test src/presentation-receipt.test.mjs",
     "test:baseline-hmac": "node --test src/baseline-hmac.test.mjs",
-    "test:wordsync-provenance": "node --test src/wordsync-provenance.test.mjs"
+    "test:wordsync-provenance": "node --test src/wordsync-provenance.test.mjs",
+    "test:wordsync-anchor": "node --test src/wordsync-anchor.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.44.0"

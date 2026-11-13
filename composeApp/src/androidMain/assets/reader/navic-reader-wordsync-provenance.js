@@ -1,4 +1,5 @@
 import { log, post } from './navic-reader-helpers.js'
+import { readerWordSyncNextAnchor, readerWordSyncPersistentStartByte } from './navic-reader-wordsync-anchor.js'
 
 export const ReaderCueV1DomUtf16Mode = 'cue-v1-dom-utf16'
 export const ReaderWordSyncV1ExtractedUtf8Mode = 'wordsync-v1-extracted-utf8'
@@ -90,43 +91,27 @@ export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKe
   })
 }
 
-// "Persistent played text": on one committed page the highlight starts at the first segment painted
-// there and grows to the live progress point. A page change, another document or a backward seek
-// before that start re-anchors it at the current segment.
-const readerWordSyncPageKey = visibleRange => visibleRange
-  ? `${visibleRange.rawProvenanceId ?? ''}|${visibleRange.rawByteStart ?? ''}|${visibleRange.rawByteEnd ?? ''}`
-  : ''
-
-export const readerWordSyncPersistentStartByte = (anchor, fragment, pageKey, persistent) =>
-  persistent && anchor && anchor.pageKey === pageKey &&
-    anchor.rawProvenanceId === fragment.rawProvenanceId &&
-    fragment.rawByteStart >= anchor.rawByteStart
-    ? anchor.rawByteStart
-    : null
-
 export const paintReaderWordSyncActiveOverlay = (runtime, fragment, overlayKey) => {
   if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) return null
   runtime.clearOverlay({ preservePlayed: false, preserveAnimation: true })
   const persistent = runtime.readerMediaOverlayPersistentPlayed?.() === true
-  const pageKey = readerWordSyncPageKey(runtime.committedVisibleTextRange)
   const startByte = readerWordSyncPersistentStartByte(
-    runtime.wordSyncPlayedAnchor, fragment, pageKey, persistent
+    runtime.wordSyncPlayedAnchor, fragment, runtime.committedVisibleTextRange, persistent
   )
   const highlighted = paintReaderWordSyncOverlayTextRange(runtime, fragment, overlayKey, { startByte })
   runtime.mediaOverlayActiveFragment = highlighted ? fragment : null
   if (highlighted) {
-    runtime.wordSyncPlayedAnchor = persistent
-      ? (startByte != null
-          ? runtime.wordSyncPlayedAnchor
-          : { pageKey, rawProvenanceId: fragment.rawProvenanceId, rawByteStart: fragment.rawByteStart })
-      : null
+    runtime.wordSyncPlayedAnchor = readerWordSyncNextAnchor(
+      runtime.wordSyncPlayedAnchor, fragment, startByte, persistent
+    )
     logReaderWordSyncSegment(runtime, fragment)
   }
   return highlighted
 }
 
-// Numeric-only segment trace (no publication text): sequence,previousSequence,rawByteStart,rawByteEnd,clipBeginMs.
-// Lets frame/log comparison show the matcher jumping forward then backward.
+// Numeric-only segment trace (no publication text):
+// sequence,previousSequence,rawByteStart,rawByteEnd,clipBeginMs,persistentAnchorByteStart (-1 = none).
+// Lets frame/log comparison show the matcher jumping forward then backward, or the page anchor resetting.
 const logReaderWordSyncSegment = (runtime, fragment) => {
   const sequence = Number(fragment.wordBoundarySequence)
   if (!Number.isInteger(sequence) || sequence === runtime.lastWordSyncSegmentSequence) return
@@ -135,7 +120,8 @@ const logReaderWordSyncSegment = (runtime, fragment) => {
   const clipMs = Number.isFinite(Number(fragment.clipBeginSeconds))
     ? Math.round(Number(fragment.clipBeginSeconds) * 1000)
     : -1
-  log(`wordsync-segment:${sequence},${previous},${fragment.rawByteStart},${fragment.rawByteEnd},${clipMs}`)
+  const anchorStart = runtime.wordSyncPlayedAnchor?.rawByteStart ?? -1
+  log(`wordsync-segment:${sequence},${previous},${fragment.rawByteStart},${fragment.rawByteEnd},${clipMs},${anchorStart}`)
 }
 
 export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
@@ -347,15 +333,25 @@ export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
   )
 }
 
+// The native page mask is what the reader sees, so it must cover the same persistent span the DOM
+// overlay paints (page anchor to live progress), not only the current segment.
+const readerWordSyncReceiptRange = (runtime, fragment) => runtime.rawTextProvenance.resolveRange(fragment, {
+  applyProgress: true,
+  visibleRange: runtime.committedVisibleTextRange,
+  startByte: readerWordSyncPersistentStartByte(
+    runtime.wordSyncPlayedAnchor,
+    fragment,
+    runtime.committedVisibleTextRange,
+    runtime.readerMediaOverlayPersistentPlayed?.() === true
+  ),
+})
+
 const readerWordSyncAnchorReceiptFromAuthority = (
   runtime,
   fragment,
   authority
 ) => {
-  const range = runtime.rawTextProvenance.resolveRange(fragment, {
-    applyProgress: true,
-    visibleRange: runtime.committedVisibleTextRange,
-  })
+  const range = readerWordSyncReceiptRange(runtime, fragment)
   return readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
@@ -366,10 +362,7 @@ const readerWordSyncAnchorReceiptFromAuthority = (
 }
 
 export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
-  const range = runtime.rawTextProvenance.resolveRange(fragment, {
-    applyProgress: true,
-    visibleRange: runtime.committedVisibleTextRange,
-  })
+  const range = readerWordSyncReceiptRange(runtime, fragment)
   const authority = readerLivePresentationAnchorAuthority(runtime)
   if (!authority) return rejectWordSyncAnchor(liveAnchorAuthorityAbsenceGuard(runtime))
   return readerMediaOverlayAnchorReceiptFromPresentation(

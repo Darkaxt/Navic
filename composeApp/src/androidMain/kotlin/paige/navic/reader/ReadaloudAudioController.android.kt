@@ -240,7 +240,11 @@ class ReadaloudAudioController(
 			mediaId = currentController.currentMediaItem?.mediaId,
 			positionMs = currentController.currentPosition.coerceAtLeast(0L),
 			durationMs = currentController.duration.takeIf { it > 0L },
-			isPlaying = currentController.isPlaying,
+			isPlaying = readaloudTransportPlaying(
+				isPlaying = currentController.isPlaying,
+				playWhenReady = currentController.playWhenReady,
+				buffering = currentController.playbackState == Player.STATE_BUFFERING
+			),
 			playbackSpeed = currentController.playbackParameters.speed
 		)
 	}

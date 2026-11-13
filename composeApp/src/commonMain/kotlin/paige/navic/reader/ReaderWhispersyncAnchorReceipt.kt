@@ -91,4 +91,38 @@ data class ReaderWhispersyncAnchorReceipt(
 			}
 			.toList()
 	}
+
+	/**
+	 * Mask rects for a startup snapshot bitmap. Like [ReaderPageTurnCaptureGeometry.leafGeometry], that
+	 * bitmap covers the union of the captured pages (a bounded spread starts at its outer inset), not
+	 * the whole viewport; scaling against the viewport shifted every highlight toward the spine.
+	 */
+	fun surfaceMaskRects(bitmapWidth: Int, bitmapHeight: Int): List<ReaderPageTurnPixelRect> {
+		if (bitmapWidth <= 0 || bitmapHeight <= 0) return emptyList()
+		val pages = captureGeometry.pages.filter {
+			it.left.isFinite() && it.top.isFinite() && it.width.isFinite() && it.height.isFinite() &&
+				it.width > 0.0 && it.height > 0.0
+		}
+		if (pages.isEmpty()) return emptyList()
+		val surfaceLeft = pages.minOf { it.left }
+		val surfaceTop = pages.minOf { it.top }
+		val surfaceWidth = pages.maxOf { it.left + it.width } - surfaceLeft
+		val surfaceHeight = pages.maxOf { it.top + it.height } - surfaceTop
+		return pageLocalRects.mapNotNull { rect ->
+			val page = pages.firstOrNull { it.role == rect.role } ?: return@mapNotNull null
+			val localLeft = rect.left.coerceIn(0.0, page.width)
+			val localTop = rect.top.coerceIn(0.0, page.height)
+			val localRight = (rect.left + rect.width).coerceIn(0.0, page.width)
+			val localBottom = (rect.top + rect.height).coerceIn(0.0, page.height)
+			if (localRight <= localLeft || localBottom <= localTop) return@mapNotNull null
+			val x = { local: Double -> (page.left + local - surfaceLeft) / surfaceWidth * bitmapWidth }
+			val y = { local: Double -> (page.top + local - surfaceTop) / surfaceHeight * bitmapHeight }
+			ReaderPageTurnPixelRect(
+				left = floor(x(localLeft)).toInt().coerceIn(0, bitmapWidth),
+				top = floor(y(localTop)).toInt().coerceIn(0, bitmapHeight),
+				right = ceil(x(localRight)).toInt().coerceIn(0, bitmapWidth),
+				bottom = ceil(y(localBottom)).toInt().coerceIn(0, bitmapHeight)
+			).takeIf { it.width > 0 && it.height > 0 }
+		}
+	}
 }

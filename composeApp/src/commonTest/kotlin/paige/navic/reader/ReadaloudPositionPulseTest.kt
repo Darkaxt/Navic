@@ -5,6 +5,14 @@ import kotlin.test.assertEquals
 
 class ReadaloudPositionPulseTest {
 	@Test
+	fun rebufferingAfterARequestedPlayStillReportsPlaying() {
+		assertEquals(true, readaloudTransportPlaying(isPlaying = false, playWhenReady = true, buffering = true))
+		assertEquals(true, readaloudTransportPlaying(isPlaying = true, playWhenReady = true, buffering = false))
+		assertEquals(false, readaloudTransportPlaying(isPlaying = false, playWhenReady = false, buffering = true))
+		assertEquals(false, readaloudTransportPlaying(isPlaying = false, playWhenReady = true, buffering = false))
+	}
+
+	@Test
 	fun publishesRepeatedPositionTicksOnlyWhilePlaybackIsActive() {
 		var playing = true
 		var publishCount = 0

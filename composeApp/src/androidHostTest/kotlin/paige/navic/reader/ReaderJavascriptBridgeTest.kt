@@ -160,10 +160,10 @@ class ReaderJavascriptBridgeTest {
 				description = "word sync numeric segment trace",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",
-					message = "[NavicReader] wordsync-segment:412,-1,9120,9388,1834500 $messageCanary",
+					message = "[NavicReader] wordsync-segment:412,-1,9120,9388,1834500,9001 $messageCanary",
 					sourceId = sourceCanary
 				),
-				expected = "Reader console DEBUG: wordsync-segment:412,-1,9120,9388,1834500"
+				expected = "Reader console DEBUG: wordsync-segment:412,-1,9120,9388,1834500,9001"
 			),
 			ProjectionCase(
 				description = "word sync segment trace carrying text is redacted",

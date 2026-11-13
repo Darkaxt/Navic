@@ -62,7 +62,7 @@ internal object ReaderEngineLogProjector {
 	)
 	private val approvedWordSyncAnchorRejection = Regex("^wordsync-anchor-reject:[a-z-]{1,40}$")
 	private val approvedWordSyncAnchorGeometry = Regex("^wordsync-anchor-geometry:[0-9,;|\\-]{1,400}$")
-	private val approvedWordSyncSegment = Regex("^wordsync-segment:-?[0-9]{1,9}(,-?[0-9]{1,12}){4}$")
+	private val approvedWordSyncSegment = Regex("^wordsync-segment:-?[0-9]{1,9}(,-?[0-9]{1,12}){4,5}$")
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =
 		"Dispatching reader engine command: ${dispatch.command.type}"

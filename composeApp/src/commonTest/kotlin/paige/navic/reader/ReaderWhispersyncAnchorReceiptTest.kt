@@ -188,6 +188,34 @@ class ReaderWhispersyncAnchorReceiptTest {
 		)
 	}
 
+	@Test
+	fun startupSurfaceMaskStartsAtTheBoundedSpreadInsetNotTheViewportEdge() {
+		// Live geometry: 1280-wide viewport, bounded spread pages [13,640) and [640,1267); the startup
+		// snapshot bitmap is the 1254-wide page union. "Quite" begins 40px into the left page (x=53).
+		val receipt = anchorReceipt(
+			geometry = ReaderPageTurnCaptureGeometry(
+				viewportWidth = 1280.0,
+				viewportHeight = 800.0,
+				mode = ReaderPageTurnLayoutMode.Spread,
+				pages = listOf(
+					ReaderPageTurnPageRect(ReaderPageTurnPageRole.Left, 13.0, 0.0, 627.0, 800.0),
+					ReaderPageTurnPageRect(ReaderPageTurnPageRole.Right, 640.0, 0.0, 627.0, 800.0)
+				)
+			),
+			rects = listOf(
+				ReaderWhispersyncPageLocalRect(ReaderPageTurnPageRole.Left, 40.0, 90.0, 547.0, 28.0),
+				ReaderWhispersyncPageLocalRect(ReaderPageTurnPageRole.Right, 40.0, 90.0, 100.0, 28.0)
+			)
+		)
+		assertEquals(
+			listOf(
+				ReaderPageTurnPixelRect(40, 90, 587, 118),
+				ReaderPageTurnPixelRect(667, 90, 767, 118)
+			),
+			receipt.surfaceMaskRects(bitmapWidth = 1254, bitmapHeight = 800)
+		)
+	}
+
 	private fun anchorReceipt(
 		geometry: ReaderPageTurnCaptureGeometry,
 		rects: List<ReaderWhispersyncPageLocalRect>
