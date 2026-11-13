@@ -1095,6 +1095,47 @@ class ReaderRuntimeShellProgressTest {
 	}
 
 	@Test
+	fun androidReaderPostsInitialLocationEvenWithoutAnimationFrames() {
+		val bridgeText = readerBridgeText()
+		val openPublication = bridgeText
+			.substringAfter("async openPublication(")
+			.substringBefore("\n  onInternalLink(")
+		val liveness = bridgeText
+			.substringAfter("function scheduleInitialLocationLiveness(navigateToStart, navigateToFallback) {")
+			.substringBefore("\n}\n")
+		val snapshot = bridgeText
+			.substringAfter("function postCurrentLocationSnapshot(")
+			.substringBefore("\n}\n")
+
+		assertTrue(
+			openPublication.indexOf("post({ type: 'publicationReady' })") <
+				openPublication.indexOf("this.scheduleInitialLocationLiveness(navigateToStart, navigateToFallback)"),
+			"The liveness check must be armed after PublicationReady."
+		)
+		assertContains(liveness, "setTimeout(")
+		assertFalse(liveness.contains("requestAnimationFrame"), "The escape hatch must not depend on frames.")
+		assertContains(liveness, "generation === this.publicationSessionGeneration")
+		assertContains(liveness, "this.lastPostedLocationKey == null")
+		assertContains(liveness, "forceDuplicatePost: true")
+		assertContains(liveness, "location-liveness:")
+		assertTrue(
+			liveness.indexOf("first?.skipped !== 'missing-location'") <
+				liveness.indexOf("await navigateToStart()"),
+			"Only a missing Foliate location may repeat the start navigation."
+		)
+		assertContains(liveness, "this.view?.renderer?.render?.('initial-location-liveness')")
+		assertEquals(1, Regex("""await navigateToStart\(\)""").findAll(liveness).count(), "Retry exactly once.")
+		assertContains(openPublication, "await navigateToStart()")
+		assertTrue(
+			liveness.indexOf("retry?.skipped !== 'missing-location'") <
+				liveness.indexOf("await attempt('fallback', navigateToFallback)"),
+			"The fallback navigation only runs after the retry still has no location."
+		)
+		assertContains(openPublication, "log(`location-start:${'$'}{startBranch}`)")
+		assertContains(snapshot, "this.lastRelocateDetail || this.view?.lastLocation")
+	}
+
+	@Test
 	fun androidReaderReportsFixedLayoutPagePositionToChrome() {
 		val bridgeText = readerBridgeText()
 		val bridgeProtocolText = readerCommonFile("ReaderBridgeProtocol.kt").readText()

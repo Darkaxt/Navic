@@ -139,6 +139,24 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console ERROR: [redacted-reader-console]"
 			),
 			ProjectionCase(
+				description = "initial location liveness outcome",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] location-liveness:retry-missing-location-unpaged $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: location-liveness:retry-missing-location-unpaged"
+			),
+			ProjectionCase(
+				description = "location post outcome keeps reason redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] location-changed:cover-skipped $hrefCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: location-changed:cover-skipped"
+			),
+			ProjectionCase(
 				description = "word sync anchor rejection guard",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",

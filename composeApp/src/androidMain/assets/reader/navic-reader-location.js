@@ -10,6 +10,7 @@ import {
 } from './navic-reader-helpers.js'
 
 const ReaderRelocationCommitDelayMs = 180
+const ReaderInitialLocationLivenessDelayMs = 1000
 
 const readerRelocationReasonIsExplicit = reason => {
   const normalized = String(reason || '').trim()
@@ -278,7 +279,7 @@ function currentFixedLayoutLocationDetail() {
 
 
 function postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
-  const detail = this.lastRelocateDetail || this.currentFixedLayoutLocationDetail()
+  const detail = this.lastRelocateDetail || this.view?.lastLocation || this.currentFixedLayoutLocationDetail()
   if (!detail) {
     log('location-snapshot:missing', reason)
     return { posted: false, skipped: 'missing-location', reason }
@@ -287,6 +288,47 @@ function postCurrentLocationSnapshot(reason = 'snapshot', options = {}) {
   return this.postLocationChanged(detail, reason, options)
 }
 
+
+// Native page preparation is gated on the session's first authoritative location, which only a
+// Foliate relocate can supply. The paginator silently skips relocate when it has no pages or no
+// anchor rects for the target, and committed posts are frame-scheduled, so the open could wait
+// forever. This one-shot timer is not frame-gated. It posts the current location; failing that it
+// re-renders and repeats the start navigation once, then falls back to the saved progress or the
+// first readable page. Each step logs an outcome token.
+function scheduleInitialLocationLiveness(navigateToStart, navigateToFallback) {
+  const generation = this.publicationSessionGeneration
+  const unlocated = () =>
+    generation === this.publicationSessionGeneration && this.lastPostedLocationKey == null
+  const paged = () => Number(this.view?.renderer?.pages) > 0 ? 'paged' : 'unpaged'
+  const attempt = async (label, navigate) => {
+    try {
+      await navigate()
+    } catch (error) {
+      log(`location-liveness:${label}-failed`)
+      return null
+    }
+    if (!unlocated()) return { posted: true }
+    const result = this.postCurrentLocationSnapshot(`initial-location-${label}`, { forceDuplicatePost: true })
+    log(`location-liveness:${label}-${result?.posted ? 'posted' : result?.skipped || 'unknown'}-${paged()}`)
+    return result
+  }
+  setTimeout(async () => {
+    if (!unlocated()) return
+    const first = this.postCurrentLocationSnapshot('initial-location-liveness', { forceDuplicatePost: true })
+    if (first?.posted) {
+      log('location-liveness:posted')
+      return
+    }
+    log(`location-liveness:${first?.skipped || 'unknown'}-${paged()}`)
+    if (first?.skipped !== 'missing-location') return
+    const retry = await attempt('retry', async () => {
+      this.view?.renderer?.render?.('initial-location-liveness')
+      await navigateToStart()
+    })
+    if (retry?.skipped !== 'missing-location' || typeof navigateToFallback !== 'function') return
+    await attempt('fallback', navigateToFallback)
+  }, ReaderInitialLocationLivenessDelayMs)
+}
 
 function postLocationChanged(detail, reason = 'relocate', options = {}) {
   const wordSyncRelocationEpoch = Number(options.wordSyncRelocationEpoch)
@@ -857,6 +899,7 @@ export const NavicReaderLocationMethods = {
   goToLocator,
   currentFixedLayoutLocationDetail,
   postCurrentLocationSnapshot,
+  scheduleInitialLocationLiveness,
   postLocationChanged,
   beginControlledRelocation,
   cancelControlledRelocation,

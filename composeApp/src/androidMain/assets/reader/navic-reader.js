@@ -583,17 +583,30 @@ class NavicReaderRuntime {
       this.postToc()
       const locator = startLocator?.cfi || startLocator?.href
       const progress = Number(startLocator?.progress)
-      if (shouldStartAtShellCover) {
-        await this.goToFirstReadableContent()
-      } else if (locator) {
-        await this.view.goTo(locator)
-      } else if (Number.isFinite(progress)) {
-        await this.goToProgress(progress)
-      } else if (hasShellCoverSurface) {
-        await this.goToFirstReadableContent()
-      } else {
-        await this.view.init?.({ showTextStart: true })
+      const startBranch = shouldStartAtShellCover ? 'shell-cover'
+        : locator ? (startLocator?.cfi ? 'locator-cfi' : 'locator-href')
+          : Number.isFinite(progress) ? 'progress'
+            : hasShellCoverSurface ? 'first-readable' : 'text-start'
+      const navigateToStart = async () => {
+        if (shouldStartAtShellCover) {
+          await this.goToFirstReadableContent()
+        } else if (locator) {
+          await this.view.goTo(locator)
+        } else if (Number.isFinite(progress)) {
+          await this.goToProgress(progress)
+        } else if (hasShellCoverSurface) {
+          await this.goToFirstReadableContent()
+        } else {
+          await this.view.init?.({ showTextStart: true })
+        }
       }
+      const navigateToFallback = async () => {
+        if (startBranch !== 'progress' && Number.isFinite(progress)) await this.goToProgress(progress)
+        else await this.goToFirstReadableContent()
+      }
+      log(`location-start:${startBranch}`)
+      await navigateToStart()
+      log(`location-start:after-${Number(this.view?.renderer?.pages) > 0 ? 'paged' : 'unpaged'}-${this.lastRelocateDetail ? 'relocated' : 'unrelocated'}`)
       await this.ensureCompletePaginationProfile(url, this.readerSettings)
       this.attachSurfaceTapGesture(this.view)
       this.attachReaderTapZoneGesture(this.view)
@@ -606,6 +619,7 @@ class NavicReaderRuntime {
       if (readerStartLocatorHasPosition(startLocator) && !shouldStartAtShellCover) {
         requestAnimationFrame(() => this.postCurrentLocationSnapshot('initial-resume'))
       }
+      this.scheduleInitialLocationLiveness(navigateToStart, navigateToFallback)
     } catch (error) {
       reportError(error, 'open_failed')
     }
