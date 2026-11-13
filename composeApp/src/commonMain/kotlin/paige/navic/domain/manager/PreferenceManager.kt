@@ -2,6 +2,8 @@ package paige.navic.domain.manager
 
 import paige.navic.data.remote.aurral.aurralBasicAuthHeaders
 
+import androidx.compose.runtime.mutableIntStateOf
+
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -218,8 +220,12 @@ class PreferenceManager(
 	)
 	var binderyOpdsBaseUrl by preference("")
 	private var legacyBinderyApiKey by preference("binderyApiKey", "")
+	// The key lives in the credential store, which Compose cannot observe; reading this revision
+	// makes the getter a snapshot read so bound text fields recompose after every write.
+	private val binderyApiKeyRevision = mutableIntStateOf(0)
 	var binderyApiKey: String
 		get() {
+			binderyApiKeyRevision.intValue
 			val secureValue = credentialStore.get(BinderyApiKeyCredential)
 			if (secureValue != null) {
 				clearLegacyBinderyApiKey()
@@ -231,11 +237,13 @@ class PreferenceManager(
 			if (value.isEmpty()) {
 				credentialStore.remove(BinderyApiKeyCredential)
 				clearLegacyBinderyApiKey()
+				binderyApiKeyRevision.intValue++
 				return
 			}
 			if (credentialStore.put(BinderyApiKeyCredential, value)) {
 				clearLegacyBinderyApiKey()
 			}
+			binderyApiKeyRevision.intValue++
 		}
 	var binderyLanguageFilter by preference("eng")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)

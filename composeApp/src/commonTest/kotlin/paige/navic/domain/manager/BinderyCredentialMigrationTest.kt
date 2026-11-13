@@ -1,5 +1,6 @@
 package paige.navic.domain.manager
 
+import androidx.compose.runtime.snapshots.Snapshot
 import com.russhwolf.settings.MapSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +68,33 @@ class BinderyCredentialMigrationTest {
 		assertEquals("", manager.binderyApiKey)
 		assertNull(credentials.get(BinderyApiKeyCredential))
 		assertFalse(settings.hasKey("binderyApiKey"))
+	}
+
+	@Test
+	fun apiKeyReadsAreSnapshotObservedSoBoundFieldsRecompose() {
+		val manager = PreferenceManager(MapSettings(), RecordingCredentialStore())
+		val reads = mutableSetOf<Any>()
+		val observed = Snapshot.takeSnapshot(readObserver = { reads += it })
+		try {
+			observed.enter { manager.binderyApiKey }
+		} finally {
+			observed.dispose()
+		}
+		assertTrue(reads.isNotEmpty(), "binderyApiKey must be a Compose snapshot read")
+
+		val changed = mutableSetOf<Any>()
+		val handle = Snapshot.registerApplyObserver { objects, _ -> changed.addAll(objects) }
+		try {
+			manager.binderyApiKey = "typed-one-char-at-a-time"
+			Snapshot.sendApplyNotifications()
+			assertTrue(changed.any { it in reads }, "writing the key must invalidate its readers")
+			changed.clear()
+			manager.binderyApiKey = ""
+			Snapshot.sendApplyNotifications()
+			assertTrue(changed.any { it in reads }, "clearing the key must invalidate its readers")
+		} finally {
+			handle.dispose()
+		}
 	}
 }
 
