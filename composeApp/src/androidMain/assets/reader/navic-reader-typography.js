@@ -125,9 +125,17 @@ const readerLineFragmentText = element => String(element?.textContent || '')
 
 const readerLineFragmentTerminalPattern = /[.!?…]["'”’)\]]*$/
 
-const readerLineFragmentCanMergeAfter = element => {
-  const text = readerLineFragmentText(element).trim()
-  return Boolean(text) && !readerLineFragmentTerminalPattern.test(text)
+// A hard-wrapped line only continues the previous one when it starts mid-sentence (lowercase or
+// continuation punctuation). Credits, title pages and verse start each line with a capital, so
+// their line breaks must survive.
+const readerLineFragmentContinuationPattern = /^[\p{Ll},;:)\]]/u
+
+const readerLineFragmentJoins = (previousText, nextText) => {
+  const previous = String(previousText || '').trim()
+  const next = String(nextText || '').trim()
+  return Boolean(previous) && Boolean(next) &&
+    !readerLineFragmentTerminalPattern.test(previous) &&
+    readerLineFragmentContinuationPattern.test(next)
 }
 
 const readerLineFragmentCandidate = element => {
@@ -169,9 +177,14 @@ const readerLineFragmentRuns = doc => {
 }
 
 const readerLineFragmentJoinEvidenceCount = run =>
-  run.slice(1).filter((element, index) => readerLineFragmentCanMergeAfter(run[index]) && readerLineFragmentText(element).trim()).length
+  run.slice(1).filter((element, index) =>
+    readerLineFragmentJoins(readerLineFragmentText(run[index]), readerLineFragmentText(element))
+  ).length
 
 const moveReaderLineFragmentChildren = (target, source) => {
+  if (!/\s$/.test(readerLineFragmentText(target)) && !/^\s/.test(readerLineFragmentText(source))) {
+    target.append(target.ownerDocument.createTextNode(' '))
+  }
   while (source.firstChild) {
     target.append(source.firstChild)
   }
@@ -216,12 +229,27 @@ const wrapReaderLooseTextSegment = (parent, segment) => {
   const paragraph = parent.ownerDocument.createElement('p')
   paragraph.dataset.navicLooseTextParagraph = 'true'
   parent.insertBefore(paragraph, firstNode)
-  for (const node of segment.nodes) {
-    if (node?.parentNode === parent) paragraph.append(node)
-  }
-  for (const node of segment.breaks) {
-    if (node?.parentNode === parent) node.remove()
-  }
+  const lastNodeIndex = segment.items.lastIndexOf(segment.nodes[segment.nodes.length - 1])
+  segment.items.forEach((node, index) => {
+    if (node?.parentNode !== parent) return
+    if (!(node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR')) {
+      paragraph.append(node)
+      return
+    }
+    if (index > lastNodeIndex) {
+      // Trailing breaks separated this segment from the next one; the paragraph boundary replaces them.
+      node.remove()
+      return
+    }
+    const before = readerLooseTextSegmentText(segment.items.slice(0, index).filter(item => item.tagName !== 'BR').slice(-1))
+    const after = readerLooseTextSegmentText(segment.items.slice(index + 1).filter(item => item.tagName !== 'BR').slice(0, 1))
+    if (readerLineFragmentJoins(before, after)) {
+      node.remove()
+      paragraph.append(parent.ownerDocument.createTextNode(' '))
+    } else {
+      paragraph.append(node)
+    }
+  })
   return 1
 }
 
@@ -229,22 +257,22 @@ const normalizeReaderLooseTextContainer = parent => {
   if (!parent || parent.dataset?.navicLooseTextNormalized === 'true') return 0
   const segments = []
   let nodes = []
-  let breaks = []
+  let items = []
   let consecutiveBreaks = 0
   const flush = () => {
-    if (nodes.length > 0) segments.push({ nodes, breaks })
+    if (nodes.length > 0) segments.push({ nodes, items })
     nodes = []
-    breaks = []
+    items = []
     consecutiveBreaks = 0
   }
   for (const node of Array.from(parent.childNodes || [])) {
     if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') {
       if (nodes.length === 0) {
-        breaks = []
+        items = []
         consecutiveBreaks = 0
         continue
       }
-      breaks.push(node)
+      items.push(node)
       consecutiveBreaks += 1
       if (consecutiveBreaks >= 2) flush()
       continue
@@ -255,6 +283,7 @@ const normalizeReaderLooseTextContainer = parent => {
     }
     if (readerLooseTextInlineCandidate(node)) {
       nodes.push(node)
+      items.push(node)
       consecutiveBreaks = 0
       continue
     }
@@ -286,7 +315,7 @@ export const normalizeReaderLineFragmentParagraphs = doc => {
     if (readerLineFragmentJoinEvidenceCount(run) < 2) continue
     let current = run[0]
     for (const next of run.slice(1)) {
-      if (!readerLineFragmentCanMergeAfter(current) || !readerLineFragmentText(next).trim()) {
+      if (!readerLineFragmentJoins(readerLineFragmentText(current), readerLineFragmentText(next))) {
         current = next
         continue
       }

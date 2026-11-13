@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -2201,5 +2202,24 @@ class ReaderKomikkuBackboneResetTest {
 				shellCoverUpBranch.indexOf("dispatchHorizontalSwipeViewerAction("),
 			"The release frame should keep the cover at the final drag offset before deciding whether to enter the book."
 		)
+		val dispatchBody = viewerContainerBody
+			.substringAfter("private fun dispatchHorizontalSwipeViewerAction(")
+			.substringBefore("\n\tprivate fun ")
+		val nextBranch = dispatchBody
+			.substringAfter("ReaderTapZoneAction.Right -> {")
+			.substringBefore("}")
+		assertTrue(
+			nextBranch.indexOf("animateShellCoverSwipeExit(deltaX)") in 0 until
+				nextBranch.indexOf("onAction(KomikkuNavigationRegion.NEXT)"),
+			"A forward cover swipe must slide the cover off instead of snapping it back over the revealed page."
+		)
+		val clearBody = viewerContainerBody
+			.substringAfter("private fun clearSwipeTouchState() {")
+			.substringBefore("\n\t}")
+		assertContains(clearBody, "if (!shellCoverSwipeExitPending) shellCoverView?.translationX = 0f")
+		val shellVisibleBody = viewerContainerBody
+			.substringAfter("fun setShellCoverVisible(visible: Boolean) {")
+			.substringBefore("\n\t}")
+		assertContains(shellVisibleBody, "if (!visible) resetShellCoverSwipeOffset()")
 	}
 }

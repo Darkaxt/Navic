@@ -17,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [35])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ReaderPlayLikeCurlFoliateRasterCopyTest {
 	@Test

@@ -121,7 +121,8 @@ export function readerPageTurnPlan({
 
   const leading = leadingPageSide(readerDirection)
   if (layoutMode === 'spread') {
-    const targetPageIndex = sourcePageIndex + (next ? 2 : -2)
+    // In spread mode the page index counts whole spreads (Foliate pages both columns at once).
+    const targetPageIndex = sourcePageIndex + (next ? 1 : -1)
     if (!pageIndexExists(targetPageIndex, normalizedCount)) return null
     return frozenPlan({
       kind: ReaderPageTurnLandscapeSpreadSlide,

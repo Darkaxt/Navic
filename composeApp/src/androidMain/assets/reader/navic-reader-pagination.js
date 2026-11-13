@@ -1338,12 +1338,15 @@ function readerPageNumberUsesSpreadSlots(pagePosition) {
   return Math.floor(Number(pageBox?.maxColumnCount) || 0) >= 2
 }
 
+// Foliate pages a two-column layout one whole spread at a time, so in spread mode `pageIndex`
+// and `pageCount` count spreads. Each spread holds two physical pages: 2i+1 and 2i+2 of 2N.
 function readerPageNumberSpreadLabels(pagePosition) {
-  const pageIndex = Number(pagePosition?.pageIndex)
-  const pageCount = readerPageNumberPageCount(pagePosition)
-  if (!Number.isFinite(pageIndex) || pageIndex < 0 || !Number.isFinite(pageCount) || pageCount <= 0) return []
-  const current = Math.min(pageCount, Math.max(1, Math.floor(pageIndex) + 1))
-  const next = current + 1 <= pageCount ? current + 1 : null
+  const spreadIndex = Number(pagePosition?.pageIndex)
+  const spreadCount = readerPageNumberPageCount(pagePosition)
+  if (!Number.isFinite(spreadIndex) || spreadIndex < 0 || !Number.isFinite(spreadCount) || spreadCount <= 0) return []
+  const pageCount = spreadCount * 2
+  const current = Math.min(spreadCount - 1, Math.floor(spreadIndex)) * 2 + 1
+  const next = current + 1
   const rtl = this.effectiveReaderDirection?.() === ReaderDirectionRtl
   const labels = rtl
     ? [

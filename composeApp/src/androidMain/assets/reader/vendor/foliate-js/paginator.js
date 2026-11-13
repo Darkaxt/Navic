@@ -651,6 +651,11 @@ export class Paginator extends HTMLElement {
     #top
     #background
     #container
+    #containers = []
+    // Navic: the previous section's view stays painted (in the other container) until the next
+    // section has loaded, laid out and scrolled to its anchor, so a section turn never shows a
+    // blank page in between.
+    #retiredView = null
     #header
     #footer
     #view
@@ -735,12 +740,12 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
         }
-        #container {
+        .container {
             grid-column: 2 / 5;
             grid-row: 2;
             overflow: hidden;
         }
-        :host([flow="scrolled"]) #container {
+        :host([flow="scrolled"]) .container {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
@@ -781,7 +786,8 @@ export class Paginator extends HTMLElement {
         <div id="top">
             <div id="background" part="filter"></div>
             <div id="header"></div>
-            <div id="container" part="container"></div>
+            <div id="container" class="container" part="container"></div>
+            <div id="container-next" class="container" part="container"></div>
             <div id="footer"></div>
         </div>
         `
@@ -789,18 +795,25 @@ export class Paginator extends HTMLElement {
         this.#top = this.#root.getElementById('top')
         this.#background = this.#root.getElementById('background')
         this.#container = this.#root.getElementById('container')
+        this.#containers = [this.#container, this.#root.getElementById('container-next')]
         this.#header = this.#root.getElementById('header')
         this.#footer = this.#root.getElementById('footer')
 
         this.#observer.observe(this)
         this.#observer.observe(this.#container)
-        this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
-        this.#container.addEventListener('scroll', debounce(() => {
-            if (this.scrolled) {
-                if (this.#justAnchored) this.#justAnchored = false
-                else this.#afterScroll('scroll')
-            }
-        }, 250))
+        for (const container of this.#containers) {
+            const scrollTarget = () => container === this.#container
+            container.addEventListener('scroll', () => {
+                if (scrollTarget()) this.dispatchEvent(new Event('scroll'))
+            })
+            container.addEventListener('scroll', debounce(() => {
+                if (!scrollTarget()) return
+                if (this.scrolled) {
+                    if (this.#justAnchored) this.#justAnchored = false
+                    else this.#afterScroll('scroll')
+                }
+            }, 250))
+        }
 
         const opts = { passive: false }
         this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
@@ -956,11 +969,36 @@ export class Paginator extends HTMLElement {
                     `break-${x}: ${y ?? ''}column`))
         })
     }
+    #retireView(view) {
+        this.#releaseRetiredView()
+        view.destroy()
+        this.#retiredView = view
+        const retiredContainer = this.#container
+        this.#container = this.#containers.find(container => container !== retiredContainer)
+        this.#observer.unobserve(retiredContainer)
+        this.#observer.observe(this.#container)
+        retiredContainer.style.zIndex = '1'
+        retiredContainer.style.pointerEvents = 'none'
+        this.#container.style.zIndex = ''
+        this.#container.style.visibility = 'hidden'
+    }
+    #releaseRetiredView() {
+        this.#container.style.visibility = ''
+        const retired = this.#retiredView
+        if (!retired) return
+        this.#retiredView = null
+        retired.element.parentNode.style.zIndex = ''
+        retired.element.parentNode.style.pointerEvents = ''
+        retired.element.remove()
+    }
     #createView() {
         this.#advanceTextLayoutGeneration('view-replaced')
         if (this.#view) {
-            this.#view.destroy()
-            this.#container.removeChild(this.#view.element)
+            if (this.#view.committed) this.#retireView(this.#view)
+            else {
+                this.#view.destroy()
+                this.#view.element.remove()
+            }
         }
         ++this.#viewGeneration
         const view = new View({
@@ -983,6 +1021,7 @@ export class Paginator extends HTMLElement {
         ++this.#viewGeneration
         view.destroy()
         view.element.remove()
+        this.#releaseRetiredView()
         this.#view = null
         this.#index = -1
         const loadedSectionIndex = this.#loadedSectionIndex
@@ -1496,6 +1535,7 @@ export class Paginator extends HTMLElement {
             ? anchor(this.#view.document) : anchor) ?? 0, select)
         if (this.#destroyed || generation !== this.#navigationGeneration ||
             index !== this.#index || !this.#view?.committed) return false
+        this.#releaseRetiredView()
         if (hasFocus) this.focusView()
         return true
     }
@@ -1861,6 +1901,7 @@ export class Paginator extends HTMLElement {
         }
         this.#view?.destroy()
         this.#view = null
+        this.#releaseRetiredView()
         this.#index = -1
         const loadedSectionIndex = this.#loadedSectionIndex
         this.#loadedSectionIndex = -1

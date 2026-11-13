@@ -23,7 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [35])
 @LooperMode(LooperMode.Mode.PAUSED)
 class KomikkuGestureDetectorWithLongTapBehaviorTest {
 	@Test

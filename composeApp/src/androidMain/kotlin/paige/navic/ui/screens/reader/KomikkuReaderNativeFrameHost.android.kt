@@ -98,6 +98,7 @@ import kotlin.math.min
 private const val KomikkuReaderNativeFrameHostTag = "KomikkuReaderNativeFrameHost"
 private const val PageTurnPrewarmRequiredStableFrames = 2
 private const val AndroidGestureDoubleTapMinTimeMillis = 40L
+private const val ShellCoverSwipeExitDurationMs = 180L
 private val ReaderPageDiagnosticSessionIds = AtomicLong()
 
 internal class ReaderPassiveRasterRendererLossFence {
@@ -1034,6 +1035,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	var onContentLongPress: (x: Float, y: Float, width: Int, height: Int) -> Unit = { _, _, _, _ -> }
 	var onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit = {}
 	private var shellCoverView: View? = null
+	// Set when a forward swipe on the shell cover dispatched NEXT: the cover slides off and stays
+	// off-screen until the controller hides it, instead of snapping back over the revealed page.
+	private var shellCoverSwipeExitPending: Boolean = false
 	private var swipeStartX: Float = 0f
 	private var swipeStartY: Float = 0f
 	private var horizontalSwipeDispatched: Boolean = false
@@ -1858,6 +1862,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		shellCoverVisible = visible
+		if (!visible) resetShellCoverSwipeOffset()
 		if (visible) {
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
@@ -2710,6 +2715,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun handleSwipeTouchEvent(event: MotionEvent) {
 		when (event.actionMasked) {
 			MotionEvent.ACTION_DOWN -> {
+				// A new touch while the cover is still shown means the earlier NEXT did not dismiss it.
+				if (shellCoverSwipeExitPending) resetShellCoverSwipeOffset()
 				swipeStartX = event.x
 				swipeStartY = event.y
 				horizontalSwipeDispatched = false
@@ -2823,7 +2830,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 		if (shellCoverVisible) {
 			when (action) {
-				ReaderTapZoneAction.Right -> onAction(KomikkuNavigationRegion.NEXT)
+				ReaderTapZoneAction.Right -> {
+					animateShellCoverSwipeExit(deltaX)
+					onAction(KomikkuNavigationRegion.NEXT)
+				}
 				ReaderTapZoneAction.Left -> onAction(KomikkuNavigationRegion.PREV)
 				else -> return false
 			}
@@ -2839,6 +2849,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun updateShellCoverDragOffset(deltaX: Float) {
 		shellCoverView?.translationX = deltaX
+	}
+
+	private fun animateShellCoverSwipeExit(deltaX: Float) {
+		val cover = shellCoverView ?: return
+		shellCoverSwipeExitPending = true
+		val exitX = if (deltaX < 0f) -width.toFloat() else width.toFloat()
+		cover.animate().translationX(exitX).setDuration(ShellCoverSwipeExitDurationMs).start()
+	}
+
+	private fun resetShellCoverSwipeOffset() {
+		shellCoverSwipeExitPending = false
+		shellCoverView?.animate()?.cancel()
+		shellCoverView?.translationX = 0f
 	}
 
 	private fun updateReadableViewerDragOffset(
@@ -3043,7 +3066,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun clearSwipeTouchState() {
-		shellCoverView?.translationX = 0f
+		if (!shellCoverSwipeExitPending) shellCoverView?.translationX = 0f
 		horizontalSwipeDispatched = false
 		swipeStartX = 0f
 		swipeStartY = 0f

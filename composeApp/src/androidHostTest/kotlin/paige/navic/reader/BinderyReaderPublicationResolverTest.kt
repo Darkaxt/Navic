@@ -14,7 +14,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [35])
 class BinderyReaderPublicationResolverTest {
 	@Test
 	fun resolvedPublicationOwnsItsSessionDirectory() = runBlocking {

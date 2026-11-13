@@ -27,7 +27,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, sdk = [35])
 class ReaderPageInputSettlementHostControllerTest {
 	private class FakeReaderPageHostCancellationPort : ReaderPageHostCancellationPort {
 		val calls = mutableListOf<Pair<String, ReaderPageLifecycleCancellationReason>>()

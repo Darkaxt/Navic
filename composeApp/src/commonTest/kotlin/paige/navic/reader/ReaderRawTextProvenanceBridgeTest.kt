@@ -722,6 +722,84 @@ class ReaderRawTextProvenanceBridgeTest {
 	}
 
 	@Test
+	fun navigationRangeBlockedByPendingPreflightStillPreparesDestinationAfterPreflightReady() {
+		val sidecar = publicSyntheticCanonicalSidecar()
+		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
+		val segment = sidecar.timeline.segments.single()
+		val destination = ReaderDestinationCommitIdentity("public-synthetic-session", 21L)
+		val opened = ReaderController().open(openRequest()).controller
+		val loaded = opened.copy(
+			state = opened.state.copy(destinationCommitIdentity = destination)
+		).loadWhispersyncSidecar(sidecar).controller
+		val provenanceReady = loaded.onEngineEvent(
+			ReaderEngineEvent.RawTextProvenanceStatusChanged(
+				provenanceId = descriptor.id,
+				status = RawTextProvenanceStatus.Ready
+			)
+		).controller
+		val navigating = provenanceReady.copy(
+			state = provenanceReady.state.copy(
+				whispersync = provenanceReady.state.whispersync.copy(
+					pendingCausalIntent = ReaderWhispersyncCausalIntent(
+						sequence = 7L,
+						provenance = ReaderWhispersyncEventProvenance.UserNavigation,
+						destinationCommitted = true,
+						destinationCommitIdentity = destination
+					)
+				)
+			)
+		)
+		fun range(causalSequence: Long?) = ReaderEngineEvent.VisibleTextRange(
+			textHref = segment.textHref,
+			visibleStart = 0,
+			visibleEnd = 24,
+			rawProvenanceId = descriptor.id,
+			rawSpineIndex = descriptor.spineIndex,
+			rawByteStart = requireNotNull(segment.textStart),
+			rawByteEnd = requireNotNull(segment.textEnd),
+			causalSequence = causalSequence,
+			destinationCommitIdentity = destination
+		)
+
+		val blocked = navigating.onEngineEvent(range(causalSequence = 7L)).controller
+		assertNull(blocked.state.whispersync.preparedVisibleTarget)
+		assertEquals(true, blocked.state.whispersync.pendingCausalIntent?.rangeObserved)
+
+		// The JS bridge consumes the causal sequence on first delivery, so a retry arrives without one.
+		val retried = blocked.onEngineEvent(range(causalSequence = null)).controller
+		assertEquals(true, retried.state.whispersync.pendingCausalIntent?.rangeObserved)
+
+		val request = requireNotNull(retried.state.whispersync.canonicalPreflight).request
+		val accepted = retried.onEngineEvent(
+			requireNotNull(
+				canonicalPreflightEngineEvent(
+					sidecar = sidecar,
+					descriptor = descriptor,
+					destination = destination,
+					validationGeneration = request.validationGeneration,
+					status = "ready"
+				)
+			)
+		).controller
+		assertNotNull(accepted.state.whispersync.preparedVisibleTarget)
+		assertNull(accepted.state.whispersync.pendingCausalIntent)
+		assertEquals(ReaderWhispersyncEventProvenance.UserNavigation, accepted.state.whispersync.lastEventProvenance)
+
+		// Without a prior preflight-ready target, a non-causal retry for the observed intent is admitted too.
+		val admittedRetry = retried.copy(
+			state = retried.state.copy(
+				whispersync = retried.state.whispersync.copy(
+					canonicalPreflight = retried.state.whispersync.canonicalPreflight?.copy(
+						status = ReaderWhispersyncCanonicalPreflightStatus.Ready
+					)
+				)
+			)
+		).onEngineEvent(range(causalSequence = null)).controller
+		assertNotNull(admittedRetry.state.whispersync.preparedVisibleTarget)
+		assertNull(admittedRetry.state.whispersync.pendingCausalIntent)
+	}
+
+	@Test
 	fun canonicalTerminalRecoveryWaitsForResyncFreshRawRangeAndAcceptedPreflight() {
 		val sidecar = publicSyntheticCanonicalSidecar()
 		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()

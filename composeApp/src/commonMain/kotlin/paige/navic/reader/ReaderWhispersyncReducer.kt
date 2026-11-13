@@ -907,9 +907,17 @@ private fun ReaderController.reduceWhispersyncCanonicalPreflightResult(
 	) {
 		return ReaderControllerStep(this)
 	}
+	val observedNavigation = current.pendingCausalIntent?.takeIf {
+		prepared != null && it.rangeObserved &&
+			it.destinationCommitIdentity == request.destinationCommitIdentity
+	}
+	val resumeObservedNavigation = observedNavigation != null &&
+		current.playbackIntent == ReaderWhispersyncPlaybackIntent.Enabled &&
+		!current.userPaused
 	val next = copy(
 		state = state.copy(
 			whispersync = current.copy(
+				pendingCausalIntent = current.pendingCausalIntent.takeUnless { observedNavigation != null },
 				canonicalPreflight = preflight.copy(
 					status = ReaderWhispersyncCanonicalPreflightStatus.Ready
 				),
@@ -926,16 +934,24 @@ private fun ReaderController.reduceWhispersyncCanonicalPreflightResult(
 				} else {
 					nextGeneration
 				},
-				transportPhase = if (prepared == null) {
+				transportPhase = if (prepared == null || resumeObservedNavigation) {
 					ReaderWhispersyncTransportPhase.Preparing
 				} else {
 					ReaderWhispersyncTransportPhase.Ready
 				},
 				status = if (prepared == null) current.status else readerWhispersyncReadyStatus(current.timeline),
-				lastEventProvenance = ReaderWhispersyncEventProvenance.PresentationMaintenance
+				lastEventProvenance = if (observedNavigation != null) {
+					ReaderWhispersyncEventProvenance.UserNavigation
+				} else {
+					ReaderWhispersyncEventProvenance.PresentationMaintenance
+				}
 			)
 		)
 	)
+	if (resumeObservedNavigation) {
+		return next.beginPreparedWhispersyncPlayback()
+			.withWhispersyncCueMapPresentation(previousController = this)
+	}
 	return ReaderControllerStep(
 		controller = next,
 		engineCommands = listOfNotNull(
@@ -1360,7 +1376,9 @@ private fun ReaderController.reduceVisibleTextRange(
 			"navigationPending=${pendingNavigation != null} " +
 			"navigationCommitted=${pendingNavigation?.destinationCommitted == true} " +
 			"causalPresent=${event.causalSequence != null} " +
-			"causalMatches=${pendingNavigation != null && event.causalSequence == pendingNavigation.sequence}"
+			"causalMatches=${pendingNavigation != null && event.causalSequence == pendingNavigation.sequence} " +
+			"rangeObserved=${pendingNavigation?.rangeObserved == true} " +
+			"raw=${event.rawProvenanceId != null}"
 	)
 	if (event.isWhispersyncAudioFollowRange()) {
 		return ReaderControllerStep(
@@ -1402,9 +1420,11 @@ private fun ReaderController.reduceVisibleTextRange(
 	}
 	val navigationMatched = pendingNavigation?.takeIf {
 		it.destinationCommitted &&
-			event.causalSequence != null &&
-			event.causalSequence == it.sequence &&
-			it.destinationCommitIdentity == destinationCommitIdentity
+			it.destinationCommitIdentity == destinationCommitIdentity &&
+			(
+				(event.causalSequence != null && event.causalSequence == it.sequence) ||
+					(it.rangeObserved && event.causalSequence == null)
+			)
 	}
 	if (pendingNavigation != null && navigationMatched == null) {
 		return ReaderControllerStep(
@@ -1469,6 +1489,11 @@ private fun ReaderController.reduceVisibleTextRange(
 					preparedVisibleTarget = null,
 					playbackStartPending = false,
 					canonicalRetryHasFreshRawRange = freshRetryAuthority,
+					pendingCausalIntent = if (navigationMatched != null) {
+						navigationMatched.copy(rangeObserved = true)
+					} else {
+						pendingIntent
+					},
 					transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
 						ReaderWhispersyncTransportPhase.Failed
 					} else {

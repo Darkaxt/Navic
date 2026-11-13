@@ -36,7 +36,11 @@ data class ReaderWhispersyncCausalIntent(
 	val provenance: ReaderWhispersyncEventProvenance,
 	val requiresPageTurnSettlement: Boolean = false,
 	val destinationCommitted: Boolean = false,
-	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null
+	val destinationCommitIdentity: ReaderDestinationCommitIdentity? = null,
+	// The navigation's causal range already arrived but could not prepare a target yet (canonical
+	// preflight pending). JS consumes the causal sequence on first delivery, so later ranges for the
+	// same committed destination arrive without one and must still satisfy this intent.
+	val rangeObserved: Boolean = false
 )
 
 data class ReaderWhispersyncPreparedVisibleTarget(

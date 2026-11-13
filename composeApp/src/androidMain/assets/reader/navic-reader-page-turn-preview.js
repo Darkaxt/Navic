@@ -529,7 +529,9 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
   const geometry = this.pageTurnCaptureGeometry()
   const layoutMode = geometry.mode
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
-  const step = layoutMode === 'spread' ? 2 : 1
+  // One raster per page index; in spread mode an index is a whole spread, so adjacent indices
+  // are the adjacent spreads.
+  const step = 1
   const requestedCenter = Number(pageIndexOverride)
   const pageCount = Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1))
   const centerPageIndex = Number.isFinite(requestedCenter)
