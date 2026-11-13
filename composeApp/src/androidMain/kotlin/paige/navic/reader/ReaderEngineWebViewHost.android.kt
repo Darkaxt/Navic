@@ -61,6 +61,8 @@ internal object ReaderEngineLogProjector {
 		"reportError"
 	)
 	private val approvedWordSyncAnchorRejection = Regex("^wordsync-anchor-reject:[a-z-]{1,40}$")
+	private val approvedWordSyncAnchorGeometry = Regex("^wordsync-anchor-geometry:[0-9,;|\\-]{1,400}$")
+	private val approvedWordSyncSegment = Regex("^wordsync-segment:-?[0-9]{1,9}(,-?[0-9]{1,12}){4}$")
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =
 		"Dispatching reader engine command: ${dispatch.command.type}"
@@ -74,7 +76,12 @@ internal object ReaderEngineLogProjector {
 			?.takeIf { it.startsWith(NavicReaderConsolePrefix) }
 			?.removePrefix(NavicReaderConsolePrefix)
 			?.substringBefore(' ')
-			?.takeIf { it in approvedConsoleDiagnostics || approvedWordSyncAnchorRejection.matches(it) }
+			?.takeIf {
+				it in approvedConsoleDiagnostics ||
+					approvedWordSyncAnchorRejection.matches(it) ||
+					approvedWordSyncAnchorGeometry.matches(it) ||
+					approvedWordSyncSegment.matches(it)
+			}
 			?: RedactedConsoleDiagnostic
 		return "Reader console ${level.diagnosticName()}: $diagnostic"
 	}

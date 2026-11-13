@@ -365,7 +365,7 @@ class PreferenceManager(
 	var readerWhispersyncPlaybackSpeed by preference(1f)
 	var readerWhispersyncHighlightLeadMs by preference(750)
 	var readerWhispersyncHighlightColorArgb by preference(0x66F6C343)
-	var readerWhispersyncHighlightLoading by preference("current-cue")
+	var readerWhispersyncHighlightLoading by preference("persistent-played-text")
 	var readerWhispersyncHighlightStyle by preference("selection")
 	var readerWhispersyncPageBoundaryBehavior by preference("pause-at-visible-page-end")
 	var readerWhispersyncLongPressBehavior by preference("seek-audio-to-text")

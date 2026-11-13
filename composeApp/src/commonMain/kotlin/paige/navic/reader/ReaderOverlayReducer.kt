@@ -229,12 +229,26 @@ internal object ReaderOverlayReducer {
 		}
 		val currentFragmentId = state.activeMediaOverlay?.fragmentId
 		val shouldClear = event.fragmentId == null || event.fragmentId == currentFragmentId
+		// A refused anchor for the pending prepared start is terminal for that Play request:
+		// leave Preparing so the transport is not stuck waiting for a confirmation that will
+		// never arrive, and let the next Play retry from the prepared visible target.
+		val pendingStartRefused = state.whispersync.pendingAudioSeek?.overlayRequestId == requestId
 		return ReaderControllerStep(
 			controller = controller.copy(
 				state = state.copy(
 					whispersync = state.whispersync.copy(
 						sync = currentSync.rejectOverlay(requestId),
 						pendingAudioSeek = null,
+						playbackStartPending = state.whispersync.playbackStartPending && !pendingStartRefused,
+						transportPhase = if (
+							pendingStartRefused &&
+							state.whispersync.transportPhase == ReaderWhispersyncTransportPhase.Preparing &&
+							state.whispersync.preparedVisibleTarget != null
+						) {
+							ReaderWhispersyncTransportPhase.Ready
+						} else {
+							state.whispersync.transportPhase
+						},
 						status = readerWhispersyncReadyStatus(state.whispersync.timeline)
 					),
 					activeMediaOverlay = state.activeMediaOverlay.takeUnless { shouldClear },

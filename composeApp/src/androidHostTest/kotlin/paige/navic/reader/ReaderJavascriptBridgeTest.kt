@@ -148,6 +148,42 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console DEBUG: wordsync-anchor-reject:page-position"
 			),
 			ProjectionCase(
+				description = "word sync anchor numeric geometry",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-anchor-geometry:120,128;0,0;-1240,160,-1180,200;0,0,1280,1600|1280,0,1280,1600 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: wordsync-anchor-geometry:120,128;0,0;-1240,160,-1180,200;0,0,1280,1600|1280,0,1280,1600"
+			),
+			ProjectionCase(
+				description = "word sync numeric segment trace",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-segment:412,-1,9120,9388,1834500 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: wordsync-segment:412,-1,9120,9388,1834500"
+			),
+			ProjectionCase(
+				description = "word sync segment trace carrying text is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-segment:412,sand,1,2,3",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
+			),
+			ProjectionCase(
+				description = "word sync anchor geometry carrying text is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-anchor-geometry:12,sand",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
+			),
+			ProjectionCase(
 				description = "word sync anchor rejection with unapproved guard text",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",

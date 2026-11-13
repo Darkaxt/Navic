@@ -125,6 +125,27 @@ final class PlayLikeCurlGeometry {
                 / (CAMERA_DISTANCE - sourceDepth);
     }
 
+    /**
+     * Viewport-relative x (0..1 is the leaf's own half) of one active mesh column after perspective,
+     * matching the renderer's resting-plane projection. Mirrored meshes upload {@code 1 - x}.
+     */
+    static float projectedActiveColumnX(
+            PageRole role,
+            int column,
+            float curlPosition,
+            boolean mirrored) {
+        float x = role == PageRole.FRONT
+                ? frontX(column, curlPosition)
+                : role == PageRole.LEFT
+                        ? leftX(column, curlPosition)
+                        : column / (float) PlayLikeCurlModel.GRID;
+        if (mirrored) x = 1f - x;
+        return projectXOntoDepthPlane(
+                x,
+                activeDepth(role, column, curlPosition),
+                PlayLikeCurlModel.RIGHT_DEPTH);
+    }
+
     private static float frontX(int column, float curlPosition) {
         float percentage = 1f - curlPosition / PlayLikeCurlModel.GRID;
         float radius = resolvedRadius(percentage);

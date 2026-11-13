@@ -80,7 +80,7 @@ class ReaderSettingsDefaultsTest {
 				readaloudSyncEnabled = true,
 				whispersyncHighlightLeadMs = MaxReaderWhispersyncHighlightLeadMs,
 				whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb,
-				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue.value,
+				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.PersistentPlayedText.value,
 				whispersyncHighlightStyle = ReaderWhispersyncHighlightStyle.Selection.value,
 				volumeKeyPageTurns = false,
 				webContentsDebuggingEnabled = true
@@ -173,7 +173,7 @@ class ReaderSettingsDefaultsTest {
 				readaloudSyncEnabled = false,
 				whispersyncHighlightLeadMs = 1_500,
 				whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb,
-				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue.value,
+				whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.PersistentPlayedText.value,
 				whispersyncHighlightStyle = ReaderWhispersyncHighlightStyle.Selection.value,
 				volumeKeyPageTurns = true,
 				webContentsDebuggingEnabled = false
@@ -405,7 +405,7 @@ class ReaderSettingsDefaultsTest {
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("standard"))
 		assertEquals(ReaderDragAnimationNone, normalizedReaderDragAnimationMode("curl"))
 		assertEquals(ReaderDragAnimationCanvas, normalizedReaderDragAnimationMode(ReaderDragAnimationCanvas))
-		assertEquals("Slide", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
+		assertEquals("Instant", readerDragAnimationModeShortLabel(ReaderDragAnimationNone))
 		assertEquals("Page curl", readerDragAnimationModeShortLabel(ReaderDragAnimationCanvas))
 		assertEquals(
 			ReaderDragAnimationCanvas,

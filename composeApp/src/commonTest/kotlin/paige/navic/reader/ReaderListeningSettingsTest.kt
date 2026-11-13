@@ -23,7 +23,7 @@ class ReaderListeningSettingsTest {
 				playbackSpeed = MaxReaderWhispersyncPlaybackSpeed,
 				highlightLeadMs = MaxReaderWhispersyncHighlightLeadMs,
 				highlightColorArgb = 0x6642A5F5,
-				highlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue,
+				highlightLoading = ReaderWhispersyncHighlightLoading.PersistentPlayedText,
 				highlightStyle = ReaderWhispersyncHighlightStyle.Selection
 			),
 			preferences.readerListeningSettings()

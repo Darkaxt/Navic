@@ -42,7 +42,7 @@ fun defaultReaderListeningSettings(): ReaderListeningSettings =
 		playbackSpeed = DefaultReaderWhispersyncPlaybackSpeed,
 		highlightLeadMs = DefaultReaderWhispersyncHighlightLeadMs,
 		highlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb,
-		highlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue,
+		highlightLoading = ReaderWhispersyncHighlightLoading.PersistentPlayedText,
 		highlightStyle = ReaderWhispersyncHighlightStyle.Selection,
 		pageBoundaryBehavior = ReaderWhispersyncPageBoundaryBehavior.PauseAtVisiblePageEnd,
 		longPressBehavior = ReaderWhispersyncLongPressBehavior.SeekAudioToText
@@ -97,7 +97,7 @@ fun normalizedReaderWhispersyncPlaybackSpeed(value: Float): Float =
 
 fun normalizedReaderWhispersyncHighlightLoading(value: String?): ReaderWhispersyncHighlightLoading =
 	ReaderWhispersyncHighlightLoading.entries.firstOrNull { loading -> loading.value == value }
-		?: ReaderWhispersyncHighlightLoading.CurrentCue
+		?: ReaderWhispersyncHighlightLoading.PersistentPlayedText
 
 fun normalizedReaderWhispersyncHighlightStyle(value: String?): ReaderWhispersyncHighlightStyle =
 	ReaderWhispersyncHighlightStyle.entries.firstOrNull { style -> style.value == value }

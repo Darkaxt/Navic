@@ -126,6 +126,13 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
       rawProgressFraction: 0.5,
     }, contents, { overlayKey: 'raw-progress-fraction' })
     const fractionalProgressText = paints.at(-1)?.text || null
+    const stopStart = sourceByte(extracted.indexOf('stop'))
+    const visibleStopRange = store.resolveRange(rawFragment({ rawByteStart: stopStart, rawByteEnd: stopEnd }))
+    store.paint({ ...fragment, rawProgressFraction: 0 }, contents, {
+      overlayKey: 'raw-progress-before-visible',
+      visibleRange: { domRange: visibleStopRange },
+    })
+    const progressReachingVisibleText = paints.at(-1)?.text || null
     const inverse = paintedRange ? store.rawFieldsForRange(paintedRange) : null
     const stopNode = Array.from(doc.querySelectorAll('span'))[0]?.firstChild
     const sampledRange = doc.createRange()
@@ -194,6 +201,7 @@ const runScenario = (page, scenario) => page.evaluate(async scenarioName => {
       progressText,
       fractionalProgressPainted,
       fractionalProgressText,
+      progressReachingVisibleText,
       detailRangePreferred,
       detailRangeAcceptedWithoutSampling,
       foreignRangeRejected,
@@ -1706,6 +1714,7 @@ test('maps verified extracted UTF-8 token bytes to exact split DOM ranges and in
     assert.equal(result.progressText, 'Don’t')
     assert.equal(result.fractionalProgressPainted, true)
     assert.equal(result.fractionalProgressText, 'Don’t')
+    assert.equal(result.progressReachingVisibleText, 'Don’t stop')
     assert.equal(result.detailRangePreferred, true)
     assert.equal(result.detailRangeAcceptedWithoutSampling, true)
     assert.equal(result.foreignRangeRejected, true)

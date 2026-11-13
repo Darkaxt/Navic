@@ -659,7 +659,7 @@ fun readerNavBarTypeShortLabel(navBarType: String?): String =
 fun readerDragAnimationModeShortLabel(dragAnimationMode: String?): String =
 	when (normalizedReaderDragAnimationMode(dragAnimationMode)) {
 		ReaderDragAnimationCanvas -> "Page curl"
-		else -> "Slide"
+		else -> "Instant"
 	}
 
 fun readerColorFilterModeShortLabel(colorFilterMode: String?): String =
@@ -774,7 +774,7 @@ fun normalizedReaderSettings(
 	readaloudSyncEnabled: Boolean = true,
 	whispersyncHighlightLeadMs: Int = DefaultReaderWhispersyncHighlightLeadMs,
 	whispersyncHighlightColorArgb: Int = DefaultReaderWhispersyncHighlightColorArgb,
-	whispersyncHighlightLoading: String? = ReaderWhispersyncHighlightLoading.CurrentCue.value,
+	whispersyncHighlightLoading: String? = ReaderWhispersyncHighlightLoading.PersistentPlayedText.value,
 	whispersyncHighlightStyle: String? = ReaderWhispersyncHighlightStyle.Selection.value,
 	volumeKeyPageTurns: Boolean = false,
 	webContentsDebuggingEnabled: Boolean = false,

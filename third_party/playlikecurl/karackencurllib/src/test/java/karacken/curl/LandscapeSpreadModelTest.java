@@ -126,5 +126,49 @@ public class LandscapeSpreadModelTest {
                 TOLERANCE);
     }
 
+    @Test
+    public void forwardTurnKeepsASheetVisibleThroughoutTheSpreadTransition() {
+        assertSheetVisibleThroughout(new LandscapeSpreadModel(4, 0), 200f, -1f);
+    }
+
+    @Test
+    public void backwardTurnKeepsASheetVisibleThroughoutTheSpreadTransition() {
+        assertSheetVisibleThroughout(new LandscapeSpreadModel(4, 2), 0f, 1f);
+    }
+
+    @Test
+    public void turningAndIncomingFacesMeetAtTheSpine() {
+        assertEquals(0f, LandscapeSpreadTransition.turningFaceOuterX(
+                LandscapeSpreadTransition.TURNING_SPINE_CURL_POSITION), 0.001f);
+        assertTrue(LandscapeSpreadTransition.incomingFaceInnerX(
+                LandscapeSpreadTransition.INCOMING_SPINE_CURL_POSITION) >= 0.999f);
+    }
+
+    /**
+     * Each face is clipped to its own half, so the projected sheet must stay inside that half for
+     * every progress except the edge-on instant at the spine (the old hand-off drew nothing for
+     * roughly 0.37 < p < 0.5).
+     */
+    private static void assertSheetVisibleThroughout(
+            LandscapeSpreadModel model, float start, float direction) {
+        model.beginGesture(start);
+        for (int step = 1; step < 200; step++) {
+            model.dragTo(start + direction * step, 100f);
+            LandscapeSpreadTransition transition = model.getTransition();
+            float progress = transition.getProgress();
+            if (progress <= 0f || progress >= 1f || Math.abs(progress - 0.5f) < 0.02f) continue;
+            float width = 0f;
+            if (transition.isTurningCurrentLeafVisible()) {
+                width = Math.max(width, Math.min(1f, LandscapeSpreadTransition.turningFaceOuterX(
+                        transition.getTurningCurlPosition())));
+            }
+            if (transition.isIncomingReverseLeafVisible()) {
+                width = Math.max(width, 1f - Math.max(0f, LandscapeSpreadTransition.incomingFaceInnerX(
+                        transition.getIncomingCurlPosition())));
+            }
+            assertTrue("no sheet visible at progress " + progress, width > 0.01f);
+        }
+    }
+
     private static final float TOLERANCE = 0.0001f;
 }

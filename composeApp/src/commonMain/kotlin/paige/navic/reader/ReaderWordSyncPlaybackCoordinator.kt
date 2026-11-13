@@ -1,6 +1,7 @@
 package paige.navic.reader
 
 import paige.navic.domain.repositories.BinderyWordSyncReference
+import paige.navic.util.core.Logger
 
 data class ReaderWordSyncPlaybackIdentity(
 	val audioResourceId: String,
@@ -181,6 +182,16 @@ data class ReaderWordSyncPlaybackCoordinator(
 				readerEvent = readerEvent
 			)
 		val requestId = cueFragment.overlayRequestId
+		if (readerPreparedStart && !readerEvent) {
+			val chapterStart = candidate?.verified?.chapter?.ebookStart ?: 0
+			Logger.i(
+				WhispersyncSyncLogTag,
+				"WordSync prepared start visibleRaw=${preparedVisibleRange?.rawByteStart}..${preparedVisibleRange?.rawByteEnd} " +
+					"word=${candidate?.word?.ebookStart?.minus(chapterStart)}..${candidate?.word?.ebookEnd?.minus(chapterStart)} " +
+					"wordAudioMs=${candidate?.word?.audioStartMs} preparedMs=${preparedPlayback?.positionMs} " +
+					"livePlayback=${playback != null}"
+			)
+		}
 		if (candidate == null || requestId == null) {
 			return ReaderWordSyncDecision(
 				coordinator = coordinatorWithDemand.copy(fallbackByRequestId = emptyMap()),

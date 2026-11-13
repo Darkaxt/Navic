@@ -2467,6 +2467,52 @@ class ReaderControllerTest {
 	}
 
 	@Test
+	fun refusedPreparedStartAnchorEndsThePendingPlayAndAllowsRetry() {
+		val controller = ReaderController()
+			.open(hobbitOpenRequest()).controller
+			.withWhispersyncTestDestination().loadWhispersyncSidecar(testWhispersyncSidecar()).controller
+		val prepared = controller.onEngineEvent(
+			whispersyncVisibleTextRange(
+				textHref = "Text/chapter1.xhtml",
+				visibleStart = 80,
+				visibleEnd = 140
+			)
+		)
+		val pending = prepared.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
+		val requested = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			pending.engineCommands.single()
+		).fragment
+		assertTrue(pending.controller.state.whispersync.playbackStartPending)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.Preparing,
+			pending.controller.state.whispersync.transportPhase
+		)
+
+		val refused = pending.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayInactive(
+				fragmentId = requested.fragmentId,
+				overlayRequestId = requested.overlayRequestId,
+				reason = "anchor-rejected"
+			)
+		)
+
+		assertFalse(refused.controller.state.whispersync.playbackStartPending)
+		assertNull(refused.controller.state.whispersync.pendingAudioSeek)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.Ready,
+			refused.controller.state.whispersync.transportPhase
+		)
+		assertNull(refused.readaloudPlaybackCommand)
+		val retried = refused.controller.onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Play
+		)
+		assertIs<ReaderEngineCommand.ApplyMediaOverlay>(retried.engineCommands.single())
+		assertTrue(retried.controller.state.whispersync.playbackStartPending)
+	}
+
+	@Test
 	fun whispersyncStaleOverlayRejectionIsIgnored() {
 		val controller = ReaderController()
 			.open(hobbitOpenRequest()).controller

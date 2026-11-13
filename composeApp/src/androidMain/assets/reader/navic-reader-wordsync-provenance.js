@@ -74,12 +74,14 @@ export const routeReaderOverlayCoordinateMode = (fragment, handlers) => {
   return handlers.reject(fragment)
 }
 
-export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKey) => {
+export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKey, { startByte = null } = {}) => {
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderCueV1DomUtf16Mode) return null
   if (mode !== ReaderWordSyncV1ExtractedUtf8Mode) return false
   return runtime.rawTextProvenance.paint(fragment, runtime.contentEntries(), {
     overlayKey: fragment?.overlayKey || overlayKey,
+    visibleRange: runtime.committedVisibleTextRange,
+    startByte,
     draw: runtime.readerMediaOverlayHighlightDraw(),
     options: {
       color: runtime.readerMediaOverlayHighlightColor(),
@@ -88,12 +90,52 @@ export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKe
   })
 }
 
+// "Persistent played text": on one committed page the highlight starts at the first segment painted
+// there and grows to the live progress point. A page change, another document or a backward seek
+// before that start re-anchors it at the current segment.
+const readerWordSyncPageKey = visibleRange => visibleRange
+  ? `${visibleRange.rawProvenanceId ?? ''}|${visibleRange.rawByteStart ?? ''}|${visibleRange.rawByteEnd ?? ''}`
+  : ''
+
+export const readerWordSyncPersistentStartByte = (anchor, fragment, pageKey, persistent) =>
+  persistent && anchor && anchor.pageKey === pageKey &&
+    anchor.rawProvenanceId === fragment.rawProvenanceId &&
+    fragment.rawByteStart >= anchor.rawByteStart
+    ? anchor.rawByteStart
+    : null
+
 export const paintReaderWordSyncActiveOverlay = (runtime, fragment, overlayKey) => {
   if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) return null
   runtime.clearOverlay({ preservePlayed: false, preserveAnimation: true })
-  const highlighted = paintReaderWordSyncOverlayTextRange(runtime, fragment, overlayKey)
+  const persistent = runtime.readerMediaOverlayPersistentPlayed?.() === true
+  const pageKey = readerWordSyncPageKey(runtime.committedVisibleTextRange)
+  const startByte = readerWordSyncPersistentStartByte(
+    runtime.wordSyncPlayedAnchor, fragment, pageKey, persistent
+  )
+  const highlighted = paintReaderWordSyncOverlayTextRange(runtime, fragment, overlayKey, { startByte })
   runtime.mediaOverlayActiveFragment = highlighted ? fragment : null
+  if (highlighted) {
+    runtime.wordSyncPlayedAnchor = persistent
+      ? (startByte != null
+          ? runtime.wordSyncPlayedAnchor
+          : { pageKey, rawProvenanceId: fragment.rawProvenanceId, rawByteStart: fragment.rawByteStart })
+      : null
+    logReaderWordSyncSegment(runtime, fragment)
+  }
   return highlighted
+}
+
+// Numeric-only segment trace (no publication text): sequence,previousSequence,rawByteStart,rawByteEnd,clipBeginMs.
+// Lets frame/log comparison show the matcher jumping forward then backward.
+const logReaderWordSyncSegment = (runtime, fragment) => {
+  const sequence = Number(fragment.wordBoundarySequence)
+  if (!Number.isInteger(sequence) || sequence === runtime.lastWordSyncSegmentSequence) return
+  const previous = Number.isInteger(runtime.lastWordSyncSegmentSequence) ? runtime.lastWordSyncSegmentSequence : -1
+  runtime.lastWordSyncSegmentSequence = sequence
+  const clipMs = Number.isFinite(Number(fragment.clipBeginSeconds))
+    ? Math.round(Number(fragment.clipBeginSeconds) * 1000)
+    : -1
+  log(`wordsync-segment:${sequence},${previous},${fragment.rawByteStart},${fragment.rawByteEnd},${clipMs}`)
 }
 
 export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {
@@ -126,6 +168,20 @@ const readerLivePresentationAnchorAuthority = runtime => {
 const rejectWordSyncAnchor = guard => {
   log(`wordsync-anchor-reject:${guard}`)
   return null
+}
+
+// Numeric-only geometry for an off-page anchor (no publication text):
+// rawByteStart,rawByteEnd;frameLeft,frameTop;rectLeft,rectTop,rectRight,rectBottom;pageLeft,pageTop,pageWidth,pageHeight|...
+const logWordSyncAnchorGeometry = (fragment, ranges, pages) => {
+  const n = value => (Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1)
+  const range = ranges[0]
+  const frameRect = (range?.startContainer?.ownerDocument || range?.commonAncestorContainer?.ownerDocument)
+    ?.defaultView?.frameElement?.getBoundingClientRect?.()
+  const rect = range?.getClientRects?.()?.[0]
+  const pageText = pages.map(page => [page?.left, page?.top, page?.width, page?.height].map(n).join(',')).join('|')
+  log(`wordsync-anchor-geometry:${n(fragment?.rawByteStart)},${n(fragment?.rawByteEnd)};` +
+    `${n(frameRect?.left)},${n(frameRect?.top)};` +
+    `${[rect?.left, rect?.top, rect?.right, rect?.bottom].map(n).join(',')};${pageText}`)
 }
 
 const liveAnchorAuthorityAbsenceGuard = runtime => {
@@ -245,7 +301,10 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
       }
     }
   }
-  if (pageLocalRects.length === 0) return rejectWordSyncAnchor('range-off-page')
+  if (pageLocalRects.length === 0) {
+    logWordSyncAnchorGeometry(fragment, resolvedRanges, pages)
+    return rejectWordSyncAnchor('range-off-page')
+  }
   const previousAnchorGeneration = Number(runtime.wordSyncAnchorGeneration) || 0
   if (!nonNegativeInteger(previousAnchorGeneration) || previousAnchorGeneration >= Number.MAX_SAFE_INTEGER) {
     return rejectWordSyncAnchor('anchor-generation')
@@ -293,7 +352,10 @@ const readerWordSyncAnchorReceiptFromAuthority = (
   fragment,
   authority
 ) => {
-  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
+  const range = runtime.rawTextProvenance.resolveRange(fragment, {
+    applyProgress: true,
+    visibleRange: runtime.committedVisibleTextRange,
+  })
   return readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
@@ -304,7 +366,10 @@ const readerWordSyncAnchorReceiptFromAuthority = (
 }
 
 export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
-  const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
+  const range = runtime.rawTextProvenance.resolveRange(fragment, {
+    applyProgress: true,
+    visibleRange: runtime.committedVisibleTextRange,
+  })
   const authority = readerLivePresentationAnchorAuthority(runtime)
   if (!authority) return rejectWordSyncAnchor(liveAnchorAuthorityAbsenceGuard(runtime))
   return readerMediaOverlayAnchorReceiptFromPresentation(
@@ -1140,12 +1205,39 @@ export class ReaderWordSyncProvenanceStore {
     return { status: 'ready' }
   }
 
-  resolveRange(fragment, { applyProgress = false } = {}) {
+  // A sentence-level fragment can begin on the previous page. While its progress has not yet
+  // reached the visible page, extend the progressed range to the first token that does, so the
+  // highlight and its anchor start on the page the reader is looking at.
+  progressEndReachingVisibleRange(ready, fragment, endPoint, visibleRange) {
+    const visibleDomRange = visibleRange?.domRange || visibleRange
+    if (!visibleDomRange || visibleDomRange.startContainer?.ownerDocument !== ready.doc) return null
+    const endsAfterVisibleStart = point => {
+      try {
+        const probe = ready.doc.createRange()
+        probe.setStart(point.node, point.offset)
+        const RangeClass = ready.doc.defaultView?.Range || globalThis.Range
+        return probe.compareBoundaryPoints(RangeClass.START_TO_START, visibleDomRange) > 0
+      } catch (_) {
+        return null
+      }
+    }
+    const progressReachesVisible = endsAfterVisibleStart(endPoint)
+    if (progressReachesVisible !== false) return null
+    const firstVisibleToken = ready.progressTokens.find(token =>
+      token.byteEnd > fragment.rawByteStart && token.byteStart < fragment.rawByteEnd &&
+      endsAfterVisibleStart(token.endPoint) === true)
+    return firstVisibleToken?.endPoint || null
+  }
+
+  resolveRange(fragment, { applyProgress = false, visibleRange = null, startByte = null } = {}) {
     if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) return null
     const ready = this.currentReady(fragment.rawProvenanceId)
     if (!ready || fragment.textHref !== ready.descriptor.href ||
       fragment.rawSpineIndex !== ready.descriptor.spineIndex) return null
-    const startPoint = ready.projection.startPointByByte.get(fragment.rawByteStart)
+    const persistentStartPoint = Number.isInteger(startByte) && startByte <= fragment.rawByteStart
+      ? ready.projection.startPointByByte.get(startByte)
+      : null
+    const startPoint = persistentStartPoint || ready.projection.startPointByByte.get(fragment.rawByteStart)
     const fullEndPoint = ready.projection.endPointByByte.get(fragment.rawByteEnd)
     if (!startPoint || !fullEndPoint) return null
     let endPoint = fullEndPoint
@@ -1166,6 +1258,9 @@ export class ReaderWordSyncProvenanceStore {
       )
       const progressToken = includedTokens[progressedTokenCount - 1]
       endPoint = progressToken.endPoint
+    }
+    if (applyProgress) {
+      endPoint = this.progressEndReachingVisibleRange(ready, fragment, endPoint, visibleRange) || endPoint
     }
     const range = ready.doc.createRange()
     try {
@@ -1201,8 +1296,8 @@ export class ReaderWordSyncProvenanceStore {
       actualTokens.every((token, index) => token.text === expectedTokens[index].text)
   }
 
-  paint(fragment, contents, { overlayKey = 'navic-media-overlay-active', draw, options } = {}) {
-    const range = this.resolveRange(fragment, { applyProgress: true })
+  paint(fragment, contents, { overlayKey = 'navic-media-overlay-active', draw, options, visibleRange, startByte = null } = {}) {
+    const range = this.resolveRange(fragment, { applyProgress: true, visibleRange, startByte })
     if (!range) return false
     const ready = this.readyById.get(fragment.rawProvenanceId)
     const content = (contents || []).find(candidate =>
