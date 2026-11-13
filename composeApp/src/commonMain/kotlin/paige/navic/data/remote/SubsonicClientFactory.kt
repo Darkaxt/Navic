@@ -17,6 +17,7 @@ class SubsonicClientFactory {
 		client = "Navic",
 		clientConfig = {
 			installNavicNetworkBaseline()
+			install(SubsonicItemDateSanitizer)
 			if (requestHeaders.isNotEmpty()) {
 				defaultRequest {
 					requestHeaders.forEach { (key, value) -> header(key, value) }
