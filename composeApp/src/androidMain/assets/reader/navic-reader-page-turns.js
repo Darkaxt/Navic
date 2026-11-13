@@ -192,6 +192,23 @@ const readerForegroundMutationGenerationIsCurrent = (runtime, generation) =>
   readerForegroundMutationGenerationIsValid(generation) &&
   runtime.foregroundMutationGeneration === generation
 
+// A live target reached by plain relocation rather than native exact settlement.
+const ReaderLivePresentationAuthorityRelocation = 'relocation'
+
+const readerObservedForegroundMutationGeneration = runtime =>
+  readerForegroundMutationGenerationIsValid(runtime.foregroundMutationGeneration)
+    ? runtime.foregroundMutationGeneration
+    : 0
+
+// Exact targets carry the native-issued mutation generation. A relocation target records the
+// generation it observed (0 before any native mutation) and stays current only while no native
+// foreground mutation has happened since; its receipt reports at least 1, as the wire requires.
+const readerLivePresentationTargetGenerationIsCurrent = (runtime, target) =>
+  target?.authority === ReaderLivePresentationAuthorityRelocation
+    ? target.observedForegroundMutationGeneration ===
+      readerObservedForegroundMutationGeneration(runtime)
+    : readerForegroundMutationGenerationIsCurrent(runtime, target?.foregroundMutationGeneration)
+
 function progressTargetForSections(fraction) {
   const sectionCount = Number(this.view?.book?.sections?.length)
   if (!Number.isFinite(sectionCount) || sectionCount <= 0) return null
@@ -438,10 +455,7 @@ function pageTurnLivePresentationReceiptTarget(target) {
 }
 
 function pageTurnLivePresentationTargetCanonicalCommit(target) {
-  if (!target || !readerForegroundMutationGenerationIsCurrent(
-    this,
-    target?.foregroundMutationGeneration
-  )) return null
+  if (!target || !readerLivePresentationTargetGenerationIsCurrent(this, target)) return null
   const canonicalCommit = readerRenderedDestinationCommitIdentity(target)
   if (!canonicalCommit) return null
   const pagePosition = this.currentPagePosition
@@ -456,6 +470,7 @@ function pageTurnLivePresentationTargetCanonicalCommit(target) {
     !Number.isFinite(Number(pagePosition?.chapterPageIndex)) ||
     Math.floor(Number(pagePosition.chapterPageIndex)) !== target.chapterPageIndex
   ) return null
+  if (target.authority === ReaderLivePresentationAuthorityRelocation) return canonicalCommit
   const settlement = this.nativePageTurnSettledState?.token === target.token
     ? this.nativePageTurnSettledState
     : this.completedExactPageTurnSettlements.get(target.token)
@@ -554,10 +569,10 @@ function pageTurnPassiveRasterManifestInputs(
     !Number.isSafeInteger(this.publicationSessionGeneration) ||
     this.publicationSessionGeneration <= 0
   ) return Object.freeze({ failureReason: 'manifest-request-invalid' })
-  const canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
-    this,
-    target
-  )
+  // Passive rasters bind to a native-issued destination token, so only exact targets qualify.
+  const canonicalCommit = target?.authority === ReaderLivePresentationAuthorityRelocation
+    ? null
+    : pageTurnLivePresentationTargetCanonicalCommit.call(this, target)
   if (!canonicalCommit) {
     return Object.freeze({
       failureReason: 'canonical-rendered-destination-absent',
@@ -625,9 +640,9 @@ function pageTurnLivePresentationTargetMatchesCurrent(target) {
 }
 
 function issuePageTurnLivePresentationReceipt(target) {
-  if (!readerForegroundMutationGenerationIsCurrent(
+  if (!readerLivePresentationTargetGenerationIsCurrent(
     this,
-    target?.foregroundMutationGeneration
+    this.pageTurnLivePresentationTargetValue ?? target
   )) return null
   if (
     !readerRenderedDestinationCommitOwnerIsValid(
@@ -659,19 +674,68 @@ function restorePageTurnLivePresentationReceipt() {
   )
 }
 
+// Plain relocations (initial open, Foliate next/previous, TOC) settle without native exact
+// settlement, so they never produce a live target. While no exact settlement is in flight, bind
+// one to the paginator's own commit receipt for the page it is already showing. It carries no
+// native raster/texture generation (0), so native raster consumers keep refusing it.
+function establishRelocatedLivePresentationTarget() {
+  if (this.activeExactPageTurnSettlementToken || this.nativePageTurnSettledState) return null
+  const renderer = this.view?.renderer
+  const receipt = renderer?.commitCurrentTextPage?.() || null
+  const pagePosition = this.currentPagePosition
+  const pageIndex = Number(pagePosition?.pageIndex)
+  if (
+    !receipt ||
+    typeof this.foliateSessionId !== 'string' ||
+    !this.foliateSessionId ||
+    !Number.isSafeInteger(pageIndex) ||
+    pageIndex < 0 ||
+    receipt.index !== Number(pagePosition?.spineIndex) ||
+    receipt.pageIndex !== Number(pagePosition?.chapterPageIndex)
+  ) return null
+  const observedGeneration = readerObservedForegroundMutationGeneration(this)
+  const target = this.replacePageTurnLivePresentationTarget({
+    scope: ReaderPageTurnPresentationScopeLive,
+    authority: ReaderLivePresentationAuthorityRelocation,
+    token: `relocation-${this.relocateSequence}-${receipt.commitSequence}-${observedGeneration}`,
+    gestureId: null,
+    pageIndex,
+    foliateSessionId: this.foliateSessionId,
+    rasterGeneration: 0,
+    textureGeneration: 0,
+    foregroundMutationGeneration: Math.max(1, observedGeneration),
+    observedForegroundMutationGeneration: observedGeneration,
+    relocationEpoch: this.relocateSequence,
+    spineIndex: receipt.index,
+    chapterPageIndex: receipt.pageIndex,
+    paginationProfile: this.paginationProfile,
+  })
+  if (!readerRememberRenderedDestinationCommit(target, renderer, receipt)) {
+    this.clearPageTurnLivePresentationTarget()
+    return null
+  }
+  readerRememberTextPageVisibleContent(target)
+  this.issuePageTurnLivePresentationReceipt(
+    this.pageTurnLivePresentationReceiptTarget(target)
+  )
+  return target
+}
+
 function pageTurnLivePresentationAnchorAuthority() {
-  const target = this.pageTurnLivePresentationTargetValue
   if (this.pageTurnPreviewExposedToken) {
     this.clearPageTurnLivePresentationReceipt()
     return null
   }
-  const canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
+  let target = this.pageTurnLivePresentationTargetValue
+  let canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(
     this,
     target
   )
   if (!canonicalCommit) {
     this.clearPageTurnLivePresentationTarget()
-    return null
+    target = this.establishRelocatedLivePresentationTarget()
+    canonicalCommit = pageTurnLivePresentationTargetCanonicalCommit.call(this, target)
+    if (!canonicalCommit) return null
   }
   const presentation = this.pageTurnLivePresentationReceiptValue
   if (!presentation) return null
@@ -3543,6 +3607,7 @@ export const NavicReaderPageTurnMethods = {
   pageTurnLivePresentationTargetMatchesCurrent,
   issuePageTurnLivePresentationReceipt,
   restorePageTurnLivePresentationReceipt,
+  establishRelocatedLivePresentationTarget,
   pageTurnLivePresentationAnchorAuthority,
   pageTurnLivePresentationReceipt,
   pageTurnRenderedDestinationCommitIdentity,

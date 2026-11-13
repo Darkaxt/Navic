@@ -448,7 +448,7 @@ data class ReaderController(
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
 		} else {
-			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
+			reserveTurnPageNavigation().let { controller ->
 				ReaderControllerStep(
 					controller = controller,
 					engineCommands = listOf(
@@ -624,7 +624,7 @@ data class ReaderController(
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
 		} else {
-			ReaderWhispersyncReducer.reserveUserNavigation(this).let { controller ->
+			reserveTurnPageNavigation().let { controller ->
 				ReaderControllerStep(
 					controller = controller,
 					engineCommands = listOf(

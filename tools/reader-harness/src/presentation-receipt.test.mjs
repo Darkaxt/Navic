@@ -380,6 +380,154 @@ test('live receipt cannot resurrect after an unobserved A to B to A relocation',
   assert.equal(runtime.pageTurnLivePresentationReceipt(), null)
 })
 
+// A runtime whose visible page was reached by plain relocation: no exact settlement exists and the
+// paginator mints a receipt for the page it is already showing (commitCurrentTextPage).
+const relocatedRuntime = ({ foregroundMutationGeneration = 0 } = {}) => {
+  const paginationProfile = Object.freeze({ marker: 'profile-relocated' })
+  let active = null
+  let commitSequence = 0
+  let position = Object.freeze({ index: 3, pageIndex: 5, pageCount: 9 })
+  const renderer = {
+    commitCurrentTextPage: () => {
+      if (active && renderer.validateTextPageCommit(active)) return active
+      active = Object.freeze({
+        layoutGeneration: 2,
+        viewGeneration: 4,
+        commitSequence: ++commitSequence,
+        flow: 'paginated',
+        ...position,
+      })
+      return active
+    },
+    validateTextPageCommit: receipt =>
+      receipt != null && receipt === active &&
+      receipt.index === position.index && receipt.pageIndex === position.pageIndex,
+    validateTextPageVisibleContent: receipt => renderer.validateTextPageCommit(receipt),
+  }
+  const runtime = {
+    foliateSessionId: 'session-relocated',
+    paginationProfile,
+    relocateSequence: 6,
+    foregroundMutationGeneration,
+    currentPagePosition: Object.freeze({ pageIndex: 12, spineIndex: 3, chapterPageIndex: 5 }),
+    pendingExactPageTurnSettlements: new Map(),
+    completedExactPageTurnSettlements: new Map(),
+    retiredExactPageTurnSettlements: new Map(),
+    activeExactPageTurnSettlementToken: null,
+    nativePageTurnSettledState: null,
+    nativePageTurnSettledToken: null,
+    pageTurnPresentationSequence: 0,
+    pageTurnLivePresentationReceiptValue: null,
+    pageTurnLivePresentationTargetValue: null,
+    pageTurnPreviewExposedToken: '',
+    publicationSessionGeneration: 1,
+    view: { renderer },
+    movePaginator: next => {
+      position = Object.freeze(next)
+      active = null
+    },
+  }
+  Object.assign(runtime, NavicReaderPageTurnMethods)
+  return runtime
+}
+
+test('plain relocation binds live anchor authority to the current paginator receipt', () => {
+  const runtime = relocatedRuntime()
+
+  const authority = runtime.pageTurnLivePresentationAnchorAuthority()
+
+  assert.notEqual(authority, null)
+  assert.equal(authority.presentation.scope, ReaderPageTurnPresentationScopeLive)
+  assert.equal(authority.presentation.pageIndex, 12)
+  assert.equal(authority.presentation.foliateSessionId, 'session-relocated')
+  assert.equal(authority.presentation.rasterGeneration, 0)
+  assert.equal(authority.presentation.textureGeneration, 0)
+  assert.equal(authority.presentation.foregroundMutationGeneration, 1)
+  assert.equal(authority.presentation.presentationSequence, 1)
+  assert.deepEqual(authority.canonicalCommit, {
+    layoutGeneration: 2,
+    viewGeneration: 4,
+    commitSequence: 1,
+    flow: 'paginated',
+    index: 3,
+    pageIndex: 5,
+    pageCount: 9,
+  })
+  // Re-querying the same page reuses the same target and receipt.
+  assert.equal(runtime.pageTurnLivePresentationAnchorAuthority().presentation, authority.presentation)
+})
+
+test('relocation authority reports the observed native mutation generation when one exists', () => {
+  const runtime = relocatedRuntime({ foregroundMutationGeneration: 41 })
+
+  assert.equal(
+    runtime.pageTurnLivePresentationAnchorAuthority().presentation.foregroundMutationGeneration,
+    41,
+  )
+})
+
+test('relocation authority refuses while a preview is exposed or an exact settlement is in flight', () => {
+  const preview = relocatedRuntime()
+  preview.pageTurnPreviewExposedToken = 'preview-token-alpha'
+  assert.equal(preview.pageTurnLivePresentationAnchorAuthority(), null)
+  assert.equal(preview.pageTurnLivePresentationTargetValue, null)
+
+  const pending = relocatedRuntime()
+  pending.activeExactPageTurnSettlementToken = 'live-token-alpha'
+  assert.equal(pending.pageTurnLivePresentationAnchorAuthority(), null)
+
+  const settled = relocatedRuntime()
+  settled.nativePageTurnSettledState = Object.freeze({ token: 'live-token-alpha' })
+  assert.equal(settled.pageTurnLivePresentationAnchorAuthority(), null)
+})
+
+test('relocation authority refuses a paginator page that disagrees with the committed position', () => {
+  const runtime = relocatedRuntime()
+  runtime.movePaginator({ index: 3, pageIndex: 6, pageCount: 9 })
+
+  assert.equal(runtime.pageTurnLivePresentationAnchorAuthority(), null)
+  assert.equal(runtime.pageTurnLivePresentationTargetValue, null)
+})
+
+test('relocation authority goes stale on relocation, paginator move or native mutation', () => {
+  const runtime = relocatedRuntime()
+  const first = runtime.pageTurnLivePresentationAnchorAuthority()
+  assert.notEqual(first, null)
+
+  runtime.movePaginator({ index: 3, pageIndex: 6, pageCount: 9 })
+  runtime.relocateSequence += 1
+  runtime.currentPagePosition = Object.freeze({ pageIndex: 13, spineIndex: 3, chapterPageIndex: 6 })
+  const second = runtime.pageTurnLivePresentationAnchorAuthority()
+  assert.notEqual(second, null)
+  assert.notEqual(second.presentation.token, first.presentation.token)
+  assert.equal(second.presentation.pageIndex, 13)
+  assert.equal(second.canonicalCommit.pageIndex, 6)
+  assert.equal(
+    readerPageTurnPresentationReceiptMatches(
+      first.presentation,
+      runtime.pageTurnLivePresentationReceiptTarget(runtime.pageTurnLivePresentationTargetValue),
+    ),
+    false,
+  )
+
+  const staleTarget = runtime.pageTurnLivePresentationTargetValue
+  runtime.foregroundMutationGeneration = 7
+  assert.equal(runtime.pageTurnLivePresentationTargetMatchesCurrent(staleTarget), false)
+  const third = runtime.pageTurnLivePresentationAnchorAuthority()
+  assert.notEqual(third, null)
+  assert.notEqual(third.presentation.token, second.presentation.token)
+  assert.equal(third.presentation.foregroundMutationGeneration, 7)
+})
+
+test('passive raster manifests still require an exact settlement target', () => {
+  const runtime = relocatedRuntime()
+  assert.notEqual(runtime.pageTurnLivePresentationAnchorAuthority(), null)
+
+  assert.deepEqual(runtime.pageTurnPassiveRasterManifestInputs(12, 1, 0), {
+    failureReason: 'canonical-rendered-destination-absent',
+  })
+})
+
 test('restore keeps committed passive raster authority through descriptor persistence and batch advance', () => {
   const styleState = () => {
     const values = new Map()

@@ -138,7 +138,7 @@ test('fallback page parity anchors the first readable page opposite the cover', 
   }), ReaderPhysicalPageRight)
 })
 
-test('landscape next slides one complete spread and advances two pages', () => {
+test('landscape next slides one complete spread and advances one spread index', () => {
   assert.deepEqual(readerPageTurnPlan({
     currentPageIndex: 16,
     pageCount: 40,
@@ -150,13 +150,13 @@ test('landscape next slides one complete spread and advances two pages', () => {
     kind: ReaderPageTurnLandscapeSpreadSlide,
     logicalDirection: ReaderLogicalDirectionNext,
     sourcePageIndex: 16,
-    targetPageIndex: 18,
+    targetPageIndex: 17,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
   })
 })
 
-test('landscape previous slides one complete spread and retreats two pages', () => {
+test('landscape previous slides one complete spread and retreats one spread index', () => {
   assert.deepEqual(readerPageTurnPlan({
     currentPageIndex: 16,
     pageCount: 40,
@@ -168,7 +168,7 @@ test('landscape previous slides one complete spread and retreats two pages', () 
     kind: ReaderPageTurnLandscapeSpreadSlide,
     logicalDirection: ReaderLogicalDirectionPrevious,
     sourcePageIndex: 16,
-    targetPageIndex: 14,
+    targetPageIndex: 15,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
   })
@@ -184,7 +184,7 @@ test('RTL landscape preserves logical ordinals and mirrors spread anchor side', 
     readerDirection: ReaderDirectionRtl,
   })
   assert.equal(plan.sourcePageIndex, 16)
-  assert.equal(plan.targetPageIndex, 18)
+  assert.equal(plan.targetPageIndex, 17)
   assert.equal(plan.sourcePageSide, ReaderPhysicalPageRight)
   assert.equal(plan.targetPageSide, ReaderPhysicalPageRight)
 })
@@ -267,7 +267,7 @@ test('portrait RTL still slides exactly one logical page', () => {
 
 test('planner accepts terminal landscape spread when its target start exists', () => {
   assert.deepEqual(readerPageTurnPlan({
-    currentPageIndex: 8,
+    currentPageIndex: 10,
     pageCount: 12,
     layoutMode: 'spread',
     logicalDirection: ReaderLogicalDirectionNext,
@@ -276,8 +276,8 @@ test('planner accepts terminal landscape spread when its target start exists', (
   }), {
     kind: ReaderPageTurnLandscapeSpreadSlide,
     logicalDirection: ReaderLogicalDirectionNext,
-    sourcePageIndex: 8,
-    targetPageIndex: 10,
+    sourcePageIndex: 10,
+    targetPageIndex: 11,
     sourcePageSide: ReaderPhysicalPageLeft,
     targetPageSide: ReaderPhysicalPageLeft,
   })
@@ -285,7 +285,7 @@ test('planner accepts terminal landscape spread when its target start exists', (
 
 test('planner rejects targets outside publication boundaries', () => {
   assert.equal(readerPageTurnPlan({
-    currentPageIndex: 10,
+    currentPageIndex: 11,
     pageCount: 12,
     layoutMode: 'spread',
     logicalDirection: ReaderLogicalDirectionNext,

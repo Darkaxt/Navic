@@ -137,6 +137,24 @@ class ReaderJavascriptBridgeTest {
 					sourceId = sourceCanary
 				),
 				expected = "Reader console ERROR: [redacted-reader-console]"
+			),
+			ProjectionCase(
+				description = "word sync anchor rejection guard",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-anchor-reject:page-position $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: wordsync-anchor-reject:page-position"
+			),
+			ProjectionCase(
+				description = "word sync anchor rejection with unapproved guard text",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-anchor-reject:$urlCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
 			)
 		)
 

@@ -1735,4 +1735,46 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(restore, "? this.currentPagePosition")
 		assertContains(restore, "this.restorePageTurnLivePresentationReceipt()")
 	}
+
+	@Test
+	fun plainRelocationBindsLiveAuthorityToTheCurrentPaginatorReceipt() {
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+		val turns = readerAssetRoot().resolve("navic-reader-page-turns.js").readText()
+		val current = paginator
+			.substringAfter("commitCurrentTextPage() {")
+			.substringBefore("\n    }\n")
+		val establish = turns
+			.substringAfter("function establishRelocatedLivePresentationTarget() {")
+			.substringBefore("\n}\n")
+		val getter = turns
+			.substringAfter("function pageTurnLivePresentationAnchorAuthority() {")
+			.substringBefore("\n}\n")
+		val manifest = turns
+			.substringAfter("function pageTurnPassiveRasterManifestInputs(")
+			.substringBefore("\n}\n")
+
+		assertContains(current, "if (this.#locked) return null")
+		assertContains(current, "if (active && this.validateTextPageCommit(active)) return active")
+		assertContains(current, "this.exactTextPagePosition()")
+		assertContains(current, "this.#rememberTextPageVisibleContent(current)")
+		assertContains(
+			establish,
+			"if (this.activeExactPageTurnSettlementToken || this.nativePageTurnSettledState) return null"
+		)
+		assertContains(establish, "renderer?.commitCurrentTextPage?.()")
+		assertContains(establish, "receipt.index !== Number(pagePosition?.spineIndex)")
+		assertContains(establish, "receipt.pageIndex !== Number(pagePosition?.chapterPageIndex)")
+		assertContains(establish, "readerRememberRenderedDestinationCommit(target, renderer, receipt)")
+		assertContains(establish, "relocationEpoch: this.relocateSequence")
+		assertContains(establish, "rasterGeneration: 0")
+		assertContains(establish, "textureGeneration: 0")
+		val previewRefusal = getter.indexOf("if (this.pageTurnPreviewExposedToken)")
+		val relocationFallback = getter.indexOf("this.establishRelocatedLivePresentationTarget()")
+		assertTrue(previewRefusal >= 0)
+		assertTrue(
+			previewRefusal < relocationFallback,
+			"An exposed preview must refuse before a relocation target can be bound."
+		)
+		assertContains(manifest, "target?.authority === ReaderLivePresentationAuthorityRelocation")
+	}
 }

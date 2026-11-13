@@ -1768,6 +1768,29 @@ export class Paginator extends HTMLElement {
         const result = await this.commitTextPage(index, pageIndex, reason)
         return result.status === 'committed'
     }
+    // Receipt for the text page already on screen, without navigating. Plain relocations
+    // (open, next/prev, TOC) settle without commitTextPage; this binds them to the same
+    // generation-scoped receipt, which any later move, layout or view change invalidates.
+    // Returns the still-valid active receipt unchanged so an exact commit is never displaced.
+    commitCurrentTextPage() {
+        if (this.#locked) return null
+        const active = this.#activeTextPageCommitReceipt
+        if (active && this.validateTextPageCommit(active)) return active
+        const position = this.exactTextPagePosition()
+        if (!position) return null
+        const current = Object.freeze({
+            layoutGeneration: this.#layoutGeneration,
+            viewGeneration: this.#viewGeneration,
+            commitSequence: ++this.#commitSequence,
+            flow: 'paginated',
+            index: position.index,
+            pageIndex: position.pageIndex,
+            pageCount: position.pageCount,
+        })
+        this.#activeTextPageCommitReceipt = current
+        this.#rememberTextPageVisibleContent(current)
+        return current
+    }
     #scrollPrev(distance) {
         if (!this.#view) return true
         if (this.scrolled) {

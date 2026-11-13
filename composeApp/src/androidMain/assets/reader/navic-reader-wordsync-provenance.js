@@ -1,4 +1,4 @@
-import { post } from './navic-reader-helpers.js'
+import { log, post } from './navic-reader-helpers.js'
 
 export const ReaderCueV1DomUtf16Mode = 'cue-v1-dom-utf16'
 export const ReaderWordSyncV1ExtractedUtf8Mode = 'wordsync-v1-extracted-utf8'
@@ -121,6 +121,20 @@ const readerLivePresentationAnchorAuthority = runtime => {
     : null
 }
 
+// Names the first fail-closed guard that refused an overlay anchor. The guard names are a fixed
+// vocabulary (no publication text), so the native console projector can surface them in logcat.
+const rejectWordSyncAnchor = guard => {
+  log(`wordsync-anchor-reject:${guard}`)
+  return null
+}
+
+const liveAnchorAuthorityAbsenceGuard = runtime => {
+  if (runtime?.pageTurnPreviewExposedToken) return 'authority-preview-exposed'
+  if (!runtime?.pageTurnLivePresentationTargetValue) return 'authority-target-absent'
+  if (!runtime?.pageTurnLivePresentationReceiptValue) return 'authority-receipt-absent'
+  return 'authority-receipt-mismatch'
+}
+
 const readerMediaOverlayAnchorReceiptFromPresentation = (
   runtime,
   fragment,
@@ -129,7 +143,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
   canonicalCommit
 ) => {
   const boundarySequence = fragment?.wordBoundarySequence ?? fragment?.overlayRequestId
-  if (!nonNegativeInteger(boundarySequence)) return null
+  if (!nonNegativeInteger(boundarySequence)) return rejectWordSyncAnchor('boundary-sequence')
   if (
     presentation?.scope !== 'live' ||
     !exactNonBlankString(presentation.token) ||
@@ -141,7 +155,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     presentation.foregroundMutationGeneration <= 0 ||
     !Number.isSafeInteger(presentation.presentationSequence) ||
     presentation.presentationSequence <= 0
-  ) return null
+  ) return rejectWordSyncAnchor('presentation')
   const pagePosition = runtime.currentPagePosition
   const currentPageIndex = Number(pagePosition?.pageIndex)
   const currentSpineIndex = Number(pagePosition?.spineIndex)
@@ -149,7 +163,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     !Number.isSafeInteger(currentPageIndex) ||
     currentPageIndex !== presentation.pageIndex ||
     !nonNegativeInteger(currentSpineIndex)
-  ) return null
+  ) return rejectWordSyncAnchor('page-position')
   const descriptor = runtime.pageTurnRasterDescriptor?.(presentation.pageIndex)
   const paginationFingerprint = descriptorFingerprint(descriptor?.paginationFingerprint)
   const layoutFingerprint = descriptorFingerprint(descriptor?.layoutFingerprint)
@@ -160,7 +174,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     !paginationFingerprint ||
     !layoutFingerprint ||
     !decorationFingerprint
-  ) return null
+  ) return rejectWordSyncAnchor('raster-descriptor')
   if (
     !nonNegativeInteger(canonicalCommit?.layoutGeneration) ||
     !nonNegativeInteger(canonicalCommit?.viewGeneration) ||
@@ -173,7 +187,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     canonicalCommit.pageIndex >= canonicalCommit.pageCount ||
     canonicalCommit.pageIndex !== descriptor.chapterPageIndex ||
     canonicalCommit.pageCount !== descriptor.chapterPageCount
-  ) return null
+  ) return rejectWordSyncAnchor('canonical-commit')
   const captureGeometry = runtime.pageTurnCaptureGeometry?.()
   const pages = Array.isArray(captureGeometry?.pages) ? captureGeometry.pages : []
   if (
@@ -183,11 +197,11 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     captureGeometry.viewportHeight <= 0 ||
     !['single', 'spread'].includes(captureGeometry?.mode) ||
     pages.length === 0
-  ) return null
+  ) return rejectWordSyncAnchor('capture-geometry')
   const resolvedRanges = Array.isArray(ranges)
     ? ranges.filter(range => range && typeof range.getClientRects === 'function')
     : []
-  if (resolvedRanges.length === 0) return null
+  if (resolvedRanges.length === 0) return rejectWordSyncAnchor('range-unresolved')
   const pageLocalRects = []
   for (const range of resolvedRanges) {
     const rangeDocument = range.startContainer?.ownerDocument ||
@@ -196,7 +210,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
     const frameRect = rangeFrame?.getBoundingClientRect?.()
     const frameLeft = rangeFrame ? Number(frameRect?.left) : 0
     const frameTop = rangeFrame ? Number(frameRect?.top) : 0
-    if (!Number.isFinite(frameLeft) || !Number.isFinite(frameTop)) return null
+    if (!Number.isFinite(frameLeft) || !Number.isFinite(frameTop)) return rejectWordSyncAnchor('frame-offset')
     for (const clientRect of Array.from(range.getClientRects())) {
       const clientLeft = Number(clientRect?.left) + frameLeft
       const clientTop = Number(clientRect?.top) + frameTop
@@ -215,7 +229,7 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
           !['full', 'left', 'right'].includes(page?.role) ||
           ![pageLeft, pageTop, pageWidth, pageHeight].every(Number.isFinite) ||
           pageWidth <= 0 || pageHeight <= 0
-        ) return null
+        ) return rejectWordSyncAnchor('page-geometry')
         const left = Math.max(clientLeft, pageLeft)
         const top = Math.max(clientTop, pageTop)
         const right = Math.min(clientRight, pageLeft + pageWidth)
@@ -231,10 +245,10 @@ const readerMediaOverlayAnchorReceiptFromPresentation = (
       }
     }
   }
-  if (pageLocalRects.length === 0) return null
+  if (pageLocalRects.length === 0) return rejectWordSyncAnchor('range-off-page')
   const previousAnchorGeneration = Number(runtime.wordSyncAnchorGeneration) || 0
   if (!nonNegativeInteger(previousAnchorGeneration) || previousAnchorGeneration >= Number.MAX_SAFE_INTEGER) {
-    return null
+    return rejectWordSyncAnchor('anchor-generation')
   }
   const anchorGeneration = previousAnchorGeneration + 1
   runtime.wordSyncAnchorGeneration = anchorGeneration
@@ -291,7 +305,15 @@ const readerWordSyncAnchorReceiptFromAuthority = (
 
 export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
   const range = runtime.rawTextProvenance.resolveRange(fragment, { applyProgress: true })
-  return readerMediaOverlayAnchorReceipt(runtime, fragment, range ? [range] : [])
+  const authority = readerLivePresentationAnchorAuthority(runtime)
+  if (!authority) return rejectWordSyncAnchor(liveAnchorAuthorityAbsenceGuard(runtime))
+  return readerMediaOverlayAnchorReceiptFromPresentation(
+    runtime,
+    fragment,
+    range ? [range] : [],
+    authority.presentation,
+    authority.canonicalCommit
+  )
 }
 
 export const postReaderWordSyncOverlayActive = (
@@ -790,6 +812,44 @@ const exactDomProjection = (doc, extracted) => {
 
 const pointByte = (byNode, node, offset) => byNode.get(node)?.get(offset)
 
+// Page boundaries often fall inside a collapsed whitespace run or on an element-level offset, which
+// no projection atom starts or ends at exactly. Resolve such a boundary to the nearest projected
+// atom inside the range: the first atom starting at/after a start boundary, or the last atom ending
+// at/before an end boundary. Atoms are in document order, so a binary search over them is exact.
+const nearestAtomByte = (projection, doc, node, offset, edge) => {
+  const atoms = projection?.atoms
+  if (!atoms?.length || typeof doc?.createRange !== 'function') return null
+  const probe = doc.createRange()
+  // -1: boundary before the atom point, 0: equal, 1: after.
+  const compareBoundary = point => {
+    probe.setStart(point.node, point.offset)
+    probe.collapse(true)
+    return probe.comparePoint(node, offset)
+  }
+  try {
+    if (edge === 'start') {
+      let lo = 0
+      let hi = atoms.length
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (compareBoundary(atoms[mid].startPoint) <= 0) hi = mid
+        else lo = mid + 1
+      }
+      return lo < atoms.length ? atoms[lo].byteStart : null
+    }
+    let lo = -1
+    let hi = atoms.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (compareBoundary(atoms[mid].endPoint) >= 0) lo = mid
+      else hi = mid - 1
+    }
+    return lo >= 0 ? atoms[lo].byteEnd : null
+  } catch (_) {
+    return null
+  }
+}
+
 const projectionAtomIndexForByteStart = (projection, byteStart) => {
   let low = 0
   let high = projection.atomByteStarts.length
@@ -1178,12 +1238,12 @@ export class ReaderWordSyncProvenanceStore {
       ready.projection.startByteByNode,
       range.startContainer,
       range.startOffset
-    )
+    ) ?? nearestAtomByte(ready.projection, ready.doc, range.startContainer, range.startOffset, 'start')
     const rawByteEnd = pointByte(
       ready.projection.endByteByNode,
       range.endContainer,
       range.endOffset
-    )
+    ) ?? nearestAtomByte(ready.projection, ready.doc, range.endContainer, range.endOffset, 'end')
     if (!nonNegativeInteger(rawByteStart) || !nonNegativeInteger(rawByteEnd) ||
       rawByteEnd <= rawByteStart) return null
     return {

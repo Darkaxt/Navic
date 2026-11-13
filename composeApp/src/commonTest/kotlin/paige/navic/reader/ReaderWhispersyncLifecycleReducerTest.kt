@@ -397,12 +397,13 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
-	fun pageTurnWithoutMatchingSettlementCannotPrepareOrSeek() {
+	fun plainPageTurnWithoutSettlementTokenStillPreparesDestination() {
+		// Foliate's nextPage relocation carries no settlement token; the turn must still commit.
 		val turn = preparedController().onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
 		)
 		val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
-		val uncommitted = turn.controller.onEngineEvent(
+		val committed = turn.controller.onEngineEvent(
 			ReaderEngineEvent.Relocated(
 				locator = ReaderLocator(href = TextHref, pageIndex = 1, pageCount = 2),
 				foliateSessionId = FoliateSession,
@@ -410,12 +411,13 @@ class ReaderWhispersyncLifecycleReducerTest {
 				destinationCommitIdentity = DestinationCommit
 			)
 		).controller
-		val maintenance = uncommitted.onEngineEvent(destinationVisibleRange(sequence))
+		assertTrue(committed.state.whispersync.pendingCausalIntent?.destinationCommitted == true)
 
-		assertNull(maintenance.controller.state.whispersync.preparedVisibleTarget)
-		assertFalse(maintenance.controller.state.whispersync.pendingCausalIntent?.destinationCommitted ?: true)
-		assertNull(maintenance.whispersyncAudioSeekTarget)
-		assertTrue(maintenance.engineCommands.isEmpty())
+		val destination = committed.onEngineEvent(destinationVisibleRange(sequence))
+
+		assertEquals(3_000L, destination.controller.state.whispersync.preparedVisibleTarget?.audioSeekTarget?.positionMs)
+		assertNull(destination.controller.state.whispersync.pendingCausalIntent)
+		assertNull(destination.whispersyncAudioSeekTarget)
 	}
 
 	@Test

@@ -104,6 +104,16 @@ internal fun ReaderControllerStep.withWhispersyncUserNavigation(
 	)
 }
 
+// TurnPage is delivered as Foliate's plain nextPage/previousPage, whose relocations never carry a
+// page-turn settlement token (only native goToVisualPage settles, and it is not a TurnPage).
+// Requiring settlement left every turn's intent uncommitted, so Whispersync never prepared the
+// destination after a page turn.
+internal fun ReaderController.reserveTurnPageNavigation(): ReaderController =
+	ReaderWhispersyncReducer.reserveUserNavigation(
+		controller = this,
+		requiresPageTurnSettlement = false
+	)
+
 internal fun ReaderController.pendingWhispersyncCausalSequence(): Long? =
 	state.whispersync.pendingCausalIntent?.sequence
 
