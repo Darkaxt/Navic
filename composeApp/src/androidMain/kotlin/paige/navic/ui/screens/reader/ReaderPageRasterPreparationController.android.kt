@@ -162,6 +162,18 @@ internal fun readerPageCanReusePreparedWindow(
 			(!rasterRepairPending && !prewarmPending)
 	)
 
+/**
+ * Pages are prepared when a chapter is entered. Once a chapter is prepared, any visual
+ * change inside it prepares in the background. The cover is only restored by a jump
+ * (TOC, link, search) into another chapter; an exact turn is already presented by the
+ * curl deck and missing pages are repaired behind it.
+ */
+internal fun readerPageVisualChangeRestoresCover(
+	hasPreparedBefore: Boolean,
+	insidePreparedChapter: Boolean,
+	exactTurn: Boolean
+): Boolean = hasPreparedBefore && !insidePreparedChapter && !exactTurn
+
 internal fun readerPageRasterAcquisitionTrigger(
 	hasPreparedBefore: Boolean,
 	persistentRasterEntries: Int
@@ -308,6 +320,7 @@ internal class ReaderPageRasterPreparationController(
 	private var readyPreparationGeneration: Long? = null
 	private var retryPreparationInProgress = false
 	private var passiveSessionRetiredForMemory = false
+	private var memoryFailedPreparationGeneration: Long? = null
 	private var pendingReadyBackgroundPrefetch: ReaderPageRasterBackgroundPrefetch? = null
 	private val pendingVisualRestorations = linkedSetOf<CompletableDeferred<Unit>>()
 	private var resumePreparationAfterVisualRestoration = false
@@ -365,12 +378,23 @@ internal class ReaderPageRasterPreparationController(
 	private val memoryCallbacks = object : ComponentCallbacks2 {
 		override fun onConfigurationChanged(newConfig: Configuration) = Unit
 
-		private fun retirePassiveRasterWork(reason: String) {
+		/**
+		 * [backgrounded] trims arrive while the window is hidden (plain HOME on API 34+
+		 * delivers TRIM_MEMORY_BACKGROUND). They release work without failing the
+		 * generation: the visible-window resume rebuilds the deck normally (#23).
+		 */
+		private fun retirePassiveRasterWork(reason: String, backgrounded: Boolean = false) {
 			if (destroyed) return
-			val retainsPreparedPresentation = hasPreparedBefore &&
-				readyPreparationGeneration == preparationGeneration
-			if (!retainsPreparedPresentation) {
+			// A per-turn session clears readyPreparationGeneration while it runs; the
+			// prepared chapter is still presented, so a trim must not fail it. A fresh
+			// retry has not presented anything yet and still fails.
+			val retainsPreparedPresentation = hasPreparedBefore && (
+				readyPreparationGeneration == preparationGeneration || !retryPreparationInProgress
+			)
+			val failsGeneration = !retainsPreparedPresentation && !backgrounded
+			if (failsGeneration) {
 				failedPreparationGeneration = preparationGeneration
+				memoryFailedPreparationGeneration = preparationGeneration
 			}
 			retryPreparationInProgress = false
 			passiveSessionRetiredForMemory = true
@@ -381,6 +405,9 @@ internal class ReaderPageRasterPreparationController(
 			bundleSource.trimMemory(reason)
 			if (retainsPreparedPresentation) {
 				publishPreparationState(phase = ReaderPagePreparationPhase.Ready)
+			} else if (!failsGeneration) {
+				hasPreparedBefore = false
+				publishPreparationState(phase = ReaderPagePreparationPhase.Idle)
 			} else {
 				publishPreparationState(
 					phase = ReaderPagePreparationPhase.Failed,
@@ -399,7 +426,10 @@ internal class ReaderPageRasterPreparationController(
 				level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN &&
 				level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
 			) {
-				retirePassiveRasterWork("on-trim-memory:$level")
+				retirePassiveRasterWork(
+					reason = "on-trim-memory:$level",
+					backgrounded = level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+				)
 			}
 		}
 	}
@@ -534,6 +564,24 @@ internal class ReaderPageRasterPreparationController(
 			error = error,
 			retryable = true
 		)
+	}
+
+	/**
+	 * Escape hatch for #23: a generation failed by memory pressure gets one automatic
+	 * fresh retry when the host window becomes visible again, instead of leaving a sticky
+	 * Failed card. A second failure keeps the user-facing Retry path.
+	 */
+	fun onHostWindowVisible(): Long? {
+		if (destroyed) return null
+		val memoryFailed = memoryFailedPreparationGeneration
+		if (memoryFailed == null || memoryFailed != failedPreparationGeneration) return null
+		if (memoryFailed != preparationGeneration) return null
+		memoryFailedPreparationGeneration = null
+		logLoadingEvent(
+			event = "memory-failure-resume-retry",
+			detail = "generation=$memoryFailed"
+		)
+		return retryPreparation()
 	}
 
 	fun retryPreparation(): Long? {
@@ -847,20 +895,17 @@ internal class ReaderPageRasterPreparationController(
 			if (visualCenterChanging && !prewarmPending) onRequestPrewarm()
 			return
 		}
+		val restoresCover = readerPageVisualChangeRestoresCover(
+			hasPreparedBefore = hasPreparedBefore,
+			insidePreparedChapter = preparedChapterRange?.contains(pageIndex) == true,
+			exactTurn = reason == "page-turn:exact"
+		)
 		if (currentVisualPageIndex == pageIndex) {
-			if (reason == "page-turn:exact" && !prewarmPending) {
-				if (!requiredWindowDurable) {
-					enterBlockingPreparation("incomplete-window-same-center")
-				}
-				onRequestPrewarm()
-			}
+			if (reason == "page-turn:exact" && !prewarmPending) onRequestPrewarm()
 			return
 		}
-		if (
-			reason != "page-turn:exact" ||
-				!hasPreparedBefore
-		) {
-			enterBlockingPreparation("visual-index-changed:${reason ?: "unspecified"}")
+		if (restoresCover) {
+			enterBlockingPreparation("chapter-entry:${reason ?: "unspecified"}")
 		}
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("visual-index-changed:${reason ?: "unspecified"}")
@@ -1203,6 +1248,7 @@ internal class ReaderPageRasterPreparationController(
 				ReaderPageRasterDeferralReason.PassiveHostUnavailable
 			diagnostic == "passive-manifest:canonical-live-commit-unavailable" ||
 				diagnostic == "passive-manifest:canonical-rendered-destination-absent" ||
+				diagnostic == "passive-admission:canonical-destination-recommitted" ||
 				diagnostic == "passive-admission:canonical-rendered-destination-absent" ->
 				ReaderPageRasterDeferralReason.CanonicalLiveCommitUnavailable
 			"detach" in diagnostic || "webview" in diagnostic ->
@@ -1805,6 +1851,17 @@ internal class ReaderPageRasterPreparationController(
 		isPrewarmSessionActive(session) && webView.isAttachedToWindow
 
 	private fun finishPrewarm(outcome: ReaderPageRasterBatchOutcome) {
+		// Sessions started over an already-prepared chapter are background work: their
+		// failure keeps the chapter readable and any missing page goes through repair.
+		val backgroundSession = hasPreparedBefore && !retryPreparationInProgress
+		fun failUnlessBackground(error: String) {
+			if (!backgroundSession) {
+				failCurrentPreparationGeneration(error)
+				return
+			}
+			logLoadingEvent(event = "background-session-failed", detail = "error=$error")
+			publishPreparationState(ReaderPagePreparationPhase.Ready)
+		}
 		val retryAttempt = prewarmRetryAttempt
 		val preparationDiagnostic = activePrewarmDiagnostic
 		prewarmRetryAttempt = null
@@ -1879,9 +1936,7 @@ internal class ReaderPageRasterPreparationController(
 							reason
 						)
 					}
-					failCurrentPreparationGeneration(
-						"Page preparation did not become ready."
-					)
+					failUnlessBackground("Page preparation did not become ready.")
 				} else {
 					deferredPrewarmDiagnostic = preparationDiagnostic
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
@@ -1898,9 +1953,7 @@ internal class ReaderPageRasterPreparationController(
 						ReaderPagePreparationDiagnosticState.Failed
 					)
 				}
-				failCurrentPreparationGeneration(
-					"Page ${outcome.pageIndex + 1} could not be stored."
-				)
+				failUnlessBackground("Page ${outcome.pageIndex + 1} could not be stored.")
 			}
 			is ReaderPageRasterBatchOutcome.Failed -> {
 				preparationDiagnostic?.let { operation ->
@@ -1913,7 +1966,7 @@ internal class ReaderPageRasterPreparationController(
 					ReaderPageRasterPreparationControllerTag,
 					"Page raster preparation failed ${outcome.diagnostic}"
 				)
-				failCurrentPreparationGeneration(outcome.userMessage)
+				failUnlessBackground(outcome.userMessage)
 			}
 		}
 		if (outcome != ReaderPageRasterBatchOutcome.Ready) {

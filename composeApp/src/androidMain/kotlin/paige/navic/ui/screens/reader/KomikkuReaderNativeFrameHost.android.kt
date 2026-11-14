@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -419,42 +421,103 @@ actual fun KomikkuReaderNativeFrameHost(
 	val onRendererBusyGestureRejected = {
 		rendererBusyFeedbackToken += 1L
 	}
+	// Window detach tears the native host down irreversibly. Navigation scene changes
+	// (for example rotation) can move this content and reattach the same View, so a
+	// reattached torn-down root is replaced by a fresh host instead of staying inert.
+	var nativeHostGeneration by remember { mutableIntStateOf(0) }
 
-	AndroidView(
-		modifier = modifier,
-		factory = { context ->
-			KomikkuReaderNativeFrameRoot(context).apply {
-				nativeFrameRoot = this
-				setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
-				setOnStartupShellPrepared { currentOnStartupShellPrepared() }
-				setPageOperationPolicy(pageOperationPolicy)
-				setViewerContent(viewerKey) { currentViewerContent() }
-				setComposeOverlay(hostedComposeOverlay)
-				setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
-				setChromeOverlayVisible(chromeOverlayVisible)
-				setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
-				setViewerLayerPaint(grayscaleEnabled, invertedColors)
-				setVerticalPageDragPreview(verticalPageDragPreview)
-				setPageTurnBitmapQuality(pageTurnBitmapQuality)
-				setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
-				setPageTurnReadingDirection(pageTurnReadingDirection)
-				setPageTurnSnapshotKey(pageTurnSnapshotKey)
-				setPageTurnContentReadyKey(pageTurnContentReadyKey)
-				setPageTurnPaginationStatus(pageTurnPaginationStatus)
+	key(nativeHostGeneration) {
+		AndroidView(
+			modifier = modifier,
+			factory = { context ->
+				KomikkuReaderNativeFrameRoot(context).apply {
+					nativeFrameRoot = this
+					setOnTornDownHostReattached {
+						Logger.i(
+							KomikkuReaderNativeFrameHostTag,
+							"Reader native host reattached after teardown; rebuilding generation=${nativeHostGeneration + 1}"
+						)
+						nativeHostGeneration += 1
+					}
+					setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
+					setOnStartupShellPrepared { currentOnStartupShellPrepared() }
+					setPageOperationPolicy(pageOperationPolicy)
+					setViewerContent(viewerKey) { currentViewerContent() }
+					setComposeOverlay(hostedComposeOverlay)
+					setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
+					setChromeOverlayVisible(chromeOverlayVisible)
+					setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
+					setViewerLayerPaint(grayscaleEnabled, invertedColors)
+					setVerticalPageDragPreview(verticalPageDragPreview)
+					setPageTurnBitmapQuality(pageTurnBitmapQuality)
+					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+					setPageTurnReadingDirection(pageTurnReadingDirection)
+					setPageTurnSnapshotKey(pageTurnSnapshotKey)
+					setPageTurnContentReadyKey(pageTurnContentReadyKey)
+					setPageTurnPaginationStatus(pageTurnPaginationStatus)
+					pageTurnFoliateSessionId?.let { sessionId ->
+						setPageTurnVisualLocation(
+							pageTurnVisualPageIndex,
+							pageTurnVisualLocationReason,
+							sessionId,
+							pageTurnSettlementAck
+						)
+					}
+					setWhispersyncOverlay(
+						whispersyncOverlayActive,
+						whispersyncAnchorReceipt,
+						whispersyncHighlightColorArgb
+					)
+					setWhispersyncCueMap(
+						whispersyncCueMapState,
+						onHoldOutcome = { sourceOrdinal, outcome ->
+							currentOnWhispersyncCueMapHoldOutcome(sourceOrdinal, outcome)
+						},
+						onSeekRequested = { sourceOrdinal ->
+							currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
+						}
+					)
+					setPagePreparationCoverVisible(pagePreparationCoverVisible)
+					setPagePreparationRetryKey(pagePreparationRetryKey)
+					setOnViewerAction { action -> currentOnViewerAction(action) }
+					setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
+					setOnPageCurlTurnPhase { phase -> currentOnPageCurlTurnPhase(phase) }
+					setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
+						currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
+					}
+					setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
+				}
+			},
+			update = { root ->
+				root.setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
+				root.setOnStartupShellPrepared { currentOnStartupShellPrepared() }
+				root.setPageOperationPolicy(pageOperationPolicy)
+				root.setNavigation(navigator)
+				root.setNavigationOverlayVisible(navigationOverlayVisible)
+				root.setChromeOverlayVisible(chromeOverlayVisible)
+				root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
+				root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
+				root.setVerticalPageDragPreview(verticalPageDragPreview)
+				root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
+				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+				root.setPageTurnReadingDirection(pageTurnReadingDirection)
+				root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
+				root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
+				root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
 				pageTurnFoliateSessionId?.let { sessionId ->
-					setPageTurnVisualLocation(
+					root.setPageTurnVisualLocation(
 						pageTurnVisualPageIndex,
 						pageTurnVisualLocationReason,
 						sessionId,
 						pageTurnSettlementAck
 					)
 				}
-				setWhispersyncOverlay(
+				root.setWhispersyncOverlay(
 					whispersyncOverlayActive,
 					whispersyncAnchorReceipt,
 					whispersyncHighlightColorArgb
 				)
-				setWhispersyncCueMap(
+				root.setWhispersyncCueMap(
 					whispersyncCueMapState,
 					onHoldOutcome = { sourceOrdinal, outcome ->
 						currentOnWhispersyncCueMapHoldOutcome(sourceOrdinal, outcome)
@@ -463,73 +526,25 @@ actual fun KomikkuReaderNativeFrameHost(
 						currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
 					}
 				)
-				setPagePreparationCoverVisible(pagePreparationCoverVisible)
-				setPagePreparationRetryKey(pagePreparationRetryKey)
-				setOnViewerAction { action -> currentOnViewerAction(action) }
-				setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
-				setOnPageCurlTurnPhase { phase -> currentOnPageCurlTurnPhase(phase) }
-				setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
+				root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
+				root.setPagePreparationRetryKey(pagePreparationRetryKey)
+				root.setViewerContent(viewerKey) { currentViewerContent() }
+				root.setComposeOverlay(hostedComposeOverlay)
+				root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
+				root.setOnViewerAction { action -> currentOnViewerAction(action) }
+				root.setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
+				root.setOnPageCurlTurnPhase { phase -> currentOnPageCurlTurnPhase(phase) }
+				root.setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
 					currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
 				}
-				setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
+				root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
+			},
+			onRelease = { root ->
+				if (nativeFrameRoot === root) nativeFrameRoot = null
+				root.closeReader()
 			}
-		},
-		update = { root ->
-			root.setOnPagePreparationStateChange { state -> currentOnPagePreparationStateChange(state) }
-			root.setOnStartupShellPrepared { currentOnStartupShellPrepared() }
-			root.setPageOperationPolicy(pageOperationPolicy)
-			root.setNavigation(navigator)
-			root.setNavigationOverlayVisible(navigationOverlayVisible)
-			root.setChromeOverlayVisible(chromeOverlayVisible)
-			root.setShellCover(shellCoverVisible, shellCoverUrl, shellCoverTitle, coverBackdropEnabled)
-			root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
-			root.setVerticalPageDragPreview(verticalPageDragPreview)
-			root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
-			root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
-			root.setPageTurnReadingDirection(pageTurnReadingDirection)
-			root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
-			root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
-			root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
-			pageTurnFoliateSessionId?.let { sessionId ->
-				root.setPageTurnVisualLocation(
-					pageTurnVisualPageIndex,
-					pageTurnVisualLocationReason,
-					sessionId,
-					pageTurnSettlementAck
-				)
-			}
-			root.setWhispersyncOverlay(
-				whispersyncOverlayActive,
-				whispersyncAnchorReceipt,
-				whispersyncHighlightColorArgb
-			)
-			root.setWhispersyncCueMap(
-				whispersyncCueMapState,
-				onHoldOutcome = { sourceOrdinal, outcome ->
-					currentOnWhispersyncCueMapHoldOutcome(sourceOrdinal, outcome)
-				},
-				onSeekRequested = { sourceOrdinal ->
-					currentOnWhispersyncCueMapSeekRequested(sourceOrdinal)
-				}
-			)
-			root.setPagePreparationCoverVisible(pagePreparationCoverVisible)
-			root.setPagePreparationRetryKey(pagePreparationRetryKey)
-			root.setViewerContent(viewerKey) { currentViewerContent() }
-			root.setComposeOverlay(hostedComposeOverlay)
-			root.setOnRendererBusyGestureRejected(onRendererBusyGestureRejected)
-			root.setOnViewerAction { action -> currentOnViewerAction(action) }
-			root.setOnPageTurnBoundary { direction -> currentOnPageTurnBoundary(direction) }
-			root.setOnPageCurlTurnPhase { phase -> currentOnPageCurlTurnPhase(phase) }
-			root.setOnReadableDragPreview { deltaX, deltaY, width, height, phase ->
-				currentOnReadableDragPreview(deltaX, deltaY, width, height, phase)
-			}
-			root.setOnContentLongPress { x, y, width, height -> currentOnContentLongPress(x, y, width, height) }
-		},
-		onRelease = { root ->
-			if (nativeFrameRoot === root) nativeFrameRoot = null
-			root.closeReader()
-		}
-	)
+		)
+	}
 }
 
 private class ReaderNestedComposeDisposalQueue {
@@ -567,6 +582,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	private var shellCoverVisible: Boolean = false
 	private var pagePreparationCoverVisible: Boolean = false
 	private var lastNativeCoverVisibilityTrace: String? = null
+	private var onTornDownHostReattached: (() -> Unit)? = null
 
 	init {
 		setBackgroundColor(Color.rgb(32, 35, 41))
@@ -694,6 +710,17 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setOnRendererBusyGestureRejected(onRejected: () -> Unit) {
 		viewerContainer.onRendererBusyGestureRejected = onRejected
+	}
+
+	fun setOnTornDownHostReattached(onReattached: () -> Unit) {
+		onTornDownHostReattached = onReattached
+	}
+
+	override fun onAttachedToWindow() {
+		super.onAttachedToWindow()
+		if (viewerContainer.hostResourcesTornDown) {
+			post { onTornDownHostReattached?.invoke() }
+		}
 	}
 
 	fun setOnViewerAction(onAction: (KomikkuNavigationRegion) -> Unit) {
@@ -1837,6 +1864,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				ReaderPageHostLifecycleEvent.ExternalRelocation
 			)
 		}
+		val visualLocationBecameKnown = pageTurnVisualPageIndex == null && normalized != null
 		pageTurnFoliateSessionId = currentFoliateSessionId
 		playLikeCurlController.setFoliateSessionId(currentFoliateSessionId)
 		val origin = if (sessionChanged) {
@@ -1863,6 +1891,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
 			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
 		}
+		// Prewarm admission needs a visual page; readiness signals that arrived while it
+		// was unknown (for example a rebuilt host mid-book) must not be lost.
+		if (visualLocationBecameKnown) requestPageTurnPrewarmWhenReady()
 		commitStartupShellPresentationIfReady()
 	}
 
@@ -2136,6 +2167,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var physicalPointerDeliveryClosed = false
 	private var task4ResourceTeardownStarted = false
 	private var task4Teardown: Deferred<Unit>? = null
+	val hostResourcesTornDown: Boolean
+		get() = task4ResourceTeardownStarted
 	private var observedHostLifecycle: Lifecycle? = null
 
 	private val hostLifecycleObserver = object : DefaultLifecycleObserver {
@@ -3107,6 +3140,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			if (resumed) passiveRasterPreparationAdapter?.resume()
 			pageRasterHostEventController.lifecycleResumedChanged(resumed)
 			playLikeCurlController.onHostResumedChanged(resumed)
+			pageRasterPreparationController.onHostWindowVisible()
 			requestPageTurnPrewarmWhenReady()
 			return
 		}

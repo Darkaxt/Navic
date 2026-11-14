@@ -494,6 +494,88 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun chapterPreparationPublishesReadyOnlyForTheWholeWindow() {
+		val source = readerRasterPreparationSource()
+		val followUp = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "private fun startRasterFollowUp(",
+			endDelimiter = "private fun startRasterBatch("
+		)
+		val synchronize = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "fun synchronizeVisualPageIndex(",
+			endDelimiter = "fun attachRasterRepairQaFault("
+		)
+		val finish = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "private fun finishPrewarm(",
+			endDelimiter = "private fun deferPrewarm("
+		)
+		// Pages are prepared under the cover at chapter entry: the calibration pages
+		// alone never reveal a page whose turns would still be blocked.
+		assertFalse(followUp.contains("publishReadyPreparationIfProven()"))
+		assertFalse(source.contains("followUpPending"))
+		// Inside a prepared chapter, only the chapter-entry rule may restore the cover.
+		assertEquals(
+			2,
+			synchronize.split("enterBlockingPreparation(").size - 1,
+			"a cleared index and a jump into another chapter are the only cover paths"
+		)
+		assertEquals(1, synchronize.split("if (restoresCover) {").size - 1)
+		assertContains(synchronize, "preparedChapterRange?.contains(pageIndex) == true")
+		// Background sessions over a prepared chapter never fail it.
+		assertFalse(finish.contains("failCurrentPreparationGeneration(outcome.userMessage)"))
+		assertContains(finish, "val backgroundSession = hasPreparedBefore && !retryPreparationInProgress")
+		assertContains(finish, "\"background-session-failed\"")
+	}
+
+	@Test
+	fun curlDeckBuildsOnReadyAndStaleDestinationCommitsRetry() {
+		val curl = readerSource("ReaderPlayLikeCurlFoliateController.android.kt")
+			.substringAfter("fun onPreparationStateChanged(state: ReaderPagePreparationState)")
+			.substringBefore("ReaderPagePreparationPhase.Failed -> {")
+		assertFalse(curl.contains("followUpPending"))
+		assertContains(curl, "} else if (activePages == null) {\n\t\t\t\t\trefreshPreparedDeck()")
+
+		val adapter = readerSource("ReaderPassiveRasterPreparationAdapter.android.kt")
+		val stale = adapter.indexOf(
+			"if (passiveRasterRejection == ReaderPassiveRasterRejection.DestinationCommit) {"
+		)
+		assertTrue(stale >= 0)
+		assertTrue(
+			stale < adapter.indexOf("reason = \"canonical-destination-recommitted\"") &&
+				adapter.indexOf("reason = \"canonical-destination-recommitted\"") <
+				adapter.indexOf("reason = \"raster-rejected-or-publication-failed\"")
+		)
+		assertContains(
+			readerRasterPreparationSource(),
+			"diagnostic == \"passive-admission:canonical-destination-recommitted\" ||"
+		)
+	}
+
+	@Test
+	fun visualChangeRestoresCoverOnlyWhenEnteringAnUnpreparedChapter() {
+		data class Case(val prepared: Boolean, val inside: Boolean, val exact: Boolean, val cover: Boolean)
+		listOf(
+			Case(prepared = false, inside = false, exact = false, cover = false),
+			Case(prepared = true, inside = true, exact = false, cover = false),
+			Case(prepared = true, inside = true, exact = true, cover = false),
+			Case(prepared = true, inside = false, exact = true, cover = false),
+			Case(prepared = true, inside = false, exact = false, cover = true)
+		).forEach { case ->
+			assertEquals(
+				case.cover,
+				readerPageVisualChangeRestoresCover(
+					hasPreparedBefore = case.prepared,
+					insidePreparedChapter = case.inside,
+					exactTurn = case.exact
+				),
+				case.toString()
+			)
+		}
+	}
+
+	@Test
 	fun persistenceRetryCorrelationStartsOnlyAfterLedgerAdmission() {
 		val bundle = readerSource("ReaderPageTurnBundleSource.android.kt")
 		val publication = bundle.substringAfter(

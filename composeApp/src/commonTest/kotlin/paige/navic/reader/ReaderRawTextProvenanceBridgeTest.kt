@@ -569,7 +569,8 @@ class ReaderRawTextProvenanceBridgeTest {
 		assertTrue(gap.controller.state.chrome.readaloudPlayback.isPlaying)
 		assertEquals(ReaderWhispersyncTransportPhase.Playing, gap.controller.state.whispersync.transportPhase)
 		assertEquals(ReaderWhispersyncStatusKind.NoActiveCue, gap.controller.state.whispersync.status.kind)
-		assertTrue(gap.engineCommands.any { it == ReaderEngineCommand.ClearMediaOverlay })
+		// Silence after the narrated cue keeps the persistent highlight painted (e7d6d1dcd, #38).
+		assertFalse(gap.engineCommands.any { it == ReaderEngineCommand.ClearMediaOverlay })
 
 		val conflict = active.onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(

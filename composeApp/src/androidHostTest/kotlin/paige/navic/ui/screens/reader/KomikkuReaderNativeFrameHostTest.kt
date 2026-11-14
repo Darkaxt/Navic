@@ -363,4 +363,57 @@ class KomikkuReaderNativeFrameHostTest {
 			)
 		)
 	}
+
+	@Test
+	fun reattachedTornDownHostIsRebuiltInsteadOfStayingInert() {
+		val hostSource = hostFile.readText()
+		val composable = hostSource
+			.substringAfter("actual fun KomikkuReaderNativeFrameHost(")
+			.substringBefore("private class ReaderNestedComposeDisposalQueue")
+		val root = hostSource
+			.substringAfter("private class KomikkuReaderNativeFrameRoot")
+			.substringBefore("private class KomikkuReaderNativeShellCoverView")
+		val rootAttach = root
+			.substringAfter("override fun onAttachedToWindow()")
+			.substringBefore("\n\t}")
+		val viewer = hostSource
+			.substringAfter("private class KomikkuReaderNativeViewerContainer")
+			.substringBefore("private fun View.findDescendantWebView")
+
+		// Rotation can move the navigation entry and reattach the same View after
+		// window detach already destroyed its controllers irreversibly.
+		assertContains(composable, "var nativeHostGeneration by remember { mutableIntStateOf(0) }")
+		assertContains(composable, "key(nativeHostGeneration) {\n\t\tAndroidView(")
+		assertContains(composable, "setOnTornDownHostReattached {")
+		assertContains(composable, "nativeHostGeneration += 1")
+		assertTrue(
+			composable.indexOf("key(nativeHostGeneration)") <
+				composable.indexOf("onRelease = { root ->"),
+			"The keyed generation must own the AndroidView release path."
+		)
+		assertContains(rootAttach, "super.onAttachedToWindow()")
+		assertContains(rootAttach, "if (viewerContainer.hostResourcesTornDown)")
+		assertContains(rootAttach, "post { onTornDownHostReattached?.invoke() }")
+		assertContains(viewer, "val hostResourcesTornDown: Boolean")
+		assertContains(viewer, "get() = task4ResourceTeardownStarted")
+		assertContains(
+			viewer.substringAfter("private fun teardownTask4Resources()"),
+			"task4ResourceTeardownStarted = true"
+		)
+
+		// The rebuilt host receives readiness before its visual page; learning the page
+		// must re-request prewarm or preparation never starts.
+		val visualLocation = viewer
+			.substringAfter("fun setPageTurnVisualLocation(")
+			.substringBefore("fun setShellCoverVisible(")
+		assertContains(
+			visualLocation,
+			"val visualLocationBecameKnown = pageTurnVisualPageIndex == null && normalized != null"
+		)
+		assertContains(visualLocation, "if (visualLocationBecameKnown) requestPageTurnPrewarmWhenReady()")
+		assertContains(
+			viewer.substringAfter("private fun requestPageTurnPrewarmWhenReady()"),
+			"pageTurnVisualPageIndex == null ||"
+		)
+	}
 }

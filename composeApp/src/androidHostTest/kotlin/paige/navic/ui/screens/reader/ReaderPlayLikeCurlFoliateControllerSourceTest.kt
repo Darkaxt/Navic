@@ -159,6 +159,25 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun currentDeckRefreshIsSkippedInsteadOfResubmittingDuringAVisualHandoff() {
+		val prepare = controllerFile.readText()
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
+		val skip = prepare.substringBefore("\"deck-load-started\"")
+
+		assertContains(skip, "requestedProfile == profile")
+		assertContains(skip, "!livePresentationRecoveryRequest.pending")
+		assertContains(skip, "currentPages.centerOrdinal == centerOrdinal")
+		assertContains(skip, "currentPages.deck.pageIndices.containsAll(pageIndices)")
+		assertContains(skip, "hasUsablePreparedActiveDeck()")
+		assertContains(skip, "\"refresh-skipped\"")
+		assertTrue(
+			prepare.indexOf("\"refresh-skipped\"") < prepare.indexOf("submitLibraryDeck("),
+			"An unchanged covering deck must not be resubmitted as a new Active generation."
+		)
+	}
+
+	@Test
 	fun productionControllerTracesRasterDeckLoadingProgressAndLatency() {
 		val source = controllerFile.readText()
 		val prepare = source
@@ -1934,7 +1953,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("ReaderPageVisualLocationOrigin.StaleAcknowledgement")
 		assertFalse(exact.contains("onRequestPrewarm()"))
 		assertContains(ready, "if (activePages == null)")
-		assertFalse(hostSynchronize.contains("requestPageTurnPrewarmWhenReady()"))
+		// Only the first known visual location (a rebuilt host) may request prewarm;
+		// exact page turns keep a known index and must not restart WebView capture.
+		assertEquals(
+			listOf("if (visualLocationBecameKnown) requestPageTurnPrewarmWhenReady()"),
+			hostSynchronize.lines().map(String::trim)
+				.filter { line -> line.contains("requestPageTurnPrewarmWhenReady()") }
+		)
 	}
 
 	@Test

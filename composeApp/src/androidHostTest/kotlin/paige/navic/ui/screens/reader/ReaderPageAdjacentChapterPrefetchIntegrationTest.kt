@@ -31,6 +31,7 @@ import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationPresentation
+import paige.navic.reader.ReaderPagePreparationGestureDisposition
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageRasterPriority
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
@@ -45,6 +46,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -611,6 +613,146 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertEquals(0, fixture.prewarm.cancellationCount)
 			assertTrue(fixture.prewarm.active === activeRequest)
 			assertEquals(stateBefore, fixture.latestState)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun calibrationAloneKeepsTheCoverUntilTheWholeChapterWindowIsReady() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+
+			assertEquals(ReaderPagePreparationPhase.Preparing, fixture.latestState.phase)
+			assertEquals(ReaderPagePreparationPresentation.Cover, fixture.latestState.presentation)
+			assertFalse(fixture.states.any { it.phase == ReaderPagePreparationPhase.Ready })
+
+			fixture.completeBlockingWindowDurably()
+			fixture.drainMainLooper()
+
+			val ready = fixture.latestState
+			assertEquals(ReaderPagePreparationPhase.Ready, ready.phase)
+			assertEquals(ready.requiredCount, ready.completedCount)
+			assertEquals(ReaderPagePreparationPresentation.Hidden, ready.presentation)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun preparedChapterNeverShowsPreparationOrFailsMidChapter() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			val preparedStates = fixture.states.size
+
+			// A per-turn background session fails, the next one is trimmed.
+			fixture.startCurrentChapterPreparation()
+			fixture.prewarm.completeFailed()
+			fixture.drainMainLooper()
+			fixture.startCurrentChapterPreparation()
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+			fixture.drainMainLooper()
+			// A non-turn relocation inside the prepared chapter (WordSync seek, bookmark).
+			fixture.controller.synchronizeVisualPageIndex(26, "relocate-committed")
+			fixture.drainMainLooper()
+
+			val midChapter = fixture.states.drop(preparedStates)
+			assertTrue(midChapter.isNotEmpty())
+			midChapter.forEach { state ->
+				assertEquals(ReaderPagePreparationPresentation.Hidden, state.presentation, state.toString())
+				assertEquals(
+					ReaderPagePreparationGestureDisposition.Allow,
+					state.gestureDisposition,
+					state.toString()
+				)
+				assertFalse(state.phase == ReaderPagePreparationPhase.Failed, state.toString())
+			}
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+
+			// Leaving the prepared chapter without a turn (TOC jump) is a chapter entry.
+			fixture.controller.synchronizeVisualPageIndex(2, "relocate-committed")
+			assertEquals(ReaderPagePreparationPresentation.Cover, fixture.latestState.presentation)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun backgroundTrimAfterWindowHiddenDoesNotFailAndVisibleResumeRebuilds() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+
+			// HOME: the window hides first, then API 34+ delivers TRIM_MEMORY_BACKGROUND.
+			fixture.controller.invalidate("window-hidden")
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
+
+			assertFalse(fixture.states.any { it.phase == ReaderPagePreparationPhase.Failed })
+			assertNull(fixture.latestState.error)
+			assertNull(fixture.controller.onHostWindowVisible())
+
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			assertEquals(ReaderPagePreparationPresentation.Hidden, fixture.latestState.presentation)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun foregroundMemoryFailureRetriesOnceWhenTheWindowBecomesVisible() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler,
+			retirePassiveSessionOnCancel = true,
+			autoStartRequestedPrewarm = true
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			val failedGeneration = fixture.preparationGeneration()
+
+			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+
+			assertEquals(ReaderPagePreparationPhase.Failed, fixture.latestState.phase)
+			assertTrue(fixture.latestState.retryable)
+
+			val retriedGeneration = assertNotNull(fixture.controller.onHostWindowVisible())
+			assertTrue(retriedGeneration > assertNotNull(failedGeneration))
+			testScheduler.advanceUntilIdle()
+			assertNotNull(fixture.prewarm.active)
+			assertNull(fixture.controller.onHostWindowVisible())
 		} finally {
 			fixture.close()
 			Dispatchers.resetMain()

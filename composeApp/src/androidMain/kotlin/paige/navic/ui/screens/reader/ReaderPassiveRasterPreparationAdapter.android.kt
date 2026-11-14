@@ -870,7 +870,15 @@ internal class ReaderPassiveRasterPreparationAdapter(
 					}
 					ReaderPageRasterPublicationResult.Failed -> finish(
 						batch,
-						ReaderPageRasterBatchOutcome.Failed(
+						// A concurrent repair re-committed the destination after this capture:
+						// the capture is stale, not broken, so retry instead of failing the window.
+						if (passiveRasterRejection == ReaderPassiveRasterRejection.DestinationCommit) {
+							ReaderPageRasterBatchOutcome.Deferred(
+								stage = "passive-admission",
+								pageIndex = target.pageIndex,
+								reason = "canonical-destination-recommitted"
+							)
+						} else ReaderPageRasterBatchOutcome.Failed(
 							stage = "passive-admission",
 							pageIndex = target.pageIndex,
 							reason = "raster-rejected-or-publication-failed",

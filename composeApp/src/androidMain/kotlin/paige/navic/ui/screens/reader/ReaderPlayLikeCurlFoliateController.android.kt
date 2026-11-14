@@ -3782,6 +3782,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val preparationGeneration = preparationGeneration
 		if (failedPreparationGeneration == preparationGeneration) return
 		val pageIndices = profile.preparedPageIndices(centerOrdinal)
+		val currentPages = activePages
+		if (
+			requestedProfile == profile &&
+			!livePresentationRecoveryRequest.pending &&
+			currentPages?.profile == profile &&
+			currentPages.centerOrdinal == centerOrdinal &&
+			currentPages.deck.pageIndices.containsAll(pageIndices) &&
+			hasUsablePreparedActiveDeck()
+		) {
+			// Reloading the same window resubmits the Active deck; during a visual
+			// handoff (e.g. a section load at a chapter boundary) that invalidates the turn.
+			logActivationState(
+				event = "refresh-skipped",
+				detail = "deck-current request=$request center=$centerOrdinal"
+			)
+			return
+		}
 		if (requestedProfile != profile) {
 			activePages?.let { pages ->
 				pages.obsolete = true

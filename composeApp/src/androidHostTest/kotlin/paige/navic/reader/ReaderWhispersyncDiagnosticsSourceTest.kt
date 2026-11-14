@@ -38,7 +38,11 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 					"ReaderPlayLikeCurlFoliateController.android.kt"
 			)
 			.readText()
-		val diagnostics = controller + reducer + syncCoordinator + readerScreen + nativeController
+		val whispersyncDiagnostics = root
+			.resolve("composeApp/src/commonMain/kotlin/paige/navic/reader/ReaderWhispersyncDiagnostics.kt")
+			.readText()
+		val diagnostics = controller + reducer + syncCoordinator + readerScreen + nativeController +
+			whispersyncDiagnostics
 		val whispersyncLogStatements = Regex(
 			"Logger\\.(?:i|w|e)\\([\\s\\S]*?\\)",
 			RegexOption.MULTILINE

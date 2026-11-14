@@ -245,7 +245,9 @@ actual fun ReaderEngineWebViewHost(
 	val currentCommandKey by rememberUpdatedState(commandKey)
 	var webView by remember { mutableStateOf<WebView?>(null) }
 	var webViewGeneration by remember { mutableStateOf(0) }
-	var commandDispatchState by remember { mutableStateOf(ReaderWebCommandDispatchState()) }
+	var commandDispatchState by remember {
+		mutableStateOf(ReaderWebCommandDispatchState(hostInstance = ReaderWebHostInstances.incrementAndGet()))
+	}
 	val settingsMutationRequestSequence = remember { AtomicLong(0L) }
 	val settingsVisualStateSequence = remember { AtomicLong(0L) }
 	val activeSettingsMutation = remember {
@@ -710,3 +712,5 @@ private fun String.engineUrlLabel(): String {
 		else -> take(80)
 	}
 }
+
+private val ReaderWebHostInstances = java.util.concurrent.atomic.AtomicLong(0L)

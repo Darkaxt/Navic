@@ -1538,7 +1538,7 @@ class ReaderPassiveRasterPrototypeTest {
 					ReaderPassiveRasterManifestResolution.Available(
 						if (manifestRequests == 1) inputs else inputs.copy(
 							canonicalCommit = commit.copy(
-								destinationCommitToken = "replacement-private-commit"
+								liveFoliateSessionId = "replacement-private-session"
 							)
 						)
 					)
@@ -1568,12 +1568,90 @@ class ReaderPassiveRasterPrototypeTest {
 			)
 
 			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(outcome)
-			assertEquals(ReaderPassiveRasterRejection.DestinationCommit, failed.passiveRasterRejection)
+			assertEquals(ReaderPassiveRasterRejection.LiveFoliateSession, failed.passiveRasterRejection)
 			assertNull(failed.persistentPublicationResult)
 			assertEquals("raster-rejected-or-publication-failed", failed.reason)
-			assertContains(failed.diagnostic, "passiveRasterRejection=DestinationCommit")
-			assertFalse(failed.diagnostic.contains(commit.destinationCommitToken))
-			assertFalse(failed.diagnostic.contains("replacement-private-commit"))
+			assertContains(failed.diagnostic, "passiveRasterRejection=LiveFoliateSession")
+			assertFalse(failed.diagnostic.contains(commit.liveFoliateSessionId))
+			assertFalse(failed.diagnostic.contains("replacement-private-session"))
+			assertEquals(2, manifestRequests)
+			assertEquals(1, rasterReleases)
+			assertEquals(1, session.metrics().rasterReleases)
+			assertTrue(runtime.createdBitmaps.single().isRecycled)
+		} finally {
+			adapter.close()
+			source.closeAndJoin()
+		}
+	}
+
+	@Test
+	fun recommittedDestinationDefersTheStaleCaptureInsteadOfFailingTheWindow() = runTest {
+		val source = ReaderPageTurnBundleSource()
+		val commit = canonicalCommit().copy(
+			viewportAndCaptureGeometry = ReaderPassiveRasterGeometry(
+				viewportWidth = 20,
+				viewportHeight = 30,
+				captureLeft = 0,
+				captureTop = 0,
+				captureRight = 20,
+				captureBottom = 30
+			),
+			rasterGeneration = source.currentGeneration()
+		)
+		val captureFixture = fixture(commit)
+		val descriptor = passiveDescriptor(commit, captureFixture.manifest.visualPageOrdinal)
+		val inputs = passiveAuthority(captureFixture, descriptor).manifestInputs
+		var manifestRequests = 0
+		var rasterReleases = 0
+		val runtime = SuccessfulPassiveBitmapRuntime()
+		val session = ReaderPassiveRasterPrototypeSession(runtime) { bitmap ->
+			rasterReleases += 1
+			if (!bitmap.isRecycled) bitmap.recycle()
+		}
+		val adapter = ReaderPassiveRasterPreparationAdapter(
+			session = session,
+			liveManifestPort = ReaderPassiveRasterLiveManifestPort { _, _, _, _, onResolved ->
+				manifestRequests += 1
+				onResolved(
+					ReaderPassiveRasterManifestResolution.Available(
+						if (manifestRequests == 1) inputs else inputs.copy(
+							canonicalCommit = commit.copy(
+								destinationCommitToken = "replacement-private-commit"
+							)
+						)
+					)
+				)
+			},
+			bundleSource = source,
+			initialCaptureEpoch = commit.captureEpoch
+		)
+		var outcome: ReaderPageRasterBatchOutcome? = null
+		val reference = passiveReference().also { it.retain() }
+		try {
+			assertTrue(
+				adapter.start(
+					kind = ReaderPageTurnTransitionKind.LandscapeSpreadSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = captureFixture.manifest.visualPageOrdinal,
+							priority = ReaderPageRasterPriority.CurrentChapter
+						)
+					),
+					rasterGeneration = source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.InitialPreparation,
+					onComplete = { outcome = it }
+				)
+			)
+
+			// A concurrent repair re-committed the destination: the capture is stale, so
+			// the window retries (bounded) instead of showing a terminal failure card.
+			val deferred = assertIs<ReaderPageRasterBatchOutcome.Deferred>(outcome)
+			assertEquals("passive-admission", deferred.stage)
+			assertEquals("canonical-destination-recommitted", deferred.reason)
+			assertFalse(deferred.toString().contains(commit.destinationCommitToken))
+			assertFalse(deferred.toString().contains("replacement-private-commit"))
 			assertEquals(2, manifestRequests)
 			assertEquals(1, rasterReleases)
 			assertEquals(1, session.metrics().rasterReleases)

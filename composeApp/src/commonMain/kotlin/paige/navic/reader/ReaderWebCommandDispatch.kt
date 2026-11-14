@@ -6,6 +6,9 @@ data class ReaderWebPendingCommand(
 )
 
 data class ReaderWebCommandDispatchState(
+	// Process-unique WebView host instance. A rebuilt host restarts its publication and runtime
+	// counters, so the instance keeps its Foliate session ids distinct from the replaced host's.
+	val hostInstance: Long = 0L,
 	val publicationKey: String? = null,
 	val publicationSequence: Long = 0L,
 	val runtimeGeneration: Int? = null,
@@ -82,6 +85,7 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 	}
 	var nextState = when {
 		publicationChanged -> ReaderWebCommandDispatchState(
+			hostInstance = hostInstance,
 			publicationKey = publicationKey,
 			publicationSequence = publicationSequence + 1L,
 			runtimeGeneration = runtimeGeneration,
@@ -95,7 +99,8 @@ fun ReaderWebCommandDispatchState.commandsForReadyReaderRuntime(
 		else -> this
 	}
 	val runtimeSessionId = if (publicationChanged || generationChanged) {
-		"foliate-${nextState.publicationSequence}-$runtimeGeneration"
+		val hostPrefix = if (hostInstance == 0L) "" else "h$hostInstance-"
+		"foliate-$hostPrefix${nextState.publicationSequence}-$runtimeGeneration"
 	} else {
 		checkNotNull(nextState.foliateSessionId)
 	}

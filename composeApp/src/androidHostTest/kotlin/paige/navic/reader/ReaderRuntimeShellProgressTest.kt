@@ -1064,7 +1064,8 @@ class ReaderRuntimeShellProgressTest {
 		val readerViewerHostText = readerViewerHostFile().readText()
 		val webViewHostText = readerEngineWebViewHostFile().readText()
 
-		assertContains(readerViewerHostText, "startProgress = engineRenderer.startLocator?.progress")
+		assertContains(readerViewerHostText, "startProgress = startLocator?.progress")
+		assertContains(readerViewerHostText, "startLocator = engineRenderer.startLocator")
 		assertContains(webViewHostText, "startProgress: Double?")
 		assertContains(webViewHostText, "startProgress?.toString().orEmpty()")
 		assertContains(webViewHostText, "progress = startProgress")

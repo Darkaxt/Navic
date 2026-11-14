@@ -23,6 +23,36 @@ class ReaderWebCommandDispatchTest {
 	)
 
 	@Test
+	fun rebuiltHostInstanceNeverReusesTheReplacedHostsSessionId() {
+		// A rebuilt WebView host restarts its publication/runtime counters and Foliate restarts its
+		// destination commit sequence; a reused session id would make the controller keep the replaced
+		// host's higher commit identity and drop every new visible range.
+		fun open(state: ReaderWebCommandDispatchState) = state.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-1",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		val replaced = open(ReaderWebCommandDispatchState(hostInstance = 1L))
+		val rebuilt = open(ReaderWebCommandDispatchState(hostInstance = 2L))
+		assertEquals("foliate-h1-1-0", replaced.state.foliateSessionId)
+		assertEquals("foliate-h2-1-0", rebuilt.state.foliateSessionId)
+		assertEquals(
+			"foliate-h2-1-0",
+			(rebuilt.commands.single().command as ReaderBridgeCommand.OpenPublication).foliateSessionId
+		)
+		val reopened = rebuilt.state.commandsForReadyReaderRuntime(
+			runtimeGeneration = 0,
+			publicationKey = "book-2",
+			openCommand = firstOpen,
+			command = null,
+			commandKey = 0L
+		)
+		assertEquals("foliate-h2-2-0", reopened.state.foliateSessionId)
+	}
+
+	@Test
 	fun runtimeSessionIsMonotonicAcrossRuntimeAndPublicationChanges() {
 		val initial = ReaderWebCommandDispatchState().commandsForReadyReaderRuntime(
 			runtimeGeneration = 0,
