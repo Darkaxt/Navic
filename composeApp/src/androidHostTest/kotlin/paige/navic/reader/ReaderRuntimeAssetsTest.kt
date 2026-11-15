@@ -1768,7 +1768,7 @@ class ReaderRuntimeAssetsTest {
 		)
 		// #51: the live Whispersync word anchors the relayout before any layout change.
 		assertTrue(
-			resize.indexOf("anchorRelayoutToRange?.(liveRange)") in 0 until
+			resize.indexOf("anchorReaderRelayoutToLiveOverlay(this)") in 0 until
 				resize.indexOf("setStylesImportant(document.documentElement")
 		)
 		assertTrue(

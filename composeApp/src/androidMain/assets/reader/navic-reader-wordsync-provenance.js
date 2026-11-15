@@ -69,16 +69,28 @@ export const validatedReaderOverlayCoordinateMode = fragment => {
 }
 
 // #51: while Whispersync presents a visible word, a relayout (rotation) restores the page holding it.
-export const readerLiveOverlayRelayoutRange = runtime => {
+// Logs `wordsync-relayout-anchor:<fragment>,<visible>,<range>,<anchored>` (0/1 each).
+export const anchorReaderRelayoutToLiveOverlay = runtime => {
   const fragment = runtime?.mediaOverlayActiveFragment
-  if (!fragment) return null
-  return routeReaderOverlayCoordinateMode(fragment, {
-    raw: () => runtime.rawTextProvenance?.rangeIsVisible?.(fragment, runtime.committedVisibleTextRange)
-      ? runtime.rawTextProvenance.resolveRange(fragment) || null
-      : null,
-    cue: () => runtime.mediaOverlayActiveRanges?.find(range => range && !range.collapsed) || null,
+  if (!fragment) {
+    log('wordsync-relayout-anchor:0,0,0,0')
+    return false
+  }
+  let visible = 0
+  const range = routeReaderOverlayCoordinateMode(fragment, {
+    raw: () => {
+      visible = runtime.rawTextProvenance?.rangeIsVisible?.(fragment, runtime.committedVisibleTextRange) ? 1 : 0
+      return visible ? runtime.rawTextProvenance.resolveRange(fragment) || null : null
+    },
+    cue: () => {
+      visible = 1
+      return runtime.mediaOverlayActiveRanges?.find(candidate => candidate && !candidate.collapsed) || null
+    },
     reject: () => null,
   })
+  const anchored = range ? runtime.view?.renderer?.anchorRelayoutToRange?.(range) === true : false
+  log(`wordsync-relayout-anchor:1,${visible},${range ? 1 : 0},${anchored ? 1 : 0}`)
+  return anchored
 }
 
 export const routeReaderOverlayCoordinateMode = (fragment, handlers) => {

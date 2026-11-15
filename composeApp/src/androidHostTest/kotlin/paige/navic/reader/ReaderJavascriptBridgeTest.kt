@@ -196,10 +196,10 @@ class ReaderJavascriptBridgeTest {
 				description = "word sync relayout anchor numeric trace",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",
-					message = "[NavicReader] wordsync-relayout-anchor:1 $messageCanary",
+					message = "[NavicReader] wordsync-relayout-anchor:1,1,1,0 $messageCanary",
 					sourceId = sourceCanary
 				),
-				expected = "Reader console DEBUG: wordsync-relayout-anchor:1"
+				expected = "Reader console DEBUG: wordsync-relayout-anchor:1,1,1,0"
 			),
 			ProjectionCase(
 				description = "word sync degraded progress carrying text is redacted",

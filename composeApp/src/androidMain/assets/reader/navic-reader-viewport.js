@@ -12,7 +12,7 @@ import {
   setStylesImportant,
   updateReaderShellCoverLayer,
 } from './navic-reader-helpers.js'
-import { readerLiveOverlayRelayoutRange } from './navic-reader-wordsync-provenance.js'
+import { anchorReaderRelayoutToLiveOverlay } from './navic-reader-wordsync-provenance.js'
 
 const ReaderPdfFitWidth = 'width'
 const ReaderPdfFitPage = 'page'
@@ -57,10 +57,7 @@ export const normalizedReaderPdfPageGapPercent = value => {
 
 function applyReaderViewportLayout(label = 'unknown', options = {}) {
   if (label === 'resize') {
-    const liveRange = readerLiveOverlayRelayoutRange(this)
-    if (liveRange) {
-      log(`wordsync-relayout-anchor:${this.view?.renderer?.anchorRelayoutToRange?.(liveRange) === true ? 1 : 0}`)
-    }
+    anchorReaderRelayoutToLiveOverlay(this)
     this.clearPaginationProfileOwnership('viewport-resize')
     this.destroyPageTurnPreviewRenderer('viewport-resize')
   }
