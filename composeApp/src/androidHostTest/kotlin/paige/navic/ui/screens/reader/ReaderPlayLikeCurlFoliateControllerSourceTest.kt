@@ -2903,6 +2903,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			release,
 			"ReaderPageRelocationDiagnosticRejectionReason.ContentRejected"
 		)
+		// Exhausted presentation recovery shares the terminal release with its own reason.
+		assertContains(release, "ReaderPageRelocationDiagnosticRejectionReason.PresentationFailed")
+		assertContains(release, "\"terminal-presentation-failed\"")
 		assertContains(release, "failedLivePresentationGeneration = null")
 		assertContains(release, "livePresentationRecoveryRequest.request()")
 		assertContains(

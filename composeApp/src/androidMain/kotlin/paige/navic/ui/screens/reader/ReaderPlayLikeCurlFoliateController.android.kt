@@ -5613,19 +5613,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun releaseTerminalContentFailure(
-		request: ReaderPageRelocationRequest
+		request: ReaderPageRelocationRequest,
+		failure: ReaderWebViewVisualHandoffFailure
 	) {
+		val presentationFailed = failure == ReaderWebViewVisualHandoffFailure.PresentationFailed
+		val rejectionReason = if (presentationFailed) {
+			ReaderPageRelocationDiagnosticRejectionReason.PresentationFailed
+		} else {
+			ReaderPageRelocationDiagnosticRejectionReason.ContentRejected
+		}
 		check(
-			relocationLiveDispatchCoordinator.fail(
-				request,
-				ReaderPageRelocationDiagnosticRejectionReason.ContentRejected
-			)
+			relocationLiveDispatchCoordinator.fail(request, rejectionReason)
 		) { "Content rejection lost exact foreground ownership" }
 		emitRelocationDiagnostic(
 			request = request,
 			state = ReaderPageRelocationDiagnosticState.Rejected,
-			rejectionReason =
-				ReaderPageRelocationDiagnosticRejectionReason.ContentRejected,
+			rejectionReason = rejectionReason,
 			terminal = true
 		)
 		takeInlineHandoffSnapshot(request)?.release()
@@ -5649,7 +5652,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		blockTerminalContentFailureRecovery(
 			failedGestureId = request.gestureId,
-			reason = "terminal-content-rejected"
+			reason = if (presentationFailed) {
+				"terminal-presentation-failed"
+			} else {
+				"terminal-content-rejected"
+			}
 		)
 	}
 

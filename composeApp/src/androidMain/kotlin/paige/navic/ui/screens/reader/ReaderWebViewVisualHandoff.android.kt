@@ -853,7 +853,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		ReaderWebViewVisualHandoffAttemptEventSink { },
 	private val onAwaiting: (ReaderPageRelocationRequest) -> Unit = {},
 	private val onCompleted: (ReaderPageRelocationRequest) -> Unit = {},
-	private val onRejectedContentReleased: (ReaderPageRelocationRequest) -> Unit = {},
+	private val onRejectedContentReleased: (
+		ReaderPageRelocationRequest,
+		ReaderWebViewVisualHandoffFailure
+	) -> Unit = { _, _ -> },
 	private val onReplaced: (
 		ReaderPageRelocationRequest,
 		ReaderPageRelocationRequest
@@ -1486,7 +1489,10 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		publishRecovery(request, ReaderWebViewVisualHandoffFailure.ContentRejected)
 	}
 
-	private fun releaseRejectedContent(request: ReaderPageRelocationRequest) {
+	private fun releaseRejectedContent(
+		request: ReaderPageRelocationRequest,
+		reason: ReaderWebViewVisualHandoffFailure = ReaderWebViewVisualHandoffFailure.ContentRejected
+	) {
 		check(matchesAcknowledgedHead(request))
 		check(queue.completeHandoff(request.token.value))
 		phase = Phase.Idle
@@ -1499,7 +1505,7 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		clearContentRecoveryLineage()
 		head = null
 		clearQaFaultCorrelation()
-		onRejectedContentReleased(request)
+		onRejectedContentReleased(request, reason)
 		queue.commandToDispatch()?.let(dispatch)
 	}
 
@@ -1648,7 +1654,12 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		publishPendingVisualTerminal(request, reason)
 		if (canRecover() && consumeRetainedRepreparedEvidence(request)) return
 		if (reason == ReaderWebViewVisualHandoffFailure.PresentationFailed) {
-			if (presentationRecoveryRequests >= MaximumPresentationRecoveryRequests) return
+			if (presentationRecoveryRequests >= MaximumPresentationRecoveryRequests) {
+				// The retry budget is spent: end the head terminally so the reader re-prepares
+				// instead of staying latched in Failed with queued turns behind it.
+				releaseRejectedContent(request, reason)
+				return
+			}
 			presentationRecoveryRequests += 1
 		}
 		publishRecovery(request, reason)

@@ -86,6 +86,7 @@ internal enum class ReaderPageRelocationDiagnosticRejectionReason {
 	AcknowledgementTimeout,
 	JavascriptDispatchFailed,
 	ContentRejected,
+	PresentationFailed,
 	OwnershipUnavailable,
 	OwnershipInvalidated,
 	WebViewUnavailable

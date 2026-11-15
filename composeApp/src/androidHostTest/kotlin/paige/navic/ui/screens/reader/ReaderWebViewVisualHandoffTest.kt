@@ -1331,29 +1331,40 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
-	fun presentationFailureAutomaticallyRequestsOnlyOneRecovery() {
+	fun presentationFailureRequestsOneRecoveryThenReleasesHeadTerminally() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 3L)
 		acknowledgeForVisualHandoff(queue, request)
 		val host = FakeVisualHandoffHost(attached = true)
 		val finalizers = mutableListOf<(Boolean) -> Unit>()
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val released = mutableListOf<Pair<ReaderPageRelocationRequest, ReaderWebViewVisualHandoffFailure>>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
 			host = host,
 			currentState = { visualStateFor(request) },
-			dispatch = { error("No dispatch expected") },
+			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
 			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 				ReaderPageRelocationContentValidationHandle.Completed
-			}
+			},
+			onRejectedContentReleased = { head, reason -> released += head to reason }
 		)
 
 		assertTrue(coordinator.onAcknowledged(request))
 		host.completeVisualState()
 		host.runNextFrame()
+		val queued = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 4L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			rasterGeneration = 11L,
+			textureGeneration = 21L
+		)
 		finalizers.single().invoke(false)
 		assertTrue(
 			coordinator.onRetryEvent(
@@ -1371,7 +1382,18 @@ class ReaderWebViewVisualHandoffTest {
 			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
 			recoveries
 		)
-		assertEquals(request, queue.head())
+		// The exhausted head ends terminally instead of parking in Recovering.
+		assertEquals(
+			listOf(request to ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			released
+		)
+		assertEquals(queued, queue.head())
+		assertEquals(listOf(queued), dispatched)
+		assertEquals(0, coordinator.pendingCallbackCount())
+		val finalizerCount = finalizers.size
+		finalizers.first().invoke(true)
+		assertEquals(listOf(queued), dispatched)
+		assertEquals(finalizerCount, finalizers.size)
 	}
 
 	@Test
@@ -1502,7 +1524,10 @@ class ReaderWebViewVisualHandoffTest {
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
 			},
-			onRejectedContentReleased = terminalRejections::add
+			onRejectedContentReleased = { released, reason ->
+				assertEquals(ReaderWebViewVisualHandoffFailure.ContentRejected, reason)
+				terminalRejections += released
+			}
 		)
 		assertTrue(coordinator.onAcknowledged(request))
 		host.completeVisualState()
@@ -2321,7 +2346,10 @@ class ReaderWebViewVisualHandoffTest {
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
 			finalizePresentation = immediatePresentationFinalizer(hidden::add),
-			onRejectedContentReleased = terminalRejections::add,
+			onRejectedContentReleased = { released, reason ->
+				assertEquals(ReaderWebViewVisualHandoffFailure.ContentRejected, reason)
+				terminalRejections += released
+			},
 			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
 				ReaderPageRelocationContentValidationHandle.Completed
@@ -2406,7 +2434,10 @@ class ReaderWebViewVisualHandoffTest {
 			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
 			finalizePresentation = immediatePresentationFinalizer(),
-			onRejectedContentReleased = terminalRejections::add,
+			onRejectedContentReleased = { released, reason ->
+				assertEquals(ReaderWebViewVisualHandoffFailure.ContentRejected, reason)
+				terminalRejections += released
+			},
 			validateContent = { request, onValidated ->
 				if (request.token == original.token) {
 					onValidated(ReaderPageRelocationContentValidationResult.ContentRejected)
