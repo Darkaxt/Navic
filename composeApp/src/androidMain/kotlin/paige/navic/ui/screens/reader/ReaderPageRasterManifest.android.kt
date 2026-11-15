@@ -116,7 +116,11 @@ internal data class ReaderPageRasterManifestEntry(
 	val rasterFileName: String,
 	val byteSize: Long,
 	val lastAccessEpochMillis: Long,
-	val metadata: ReaderPageRasterMetadata
+	val metadata: ReaderPageRasterMetadata,
+	/** Planned (pre-render) descriptor digest whose receipt-verified capture produced this raster. */
+	val issuedDigest: String? = null,
+	/** App install token the alias was recorded under; a different install never reuses it. */
+	val aliasToken: String? = null
 )
 
 internal class ReaderPageRasterManifest(
@@ -206,6 +210,8 @@ private fun ReaderPageRasterManifestEntry.toJson(): JsonObject = buildJsonObject
 	put("byteSize", byteSize)
 	put("lastAccessEpochMillis", lastAccessEpochMillis)
 	put("metadata", metadata.toJson())
+	issuedDigest?.let { digest -> put("issuedDigest", digest) }
+	aliasToken?.let { token -> put("aliasToken", token) }
 }
 
 private fun ReaderPageRasterMetadata.toJson(): JsonObject = buildJsonObject {
@@ -248,7 +254,9 @@ private fun JsonObject.toManifestEntry(): ReaderPageRasterManifestEntry {
 		rasterFileName = string("rasterFileName"),
 		byteSize = long("byteSize"),
 		lastAccessEpochMillis = long("lastAccessEpochMillis"),
-		metadata = getValue("metadata").jsonObject.toRasterMetadata()
+		metadata = getValue("metadata").jsonObject.toRasterMetadata(),
+		issuedDigest = get("issuedDigest")?.jsonPrimitive?.contentOrNull,
+		aliasToken = get("aliasToken")?.jsonPrimitive?.contentOrNull
 	)
 }
 

@@ -7,9 +7,15 @@ import android.graphics.Rect
 import android.webkit.ValueCallback
 import android.webkit.WebView
 import android.widget.FrameLayout
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -2139,6 +2145,227 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun passiveRealizedAliasHitHydratesFromDiskWithoutRenderingOrCapture() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore(supportsAliases = true)
+		try {
+			val realizedKey = recordColdPassiveAlias(activity, store, "publication-passive-alias-hit")
+
+			val (outcome, runtime) = warmPassiveAliasRun(activity, store, "publication-passive-alias-hit")
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, outcome)
+			assertEquals(0, runtime.commitRequests)
+			assertEquals(0, runtime.captureRequests)
+			assertEquals(listOf(realizedKey, realizedKey), store.requestedKeys)
+			assertEquals(1, store.recordedAliases.size)
+		} finally {
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun passiveRealizedAliasFromAnotherInstallOrPlanRendersAndRecordsAgain() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		try {
+			listOf<(SeededPassiveHydrationStore.Alias) -> SeededPassiveHydrationStore.Alias>(
+				{ alias -> alias.copy(token = "previous-install") },
+				{ alias -> alias.copy(issuedDigest = "superseded-plan-digest") }
+			).forEachIndexed { index, rewrite ->
+				val publicationUrl = "publication-passive-alias-stale-$index"
+				val store = SeededPassiveHydrationStore(supportsAliases = true)
+				val realizedKey = recordColdPassiveAlias(activity, store, publicationUrl)
+				val issuedAlias = store.recordedAliases.single()
+				store.rewriteAliases(rewrite)
+
+				val (outcome, runtime) = warmPassiveAliasRun(activity, store, publicationUrl)
+
+				assertEquals(ReaderPageRasterBatchOutcome.Ready, outcome)
+				assertEquals(1, runtime.commitRequests)
+				assertEquals(0, runtime.captureRequests)
+				assertEquals(listOf(realizedKey, realizedKey), store.requestedKeys)
+				assertEquals(listOf(issuedAlias, issuedAlias), store.recordedAliases)
+			}
+		} finally {
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun passiveRealizedAliasWithoutItsRasterFallsBackToRendering() = runTest {
+		// The miss is delivered after an IO read and re-enters hydration registration, which posts
+		// to the main Looper when called off it; an unconfined Main would deliver it on the IO thread.
+		Dispatchers.setMain(MainLooperTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore(supportsAliases = true)
+		try {
+			val realizedKey = recordColdPassiveAlias(
+				activity = activity,
+				store = store,
+				publicationUrl = "publication-passive-alias-missing",
+				seedRealizedRaster = false
+			)
+
+			val (outcome, runtime) = warmPassiveAliasRun(
+				activity,
+				store,
+				"publication-passive-alias-missing"
+			)
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, outcome)
+			assertEquals(1, runtime.commitRequests)
+			assertEquals(1, runtime.captureRequests)
+			assertEquals(listOf(realizedKey, realizedKey, realizedKey), store.requestedKeys)
+			assertEquals(2, store.recordedAliases.size)
+		} finally {
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun passiveRealizedAliasHitFailsWhenThePlanChangesBeforeCompletion() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore(supportsAliases = true)
+		try {
+			recordColdPassiveAlias(activity, store, "publication-passive-alias-replanned")
+
+			val (outcome, runtime) = warmPassiveAliasRun(
+				activity = activity,
+				store = store,
+				publicationUrl = "publication-passive-alias-replanned"
+			) { request, inputs ->
+				ReaderPassiveRasterManifestResolution.Available(
+					if (request == 2) {
+						inputs.copy(rasterDescriptor = inputs.rasterDescriptor.copy(pageCount = 45))
+					} else {
+						inputs
+					}
+				)
+			}
+
+			assertEquals(
+				ReaderPageRasterBatchOutcome.Failed(
+					stage = "passive-hydration-authority",
+					pageIndex = 4,
+					reason = "current-authority-invalid"
+				),
+				outcome
+			)
+			assertEquals(0, runtime.commitRequests)
+			assertEquals(0, runtime.captureRequests)
+		} finally {
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun cancellationDuringPassiveAliasHydrationCompletesOnceWithoutRendering() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
+		val activity = activityController.get()
+		val store = SeededPassiveHydrationStore(supportsAliases = true)
+		var harness: PassiveAdapterHarness? = null
+		try {
+			recordColdPassiveAlias(activity, store, "publication-passive-alias-cancel")
+			store.delayReads()
+			val runtime = SuccessfulPassiveBitmapRuntime(::aliasReceipt)
+			val current = createPassiveAdapterHarness(
+				activity = activity,
+				store = store,
+				runtime = runtime,
+				publicationUrl = "publication-passive-alias-cancel"
+			)
+			harness = current
+			val completions = mutableListOf<ReaderPageRasterBatchOutcome>()
+			current.reference.retain()
+			assertTrue(
+				current.adapter.start(
+					kind = current.reference.key.kind,
+					reference = current.reference,
+					targets = listOf(passiveRasterTarget()),
+					rasterGeneration = current.source.currentGeneration(),
+					isStillCurrent = { true },
+					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
+					onComplete = completions::add
+				)
+			)
+			// The aliased read runs on Dispatchers.IO (a real thread); wait in real time (#33).
+			Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+			withContext(Dispatchers.Default.limitedParallelism(1)) {
+				withTimeout(5_000L) { store.awaitReadStarted() }
+			}
+
+			current.adapter.cancel()
+			store.releaseReads()
+			advanceUntilIdle()
+
+			assertEquals(
+				listOf<ReaderPageRasterBatchOutcome>(ReaderPageRasterBatchOutcome.Cancelled),
+				completions
+			)
+			assertEquals(0, runtime.commitRequests)
+			assertEquals(0, runtime.captureRequests)
+			assertEquals(0, current.session.metrics().activeCaptures)
+		} finally {
+			store.releaseReads()
+			harness?.adapter?.close()
+			harness?.source?.closeAndJoin()
+			activityController.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
+	fun passiveRasterAliasLookupRebuildsTheReceiptAuthoritativeDescriptor() {
+		val quality = ReaderPageBitmapQuality.Native
+		val planned = passiveDescriptor(canonicalCommit(), visualPageOrdinal = 4)
+		val realized = aliasRealizedDescriptor(planned).copy(viewportWidth = 22, viewportHeight = 33)
+
+		assertEquals(
+			ReaderPassiveRasterAliasLookup.Hit(realized),
+			readerPassiveRasterAliasLookup(planned, quality, realized.key(quality))
+		)
+		assertEquals(
+			ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Absent),
+			readerPassiveRasterAliasLookup(planned, quality, storedKey = null)
+		)
+	}
+
+	@Test
+	fun passiveRasterAliasLookupRejectsKeysOutsideThePlannedPage() {
+		val quality = ReaderPageBitmapQuality.Native
+		val planned = passiveDescriptor(canonicalCommit(), visualPageOrdinal = 4)
+		val realized = aliasRealizedDescriptor(planned)
+
+		listOf(
+			realized.copy(publicationUrl = "publication-other").key(quality),
+			realized.copy(spineIndex = 1).key(quality),
+			realized.copy(href = "chapter-other").key(quality),
+			realized.copy(chapterPageIndex = 5).key(quality),
+			realized.copy(visualPageOrdinal = 5).key(quality),
+			realized.copy(pageCount = 45).key(quality),
+			realized.key(ReaderPageBitmapQuality.Balanced),
+			realized.key(quality).copy(schemaVersion = ReaderPageRasterSchemaVersion - 1)
+		).forEach { storedKey ->
+			assertEquals(
+				ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Incompatible),
+				readerPassiveRasterAliasLookup(planned, quality, storedKey),
+				storedKey.toString()
+			)
+		}
+	}
+
+	@Test
 	fun passiveRealizedObservedProfileDoesNotUsePlanKey() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activityController = Robolectric.buildActivity(Activity::class.java).setup()
@@ -3277,6 +3504,90 @@ class ReaderPassiveRasterPrototypeTest {
 		return completion
 	}
 
+	private fun aliasReceipt(receipt: ReaderPassiveRasterCaptureReceipt) = receipt.copy(
+		observedRasterProfileKey = "passive-observed-profile-alias",
+		observedPaginationFingerprint = "passive-observed-pagination-alias",
+		observedLayoutFingerprint = "passive-observed-layout-alias",
+		observedDecorationFingerprint = "passive-observed-decoration-alias"
+	)
+
+	private fun aliasRealizedDescriptor(planned: ReaderPageRasterDescriptor) = planned.copy(
+		paginationFingerprint = "passive-observed-pagination-alias",
+		layoutFingerprint = "passive-observed-layout-alias",
+		decorationFingerprint = "passive-observed-decoration-alias"
+	)
+
+	/** Cold-opens the passive target, which renders, publishes and records its alias. */
+	private suspend fun TestScope.recordColdPassiveAlias(
+		activity: Activity,
+		store: SeededPassiveHydrationStore,
+		publicationUrl: String,
+		seedRealizedRaster: Boolean = true
+	): ReaderPageRasterKey {
+		val runtime = SuccessfulPassiveBitmapRuntime(::aliasReceipt)
+		val cold = createPassiveAdapterHarness(
+			activity = activity,
+			store = store,
+			runtime = runtime,
+			publicationUrl = publicationUrl
+		)
+		try {
+			val completion = startPassiveAdapterHarness(
+				cold,
+				ReaderPageRasterAcquisitionTrigger.InitialPreparation
+			)
+			advanceUntilIdle()
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, completion.await())
+			assertEquals(1, runtime.captureRequests)
+			val issuedDigest = cold.descriptor.key(ReaderPageBitmapQuality.Native).digest
+			val realizedKey = aliasRealizedDescriptor(cold.descriptor).key(ReaderPageBitmapQuality.Native)
+			assertEquals(listOf(issuedDigest), store.aliasLookups)
+			val recorded = store.recordedAliases.single()
+			assertEquals(realizedKey, recorded.key)
+			assertEquals(issuedDigest, recorded.issuedDigest)
+			if (seedRealizedRaster) store.seed(realizedKey, cold.reference)
+			return realizedKey
+		} finally {
+			cold.adapter.close()
+			cold.source.closeAndJoin()
+		}
+	}
+
+	private suspend fun TestScope.warmPassiveAliasRun(
+		activity: Activity,
+		store: SeededPassiveHydrationStore,
+		publicationUrl: String,
+		manifestResolution: (
+			request: Int,
+			inputs: ReaderPassiveRasterManifestInputs
+		) -> ReaderPassiveRasterManifestResolution = { _, inputs ->
+			ReaderPassiveRasterManifestResolution.Available(inputs)
+		}
+	): Pair<ReaderPageRasterBatchOutcome, SuccessfulPassiveBitmapRuntime> {
+		val runtime = SuccessfulPassiveBitmapRuntime(::aliasReceipt)
+		val warm = createPassiveAdapterHarness(
+			activity = activity,
+			store = store,
+			runtime = runtime,
+			publicationUrl = publicationUrl,
+			manifestResolution = manifestResolution
+		)
+		try {
+			val completion = startPassiveAdapterHarness(
+				warm,
+				ReaderPageRasterAcquisitionTrigger.WarmReopen
+			)
+			advanceUntilIdle()
+			val outcome = completion.await()
+			assertEquals(0, warm.session.metrics().activeCaptures)
+			return outcome to runtime
+		} finally {
+			warm.adapter.close()
+			warm.source.closeAndJoin()
+		}
+	}
+
 	private fun passiveRasterTarget() = ReaderPageRasterBatchTarget(
 		pageIndex = 4,
 		priority = ReaderPageRasterPriority.NextChapter
@@ -3304,7 +3615,15 @@ class ReaderPassiveRasterPrototypeTest {
 		}
 	}
 
-	private class SeededPassiveHydrationStore : ReaderPageRasterHydrationStorePort {
+	private class SeededPassiveHydrationStore(
+		private val supportsAliases: Boolean = false
+	) : ReaderPageRasterHydrationStorePort {
+		data class Alias(
+			val key: ReaderPageRasterKey,
+			val issuedDigest: String,
+			val token: String
+		)
+
 		private data class Seed(
 			val key: ReaderPageRasterKey,
 			val metadata: ReaderPageRasterMetadata,
@@ -3318,9 +3637,52 @@ class ReaderPassiveRasterPrototypeTest {
 		private var seed: Seed? = null
 		private var readGate: CompletableDeferred<Unit>? = null
 		private var readStarted: CompletableDeferred<Unit>? = null
+		private val aliases = mutableListOf<Alias>()
+		private val lookups = mutableListOf<String>()
+		private val recorded = mutableListOf<Alias>()
 
 		val requestedKeys: List<ReaderPageRasterKey>
 			get() = synchronized(lock) { keys.toList() }
+
+		val aliasLookups: List<String>
+			get() = synchronized(lock) { lookups.toList() }
+
+		val recordedAliases: List<Alias>
+			get() = synchronized(lock) { recorded.toList() }
+
+		/** Simulates an install change (token) or a changed plan (issued digest) for stored aliases. */
+		fun rewriteAliases(transform: (Alias) -> Alias) {
+			synchronized(lock) {
+				val rewritten = aliases.map(transform)
+				aliases.clear()
+				aliases += rewritten
+			}
+		}
+
+		override suspend fun aliasedKey(issuedDigest: String, token: String): ReaderPageRasterKey? {
+			if (!supportsAliases) return null
+			return synchronized(lock) {
+				lookups += issuedDigest
+				aliases.firstOrNull { alias ->
+					alias.issuedDigest == issuedDigest && alias.token == token
+				}?.key
+			}
+		}
+
+		override suspend fun recordAlias(
+			realizedKey: ReaderPageRasterKey,
+			issuedDigest: String,
+			token: String
+		): Boolean {
+			if (!supportsAliases) return false
+			synchronized(lock) {
+				val alias = Alias(realizedKey, issuedDigest, token)
+				recorded += alias
+				aliases.removeAll { candidate -> candidate.issuedDigest == issuedDigest }
+				aliases += alias
+			}
+			return true
+		}
 
 		fun seed(
 			key: ReaderPageRasterKey,
@@ -3457,6 +3819,20 @@ class ReaderPassiveRasterPrototypeTest {
 		}
 	}
 
+	/**
+	 * Mirrors a device's `Dispatchers.Main.immediate`: inline on the main Looper thread (the runTest
+	 * thread under Robolectric), otherwise dispatched back to it instead of resuming on the caller.
+	 */
+	private class MainLooperTestDispatcher(scheduler: TestCoroutineScheduler) : CoroutineDispatcher() {
+		private val delegate = StandardTestDispatcher(scheduler)
+
+		override fun isDispatchNeeded(context: CoroutineContext): Boolean =
+			android.os.Looper.myLooper() != android.os.Looper.getMainLooper()
+
+		override fun dispatch(context: CoroutineContext, block: Runnable) =
+			delegate.dispatch(context, block)
+	}
+
 	private inner class SuccessfulPassiveBitmapRuntime(
 		private val receiptTransform: (ReaderPassiveRasterCaptureReceipt) ->
 			ReaderPassiveRasterCaptureReceipt = { it }
@@ -3466,6 +3842,8 @@ class ReaderPassiveRasterPrototypeTest {
 		var captureColor: Int = 0
 		var captureRequests = 0
 			private set
+		var commitRequests = 0
+			private set
 		val createdBitmaps = mutableListOf<Bitmap>()
 
 		override fun commit(
@@ -3474,6 +3852,7 @@ class ReaderPassiveRasterPrototypeTest {
 			passiveCommitSequence: Long,
 			onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
 		) {
+			commitRequests += 1
 			assertEquals(manifest.opaqueCaptureTarget, captureTarget)
 			onCommitted(
 				receiptTransform(

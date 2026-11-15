@@ -4,7 +4,11 @@ import android.graphics.Bitmap
 import android.webkit.WebView
 import org.json.JSONObject
 import org.json.JSONTokener
+import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageRasterPriority
+import paige.navic.util.core.Logger
+
+private const val ReaderPassiveRasterPreparationTag = "ReaderPassiveRasterPreparation"
 
 internal data class ReaderPassiveRasterManifestInputs(
 	val canonicalCommit: ReaderPassiveRasterCanonicalCommit,
@@ -54,6 +58,51 @@ internal fun readerPassiveRasterReceiptAuthoritativeDescriptor(
 	viewportHeight = receipt.observedViewportAndCaptureGeometry.viewportHeight,
 	visualPageOrdinal = receipt.observedVisualPageOrdinal
 )
+
+internal enum class ReaderPassiveRasterAliasMiss {
+	Unavailable,
+	Absent,
+	Incompatible,
+	HydrationMiss
+}
+
+internal sealed interface ReaderPassiveRasterAliasLookup {
+	data class Hit(
+		val realizedDescriptor: ReaderPageRasterDescriptor
+	) : ReaderPassiveRasterAliasLookup
+
+	data class Miss(
+		val reason: ReaderPassiveRasterAliasMiss
+	) : ReaderPassiveRasterAliasLookup
+}
+
+/**
+ * Rebuilds the receipt-authoritative descriptor an alias [storedKey] was published under from the
+ * planned descriptor (the inverse of [readerPassiveRasterReceiptAuthoritativeDescriptor]). Every
+ * field the receipt does not observe (publication, spine, href, chapter page, ordinal, page count,
+ * quality, schema) must be identical, otherwise the alias is rejected.
+ */
+internal fun readerPassiveRasterAliasLookup(
+	plannedDescriptor: ReaderPageRasterDescriptor,
+	quality: ReaderPageBitmapQuality,
+	storedKey: ReaderPageRasterKey?
+): ReaderPassiveRasterAliasLookup {
+	if (storedKey == null) {
+		return ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Absent)
+	}
+	val realized = plannedDescriptor.copy(
+		paginationFingerprint = storedKey.paginationHash,
+		layoutFingerprint = storedKey.layoutHash,
+		decorationFingerprint = storedKey.decorationHash,
+		viewportWidth = storedKey.viewportWidth,
+		viewportHeight = storedKey.viewportHeight
+	)
+	return if (realized.key(quality).identity == storedKey.identity) {
+		ReaderPassiveRasterAliasLookup.Hit(realized)
+	} else {
+		ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Incompatible)
+	}
+}
 
 private fun ReaderPassiveRasterManifestResolution.Unavailable.toBatchOutcome(
 	stage: String,
@@ -404,7 +453,17 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			inputs.canonicalCommit.profileAuthority ==
 			ReaderPassiveRasterProfileAuthority.PassiveRealized
 		) {
-			captureTarget(batch, target, inputs)
+			bundleSource.lookupPassiveRasterAlias(inputs.rasterDescriptor) aliased@{ lookup ->
+				if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) return@aliased
+				when (lookup) {
+					is ReaderPassiveRasterAliasLookup.Hit ->
+						hydrateAliasedTarget(batch, targetIndex, target, inputs, lookup)
+					is ReaderPassiveRasterAliasLookup.Miss -> {
+						logAliasMiss(target, lookup.reason)
+						captureTarget(batch, target, inputs)
+					}
+				}
+			}
 			return
 		}
 		var hydrationCompleted = false
@@ -563,7 +622,13 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) return@resolved
 			when (completion?.result) {
 				ReaderPageRasterPublicationResult.Durable ->
-					confirmDurableCommittedTarget(batch, target, committed)
+					confirmDurableCommittedTarget(
+						batch = batch,
+						target = target,
+						committed = committed,
+						plannedDescriptor = inputs.rasterDescriptor,
+						realizedDescriptor = descriptor
+					)
 				ReaderPageRasterPublicationResult.CapacityReached -> {
 					if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
 						finish(
@@ -623,7 +688,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 	private fun confirmDurableCommittedTarget(
 		batch: Batch,
 		target: ReaderPageRasterBatchTarget,
-		committed: ReaderPassiveRasterCommittedCapture<Bitmap>
+		committed: ReaderPassiveRasterCommittedCapture<Bitmap>,
+		plannedDescriptor: ReaderPageRasterDescriptor,
+		realizedDescriptor: ReaderPageRasterDescriptor
 	) {
 		val targetIndex = batch.targetIndex
 		liveManifestPort.request(
@@ -673,6 +740,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 						)
 						return@currentAuthority
 					}
+					// Back-fills the alias for rasters already on disk from an earlier capture.
+					bundleSource.recordPassiveRasterAlias(plannedDescriptor, realizedDescriptor)
 					completeTarget(batch, target)
 				}
 				is ReaderPassiveRasterManifestResolution.Unavailable -> finish(
@@ -721,6 +790,150 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		manifest = committed.manifest,
 		receipt = committed.receipt
 	)
+
+	private fun hydrateAliasedTarget(
+		batch: Batch,
+		targetIndex: Int,
+		target: ReaderPageRasterBatchTarget,
+		inputs: ReaderPassiveRasterManifestInputs,
+		alias: ReaderPassiveRasterAliasLookup.Hit
+	) {
+		var hydrationCompleted = false
+		val hydrationRequest = bundleSource.resolvePassiveRasterTarget(
+			pageIndex = target.pageIndex,
+			kind = batch.kind,
+			reference = batch.reference,
+			priority = target.priority,
+			rasterDescriptor = alias.realizedDescriptor,
+			persistentOnly = true,
+			isStillCurrent = { batchIsCurrent(batch) }
+		) resolved@{ completion ->
+			hydrationCompleted = true
+			if (batch.targetIndex == targetIndex) batch.hydration = null
+			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) return@resolved
+			when (completion?.result) {
+				ReaderPageRasterPublicationResult.Durable ->
+					confirmAliasedTargetAuthority(batch, targetIndex, target, inputs)
+				ReaderPageRasterPublicationResult.CapacityReached -> {
+					if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.CapacityReached(target.pageIndex)
+						)
+					} else {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "persistent-publication",
+								pageIndex = target.pageIndex,
+								reason = "capacity-reached",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = completion.writeFailureReason
+							)
+						)
+					}
+				}
+				ReaderPageRasterPublicationResult.Failed -> {
+					val writeFailureReason = completion.writeFailureReason
+					if (writeFailureReason == null) {
+						logAliasMiss(target, ReaderPassiveRasterAliasMiss.HydrationMiss)
+						captureTarget(batch, target, inputs)
+					} else {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "persistent-publication",
+								pageIndex = target.pageIndex,
+								reason = "durable-write-failed",
+								persistentPublicationResult = completion.result,
+								persistentWriteFailureReason = writeFailureReason
+							)
+						)
+					}
+				}
+				null -> {
+					logAliasMiss(target, ReaderPassiveRasterAliasMiss.HydrationMiss)
+					captureTarget(batch, target, inputs)
+				}
+			}
+		}
+		if (!hydrationCompleted && batchIsCurrent(batch) && batch.targetIndex == targetIndex) {
+			batch.hydration = hydrationRequest
+		} else {
+			hydrationRequest.cancel()
+		}
+	}
+
+	/**
+	 * An alias hit has no receipt of its own: the planned descriptor digest is its invalidation
+	 * key, so completion requires the live plan to still be current and to still issue it.
+	 */
+	private fun confirmAliasedTargetAuthority(
+		batch: Batch,
+		targetIndex: Int,
+		target: ReaderPageRasterBatchTarget,
+		inputs: ReaderPassiveRasterManifestInputs
+	) {
+		liveManifestPort.request(
+			visualPageOrdinal = target.pageIndex,
+			captureEpoch = captureEpoch,
+			rasterGeneration = batch.rasterGeneration,
+			preparationGeneration = batch.preparationGeneration
+		) currentAuthority@{ resolution ->
+			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
+				return@currentAuthority
+			}
+			when (resolution) {
+				is ReaderPassiveRasterManifestResolution.Available -> {
+					val currentInputs = resolution.inputs
+					if (
+						!manifestInputsAreCurrent(batch, target, currentInputs) ||
+						currentInputs.rasterDescriptor != inputs.rasterDescriptor
+					) {
+						finish(
+							batch,
+							ReaderPageRasterBatchOutcome.Failed(
+								stage = "passive-hydration-authority",
+								pageIndex = target.pageIndex,
+								reason = "current-authority-invalid"
+							)
+						)
+						return@currentAuthority
+					}
+					Logger.i(
+						ReaderPassiveRasterPreparationTag,
+						"Page raster alias hydrated page=${target.pageIndex}"
+					)
+					completeTarget(batch, target)
+				}
+				is ReaderPassiveRasterManifestResolution.Unavailable -> finish(
+					batch,
+					resolution.toBatchOutcome(
+						stage = "passive-hydration-authority",
+						pageIndex = target.pageIndex
+					)
+				)
+				is ReaderPassiveRasterManifestResolution.Failed -> finish(
+					batch,
+					ReaderPageRasterBatchOutcome.Failed(
+						stage = "passive-hydration-authority",
+						pageIndex = target.pageIndex,
+						reason = resolution.reason
+					)
+				)
+			}
+		}
+	}
+
+	private fun logAliasMiss(
+		target: ReaderPageRasterBatchTarget,
+		reason: ReaderPassiveRasterAliasMiss
+	) {
+		Logger.i(
+			ReaderPassiveRasterPreparationTag,
+			"Page raster alias miss page=${target.pageIndex} reason=$reason"
+		)
+	}
 
 	private fun captureCommittedTarget(
 		batch: Batch,
@@ -848,7 +1061,21 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			) admitted@{ completion ->
 				if (!batchIsCurrent(batch)) return@admitted
 				when (completion.result) {
-					ReaderPageRasterPublicationResult.Durable -> completeTarget(batch, target)
+					ReaderPageRasterPublicationResult.Durable -> {
+						if (
+							currentInputs.canonicalCommit.profileAuthority ==
+							ReaderPassiveRasterProfileAuthority.PassiveRealized
+						) {
+							bundleSource.recordPassiveRasterAlias(
+								plannedDescriptor = currentInputs.rasterDescriptor,
+								realizedDescriptor = readerPassiveRasterReceiptAuthoritativeDescriptor(
+									descriptor = currentInputs.rasterDescriptor,
+									receipt = capture.receipt
+								)
+							)
+						}
+						completeTarget(batch, target)
+					}
 					ReaderPageRasterPublicationResult.CapacityReached -> {
 						if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
 							finish(

@@ -4067,8 +4067,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 								interaction = ReaderPageInteractionState.BackgroundPrefetch,
 								reason = "deck-load-deferred:$request"
 							)
-						} else if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
-							// Rasters still generating: the deck reloads when preparation is Ready (#50).
+						} else if (
+							preparationPhase == ReaderPagePreparationPhase.Preparing ||
+							(
+								preparationPhase == ReaderPagePreparationPhase.Idle &&
+									readinessState.interaction ==
+									ReaderPageInteractionState.BlockingInitialPreparation
+							)
+						) {
+							// Rasters still generating, or the cold-open session not started yet: the
+							// deck reloads when preparation is Ready (#50).
 							updateReadiness(
 								textureDeck = ReaderTextureDeckState.Preparing,
 								interaction = blockingPreparationState(),

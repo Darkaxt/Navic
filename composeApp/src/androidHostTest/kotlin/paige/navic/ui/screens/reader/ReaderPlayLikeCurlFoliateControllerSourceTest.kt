@@ -195,6 +195,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 				0 until unavailable.indexOf("reason = \"deck-load-failed:${'$'}request\"")
 		)
 		assertContains(unavailable, "interaction = blockingPreparationState()")
+		// Cold open: a deck load before the session starts waits for preparation instead of Failed.
+		assertContains(unavailable, "preparationPhase == ReaderPagePreparationPhase.Idle &&")
+		assertContains(unavailable, "ReaderPageInteractionState.BlockingInitialPreparation")
 		assertContains(prepare, "pageIndices.joinToString")
 		assertContains(prepare, "elapsedMillis")
 		assertContains(prepare, "onProgress =")

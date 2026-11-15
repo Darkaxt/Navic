@@ -196,6 +196,17 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		cache.rollbackPublication(receipt)
 	}
 
+	fun aliasedKey(issuedDigest: String, token: String): ReaderPageRasterKey? =
+		withOpen<ReaderPageRasterKey?>(null) { cache.aliasedKey(issuedDigest, token) }
+
+	fun recordAlias(
+		realizedKey: ReaderPageRasterKey,
+		issuedDigest: String,
+		token: String
+	): Boolean = withOpen(false) {
+		cache.recordAlias(realizedKey, issuedDigest, token)
+	}
+
 	override fun remove(key: ReaderPageRasterKey): Boolean =
 		withOpen(false) { cache.remove(key) }
 

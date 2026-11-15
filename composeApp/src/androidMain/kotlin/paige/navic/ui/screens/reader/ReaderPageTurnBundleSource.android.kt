@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 import karacken.curl.PageSurfaceView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1074,6 +1075,12 @@ internal interface ReaderPageRasterHydrationStorePort {
 		key: ReaderPageRasterKey,
 		expectedMetadata: ReaderPageRasterMetadata
 	): Boolean
+	suspend fun aliasedKey(issuedDigest: String, token: String): ReaderPageRasterKey? = null
+	suspend fun recordAlias(
+		realizedKey: ReaderPageRasterKey,
+		issuedDigest: String,
+		token: String
+	): Boolean = false
 }
 
 internal fun interface ReaderPageRasterHydrationRequest {
@@ -1270,6 +1277,8 @@ internal class ReaderPageTurnBundleSource(
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
+	@Volatile
+	private var cachedRasterAliasInstallToken: String? = null
 
 	/** Rebinds persistence to the live engine WebView after it is replaced (renderer loss). */
 	fun bindForegroundWebView(webView: WebView) {
@@ -1480,6 +1489,65 @@ internal class ReaderPageTurnBundleSource(
 			reference = reference,
 			publicationFence = isStillCurrent,
 			onHydrated = onHydrated
+		)
+	}
+
+	/**
+	 * Finds the disk raster a receipt-verified capture of [plannedDescriptor] produced, so a
+	 * passive target can hydrate before rendering. Resolves on the main thread.
+	 */
+	fun lookupPassiveRasterAlias(
+		plannedDescriptor: ReaderPageRasterDescriptor,
+		onResolved: (ReaderPassiveRasterAliasLookup) -> Unit
+	) {
+		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow }
+		if (webView == null || closed) {
+			onResolved(
+				ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Unavailable)
+			)
+			return
+		}
+		val quality = bitmapQuality
+		val issuedDigest = plannedDescriptor.key(quality).digest
+		trackRasterPersistenceJob(
+			rasterScope.launch(start = CoroutineStart.UNDISPATCHED) {
+				val lookup = try {
+					readerPassiveRasterAliasLookup(
+						plannedDescriptor = plannedDescriptor,
+						quality = quality,
+						storedKey = persistentRasterAliasKey(webView, issuedDigest)
+					)
+				} catch (_: Throwable) {
+					ReaderPassiveRasterAliasLookup.Miss(ReaderPassiveRasterAliasMiss.Unavailable)
+				}
+				onResolved(lookup)
+			}
+		)
+	}
+
+	/** Records that a receipt-verified Durable [realizedDescriptor] raster serves [plannedDescriptor]. */
+	fun recordPassiveRasterAlias(
+		plannedDescriptor: ReaderPageRasterDescriptor,
+		realizedDescriptor: ReaderPageRasterDescriptor
+	) {
+		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow } ?: return
+		if (closed) return
+		val quality = bitmapQuality
+		val issuedDigest = plannedDescriptor.key(quality).digest
+		val realizedKey = realizedDescriptor.key(quality)
+		trackRasterPersistenceJob(
+			rasterScope.launch(start = CoroutineStart.UNDISPATCHED) {
+				val recorded = try {
+					recordPersistentRasterAlias(webView, realizedKey, issuedDigest)
+				} catch (_: Throwable) {
+					false
+				}
+				Logger.i(
+					ReaderPageTurnBundleSourceTag,
+					"Page raster alias recorded page=${realizedKey.visualPageOrdinal} " +
+						"recorded=$recorded"
+				)
+			}
 		)
 	}
 
@@ -2318,6 +2386,46 @@ internal class ReaderPageTurnBundleSource(
 		val store = persistentStore ?: return false
 		return withContext(Dispatchers.IO) { store.remove(key, expectedMetadata) }
 	}
+
+	// The injected port is a suspend API that owns its own dispatching; the production cache is
+	// blocking (it fsyncs the manifest under its lock), so it runs on IO and resumes on main.
+	private suspend fun persistentRasterAliasKey(
+		webView: WebView,
+		issuedDigest: String
+	): ReaderPageRasterKey? {
+		hydrationStorePort?.let { store ->
+			return store.aliasedKey(issuedDigest, rasterAliasInstallToken(webView))
+		}
+		rasterScheduler(webView)
+		val store = persistentStore ?: return null
+		return withContext(NonCancellable + Dispatchers.IO) {
+			store.aliasedKey(issuedDigest, rasterAliasInstallToken(webView))
+		}
+	}
+
+	private suspend fun recordPersistentRasterAlias(
+		webView: WebView,
+		realizedKey: ReaderPageRasterKey,
+		issuedDigest: String
+	): Boolean {
+		hydrationStorePort?.let { store ->
+			return store.recordAlias(realizedKey, issuedDigest, rasterAliasInstallToken(webView))
+		}
+		rasterScheduler(webView)
+		val store = persistentStore ?: return false
+		return withContext(NonCancellable + Dispatchers.IO) {
+			store.recordAlias(realizedKey, issuedDigest, rasterAliasInstallToken(webView))
+		}
+	}
+
+	/**
+	 * App install identity for raster aliases. CSS/JS/asset changes are in no fingerprint and debug
+	 * reinstalls keep versionCode, so the package update time retires every alias on any install.
+	 */
+	private fun rasterAliasInstallToken(webView: WebView): String =
+		cachedRasterAliasInstallToken ?: webView.context.applicationContext.let { context ->
+			context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime.toString()
+		}.also { token -> cachedRasterAliasInstallToken = token }
 
 	private fun isHydrationCurrent(hydration: InFlightRasterHydration): Boolean =
 		!closed &&

@@ -355,6 +355,49 @@ internal class ReaderPageRasterCache<T : Any>(
 		path.isFile && path.length() > 0L
 	}
 
+	/**
+	 * The full key of the raster a receipt-verified capture of [issuedDigest] produced, or null.
+	 * The alias lives on the manifest entry, so every removal path drops it with its raster.
+	 */
+	fun aliasedKey(issuedDigest: String, token: String): ReaderPageRasterKey? = synchronized(this) {
+		if (!storageAvailable) return@synchronized null
+		entries.values
+			.firstOrNull { entry -> entry.issuedDigest == issuedDigest }
+			?.takeIf { entry ->
+				entry.aliasToken == token &&
+					root.resolve(entry.rasterFileName).isRegularRaster(entry.byteSize)
+			}
+			?.key
+	}
+
+	fun recordAlias(
+		realizedKey: ReaderPageRasterKey,
+		issuedDigest: String,
+		token: String
+	): Boolean = synchronized(this) {
+		if (!storageAvailable) return@synchronized false
+		val entry = entries[realizedKey.digest]
+			?.takeIf { candidate -> candidate.key.identity == realizedKey.identity }
+			?: return@synchronized false
+		if (entry.issuedDigest == issuedDigest && entry.aliasToken == token) {
+			return@synchronized true
+		}
+		val updated = entries.mapValuesTo(
+			linkedMapOf<String, ReaderPageRasterManifestEntry>()
+		) { (digest, candidate) ->
+			when {
+				digest == realizedKey.digest ->
+					candidate.copy(issuedDigest = issuedDigest, aliasToken = token)
+				candidate.issuedDigest == issuedDigest ->
+					candidate.copy(issuedDigest = null, aliasToken = null)
+				else -> candidate
+			}
+		}
+		if (!manifest.write(updated.values)) return@synchronized false
+		entries.putAll(updated)
+		true
+	}
+
 	fun read(key: ReaderPageRasterKey): ReaderPageRaster<T>? {
 		if (!storageAvailable) return null
 		val decodedHit = synchronized(this) {

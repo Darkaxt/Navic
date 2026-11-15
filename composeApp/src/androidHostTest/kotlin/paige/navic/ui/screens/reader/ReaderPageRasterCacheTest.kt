@@ -1290,6 +1290,113 @@ class ReaderPageRasterCacheTest {
 		assertTrue(metrics.diskBytes <= metrics.diskByteLimit)
 	}
 
+	@Test
+	fun passiveRasterAliasRoundTripsThroughReopenedManifestUnderItsToken() {
+		val fixture = fixture()
+		val realized = key(chapterPageIndex = 1)
+		assertTrue(fixture.cache.write(realized, metadata(), pngBytes("a")))
+
+		assertTrue(fixture.cache.recordAlias(realized, "planned-a", "install-1"))
+		assertEquals(realized, fixture.cache.aliasedKey("planned-a", "install-1"))
+
+		val reopened = reopenedCache(fixture)
+		assertEquals(realized, reopened.aliasedKey("planned-a", "install-1"))
+		assertNull(reopened.aliasedKey("planned-a", "install-2"))
+		assertNull(reopened.aliasedKey("planned-b", "install-1"))
+	}
+
+	@Test
+	fun passiveRasterAliasRequiresTheRealizedRasterToBeStored() {
+		val fixture = fixture()
+
+		assertFalse(fixture.cache.recordAlias(key(chapterPageIndex = 1), "planned-a", "install-1"))
+		assertNull(fixture.cache.aliasedKey("planned-a", "install-1"))
+	}
+
+	@Test
+	fun passiveRasterAliasMovesExclusivelyToTheLatestRealizedRaster() {
+		val fixture = fixture()
+		val earlier = key(chapterPageIndex = 1)
+		val latest = key(chapterPageIndex = 2)
+		assertTrue(fixture.cache.write(earlier, metadata(), pngBytes("a")))
+		assertTrue(fixture.cache.write(latest, metadata(), pngBytes("b")))
+
+		assertTrue(fixture.cache.recordAlias(earlier, "planned-a", "install-1"))
+		assertTrue(fixture.cache.recordAlias(latest, "planned-a", "install-1"))
+
+		assertEquals(latest, fixture.cache.aliasedKey("planned-a", "install-1"))
+		assertEquals(latest, reopenedCache(fixture).aliasedKey("planned-a", "install-1"))
+		assertTrue(fixture.cache.remove(latest))
+		assertNull(fixture.cache.aliasedKey("planned-a", "install-1"))
+	}
+
+	@Test
+	fun passiveRasterAliasIsDroppedWithItsRemovedRaster() {
+		val fixture = fixture()
+		val realized = key(chapterPageIndex = 1)
+		assertTrue(fixture.cache.write(realized, metadata(), pngBytes("a")))
+		assertTrue(fixture.cache.recordAlias(realized, "planned-a", "install-1"))
+
+		assertTrue(fixture.cache.remove(realized))
+
+		assertNull(fixture.cache.aliasedKey("planned-a", "install-1"))
+		assertNull(reopenedCache(fixture).aliasedKey("planned-a", "install-1"))
+	}
+
+	@Test
+	fun passiveRasterAliasIsDroppedWhenDiskLruEvictsItsRaster() {
+		var now = 1_000L
+		val fixture = fixture(maxDiskBytes = 10L, maxDecodedEntries = 0, clock = { now++ })
+		val first = key(chapterPageIndex = 1)
+		assertTrue(fixture.cache.write(first, metadata(), pngBytes("a")))
+		assertTrue(fixture.cache.recordAlias(first, "planned-a", "install-1"))
+		assertTrue(fixture.cache.write(key(chapterPageIndex = 2), metadata(), pngBytes("b")))
+
+		assertTrue(fixture.cache.write(key(chapterPageIndex = 3), metadata(), pngBytes("c")))
+
+		assertFalse(fixture.cache.contains(first))
+		assertNull(fixture.cache.aliasedKey("planned-a", "install-1"))
+	}
+
+	@Test
+	fun passiveRasterAliasRequiresAnIntactRasterFile() {
+		val fixture = fixture()
+		val deleted = key(chapterPageIndex = 1)
+		val resized = key(chapterPageIndex = 2)
+		assertTrue(fixture.cache.write(deleted, metadata(), pngBytes("a")))
+		assertTrue(fixture.cache.write(resized, metadata(), pngBytes("b")))
+		assertTrue(fixture.cache.recordAlias(deleted, "planned-a", "install-1"))
+		assertTrue(fixture.cache.recordAlias(resized, "planned-b", "install-1"))
+
+		assertTrue(fixture.cache.pathFor(deleted).delete())
+		fixture.cache.pathFor(resized).appendBytes(byteArrayOf(1))
+
+		assertNull(fixture.cache.aliasedKey("planned-a", "install-1"))
+		assertNull(fixture.cache.aliasedKey("planned-b", "install-1"))
+	}
+
+	@Test
+	fun manifestWithoutPassiveRasterAliasFieldsStillLoads() {
+		val fixture = fixture()
+		val realized = key(chapterPageIndex = 1)
+		assertTrue(fixture.cache.write(realized, metadata(), pngBytes("a")))
+		assertFalse(fixture.cache.manifestPath().readText().contains("issuedDigest"))
+
+		val reopened = reopenedCache(fixture)
+
+		assertTrue(reopened.contains(realized))
+		assertTrue(reopened.recordAlias(realized, "planned-a", "install-1"))
+		assertEquals(realized, reopened.aliasedKey("planned-a", "install-1"))
+	}
+
+	private fun reopenedCache(fixture: CacheFixture): ReaderPageRasterCache<ByteArray> =
+		ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = 1_024L,
+			maxDecodedEntries = 0
+		)
+
 	private fun assertTrue(result: ReaderPageRasterWriteResult) {
 		kotlin.test.assertTrue(result.persisted)
 	}
