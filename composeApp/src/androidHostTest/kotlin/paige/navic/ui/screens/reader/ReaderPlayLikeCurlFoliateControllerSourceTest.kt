@@ -1874,7 +1874,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(unavailableDeck, "requestPrewarmIfIdle(")
 		assertContains(
 			prewarm,
-			"preparationPhase != ReaderPagePreparationPhase.Preparing",
+			"if (!preparationBlocksDeck())",
 			message = "Ready preparation may be stale for the newly committed protected window."
 		)
 		assertFalse(
@@ -1890,9 +1890,72 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter(") { encoded ->")
 			.substringBefore("val plan = readerPageRasterPreparationPlan(encoded)")
 
-		assertContains(callback, "preparationPhase == ReaderPagePreparationPhase.Preparing")
+		assertContains(callback, "if (preparationBlocksDeck())")
 		assertContains(callback, "\"preparation-in-progress-after-plan\"")
 		assertContains(callback, "return@evaluateJavascript")
+	}
+
+	@Test
+	fun backgroundSessionsNeverHoldTheCurlDeckOrTurnsBack() {
+		val source = controllerFile.readText()
+		val blocks = source
+			.substringAfter("private fun preparationBlocksDeck(): Boolean =")
+			.substringBefore("private fun requestPrewarmIfIdle(")
+		assertContains(blocks, "!retryPreparationInProgress")
+		assertContains(blocks, "!backgroundPreparationInProgress")
+		assertContains(
+			source,
+			"backgroundPreparationInProgress = readerPagePreparationIsBackground(state)"
+		)
+		// Pages stored by a background session complete a waiting refill page by page.
+		val preparing = source
+			.substringAfter("ReaderPagePreparationPhase.Preparing -> {")
+			.substringBefore("ReaderPagePreparationPhase.Idle -> Unit")
+		assertContains(preparing, "refillDecodedWorkingSet(centerOrdinal, \"raster-background-progress\")")
+		// Only chapter-entry preparation defers a refill until the whole session is ready.
+		assertContains(
+			source,
+			"preparationPhase == ReaderPagePreparationPhase.Preparing &&\n" +
+				"\t\t\t\t\t\t\t!backgroundPreparationInProgress &&"
+		)
+		// The deck gate is the only Preparing check left on refresh, recovery and prewarm.
+		val refresh = source
+			.substringAfter("private fun refreshPreparedDeck(planRetryAttempt: Int = 0)")
+			.substringBefore("val plan = readerPageRasterPreparationPlan(encoded)")
+		assertFalse(refresh.contains("ReaderPagePreparationPhase.Preparing"))
+	}
+
+	@Test
+	fun liveValidationRehydratesMissingSnapshotsInsteadOfInvalidatingTheTurn() {
+		val source = controllerFile.readText()
+		val validation = requiredFoliateSourceSlice(
+			source,
+			"hydrationBudget: Int\n\t): ReaderPageRelocationContentValidationHandle {",
+			"private fun retainInlineHandoffSnapshot("
+		)
+		// A five-entry snapshot cache shared with chapter prefetch can drop the turn's pages;
+		// missing evidence must come back from the persistent store, not block mid-chapter.
+		val targetMissing = validation
+			.substringAfter("if (expectedTarget == null) {")
+			.substringBefore("invalidateLivePresentation(request, \"target-snapshot\"")
+		assertContains(targetMissing, "if (hydrationBudget > 0)")
+		assertContains(targetMissing, "hydrateLivePresentationSnapshot(")
+		val sourceMissing = validation
+			.substringAfter("if (retained == null) {")
+			.substringBefore("invalidateLivePresentation(request, \"source-snapshot\"")
+		assertContains(sourceMissing, "hydrateLivePresentationSnapshot(")
+		val hydration = requiredFoliateSourceSlice(
+			source,
+			"private fun hydrateLivePresentationSnapshot(",
+			"private fun invalidateLivePresentation("
+		)
+		assertContains(hydration, "bundleSource.hydrateSnapshot(")
+		// The budget strictly decreases, so a hydrated page that is still absent ends in a miss.
+		assertContains(hydration, "validateLivePresentation(request, onValidated, hydrationBudget - 1)")
+		assertContains(hydration, "\"snapshot-hydration-miss\"")
+		assertContains(hydration, "hydrated?.release()")
+		assertContains(hydration, "reference.release()")
+		assertContains(hydration, "hydration.cancel()")
 	}
 
 	@Test

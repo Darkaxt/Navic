@@ -264,6 +264,9 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			fixture.deliverMatchingActiveDeckPrepared()
 			fixture.drainMainLooper()
 
+			// A stored window never starts another session; the host invalidates the
+			// current page raster (shell cover hidden), which must be rendered again.
+			fixture.controller.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 			fixture.startCurrentChapterPreparation()
 			val refill = assertNotNull(fixture.prewarm.active)
 			refill.onHydrationMiss(refill.targets.first())
@@ -648,6 +651,38 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun storedWindowDoesNotStartAnotherPreparationSession() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(
+			testScheduler = testScheduler
+		)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			val backgroundStarts = fixture.background.starts.size
+			val preparedStates = fixture.states.size
+
+			// Host content becomes ready again over the same, fully stored window.
+			assertTrue(fixture.controller.prewarmAdjacent())
+			testScheduler.advanceUntilIdle()
+			fixture.drainMainLooper()
+
+			assertNull(fixture.prewarm.active)
+			assertEquals(preparedStates, fixture.states.size)
+			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
+			// The adjacent-chapter prefetch keeps running instead of being cancelled.
+			assertEquals(backgroundStarts, fixture.background.starts.size)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun preparedChapterNeverShowsPreparationOrFailsMidChapter() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(
@@ -662,10 +697,13 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 			assertEquals(ReaderPagePreparationPhase.Ready, fixture.latestState.phase)
 			val preparedStates = fixture.states.size
 
-			// A per-turn background session fails, the next one is trimmed.
+			// A background session fails, the next one is trimmed. A stored window never
+			// starts a session, so each one follows an invalidated current page raster.
+			fixture.controller.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 			fixture.startCurrentChapterPreparation()
 			fixture.prewarm.completeFailed()
 			fixture.drainMainLooper()
+			fixture.controller.invalidateCurrentVisualSnapshot("shell-cover-hidden")
 			fixture.startCurrentChapterPreparation()
 			fixture.dispatchTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
 			fixture.drainMainLooper()
@@ -1259,7 +1297,9 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		val live = fixture.ownership.acquireLive(gestureId = 501L)
 		try {
 			val ownershipBefore = fixture.ownership.snapshot()
-			repeat(2) {
+			repeat(2) { attempt ->
+				// A stored window never starts a session; the repeat follows a layout change.
+				if (attempt > 0) fixture.controller.invalidate("size-changed")
 				fixture.startCurrentChapterPreparation()
 				fixture.completeCalibrationDurably()
 				fixture.completeBlockingWindowDurably()

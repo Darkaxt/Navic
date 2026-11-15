@@ -108,6 +108,14 @@ fun ReaderPagePreparationState.withRendererReadiness(
 	)
 )
 
+/**
+ * A session over an already-prepared chapter (per-turn window extension, boundary turn).
+ * It never shows preparation and never holds turns or the curl deck back.
+ */
+fun readerPagePreparationIsBackground(state: ReaderPagePreparationState): Boolean =
+	state.phase == ReaderPagePreparationPhase.Preparing &&
+		state.readiness.interaction == ReaderPageInteractionState.BackgroundPrefetch
+
 fun readerPagePreparationState(
 	phase: ReaderPagePreparationPhase,
 	preparationGeneration: Long = 0L,

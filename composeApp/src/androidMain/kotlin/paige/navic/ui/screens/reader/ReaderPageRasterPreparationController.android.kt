@@ -849,10 +849,13 @@ internal class ReaderPageRasterPreparationController(
 		cancelRasterRepairs("invalidate-current:$reason")
 		cancelPrewarm(reason = "invalidate-current:$reason")
 		val pageIndex = currentVisualPageIndex
+		// The invalidated raster is no longer stored, so the next session renders it again.
 		if (pageIndex == null) {
 			bundleSource.invalidate(reason)
+			durableRasterPageIndices.clear()
 		} else {
 			bundleSource.invalidatePage(pageIndex, reason)
+			durableRasterPageIndices -= pageIndex
 		}
 	}
 
@@ -918,6 +921,13 @@ internal class ReaderPageRasterPreparationController(
 				"blockingComplete=$requiredWindowDurable"
 		)
 		onRequestPrewarm()
+	}
+
+	private fun preparedWindowIsDurable(): Boolean {
+		if (!hasPreparedBefore || retryPreparationInProgress) return false
+		val pageIndex = currentVisualPageIndex ?: return false
+		val window = readerPageRasterBlockingWindow(pageIndex, preparedStep, preparedPageCount)
+		return window.isNotEmpty() && window.all(durableRasterPageIndices::contains)
 	}
 
 	fun attachRasterRepairQaFault(
@@ -1313,6 +1323,15 @@ internal class ReaderPageRasterPreparationController(
 			resumePrewarmAfterRasterRepairs = true
 			return true
 		}
+		if (preparedWindowIsDurable()) {
+			// Every page of the current window is already stored for this generation:
+			// a new session would only re-render them and gate the curl meanwhile.
+			logLoadingEvent(
+				event = "prepared-window-current",
+				detail = "page=$currentVisualPageIndex generation=${bundleSource.currentGeneration()}"
+			)
+			return true
+		}
 		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
 			?.takeIf { it.isAvailable }
 		if (!readerPageTurnCanStartPassivePrewarm(
@@ -1697,7 +1716,10 @@ internal class ReaderPageRasterPreparationController(
 		val blockingTargets = checkNotNull(plan.blockingTargetsOrNull()) {
 			"Accepted raster preparation plan lost its blocking window"
 		}
-		val followUpTargets = blockingTargets.filterNot { target -> target.pageIndex in calibratedPages }
+		// Pages already stored for this generation are not rendered again.
+		val followUpTargets = blockingTargets.filterNot { target ->
+			target.pageIndex in calibratedPages || target.pageIndex in durableRasterPageIndices
+		}
 		if (followUpTargets.isEmpty()) {
 			finishPrewarm(ReaderPageRasterBatchOutcome.Ready)
 			return
@@ -1712,8 +1734,8 @@ internal class ReaderPageRasterPreparationController(
 			)
 			return
 		}
-		val completedOffset = calibrationTargets.size
 		val totalRequired = blockingTargets.size
+		val completedOffset = totalRequired - followUpTargets.size
 		rasterPreparationRequired = totalRequired
 		publishPreparationState(ReaderPagePreparationPhase.Preparing)
 		startRasterBatch(

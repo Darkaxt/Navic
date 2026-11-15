@@ -274,6 +274,20 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun persistentHydrationReadNeverRetiresPublishedRasters() {
+		val source = readerSource("ReaderPageTurnBundleSource.android.kt")
+		val read = requiredReaderSourceSlice(
+			source,
+			"private suspend fun readPersistentRaster(",
+			"private suspend fun removePersistentRaster("
+		)
+		assertFalse(read.contains("activateProfile("))
+		val capacity = Regex("private const val MaxCachedRasterDescriptors = (\\d+)")
+			.find(source)?.groupValues?.get(1)?.toInt() ?: 0
+		assertTrue(capacity >= 96, "descriptor cache must cover prepared window + adjacent prefetch")
+	}
+
+	@Test
 	fun hydrationMissFallsThroughToPassiveCaptureWithoutChangingPresentationMode() {
 		val batch = readerRasterBatchSource()
 		val contract = batch.substringAfter(
@@ -527,6 +541,26 @@ class ReaderPageRasterPreparationSourceTest {
 		assertFalse(finish.contains("failCurrentPreparationGeneration(outcome.userMessage)"))
 		assertContains(finish, "val backgroundSession = hasPreparedBefore && !retryPreparationInProgress")
 		assertContains(finish, "\"background-session-failed\"")
+	}
+
+	@Test
+	fun sessionsRenderOnlyPagesThatAreNotStoredYet() {
+		val source = readerRasterPreparationSource()
+		val prewarm = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "fun prewarmAdjacent(): Boolean {",
+			endDelimiter = "val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()"
+		)
+		assertContains(prewarm, "if (preparedWindowIsDurable()) {")
+		assertContains(prewarm, "\"prepared-window-current\"")
+		assertFalse(prewarm.contains("beginBlockingBackgroundPrefetchSession()"))
+		val followUp = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "private fun startRasterFollowUp(",
+			endDelimiter = "private fun startRasterBatch("
+		)
+		assertContains(followUp, "target.pageIndex in durableRasterPageIndices")
+		assertContains(followUp, "val completedOffset = totalRequired - followUpTargets.size")
 	}
 
 	@Test

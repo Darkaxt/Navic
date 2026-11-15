@@ -146,7 +146,9 @@ private fun readerPassiveRasterSnapshot(
 	)
 }
 
-private const val MaxCachedRasterDescriptors = 32
+// Covers the prepared chapter window plus the adjacent-chapter prefetch; an evicted descriptor
+// falls back to an issued-plan key that can never match the published raster.
+private const val MaxCachedRasterDescriptors = 128
 private const val LiveValidationStripRows = 64
 private const val LiveValidationAbsoluteMeanDistance = 8.0
 private const val LiveValidationAbsoluteRmsDistance = 18.0
@@ -1917,6 +1919,7 @@ internal class ReaderPageTurnBundleSource(
 			!webView.isAttachedToWindow ||
 			!runCatching(publicationFence).getOrDefault(false)
 		) {
+			logHydrationMiss(pageIndex, "source-unavailable")
 			onHydrated(null)
 			return ReaderPageRasterHydrationRequest { }
 		}
@@ -1925,6 +1928,7 @@ internal class ReaderPageTurnBundleSource(
 			pageIndex = pageIndex,
 			kind = kind,
 			physicalLayout = readerPageRasterPhysicalLayout(reference) ?: run {
+				logHydrationMiss(pageIndex, "reference-layout-unavailable")
 				onHydrated(null)
 				return ReaderPageRasterHydrationRequest { }
 			},
@@ -1953,6 +1957,7 @@ internal class ReaderPageTurnBundleSource(
 		onHydrated: (ReaderPageSlideSnapshot?) -> Unit
 	): ReaderPageRasterHydrationRequest {
 		val physicalLayoutEpoch = admitPhysicalLayout(kind, physicalLayout) ?: run {
+			logHydrationMiss(pageIndex, "physical-layout-not-admitted")
 			onHydrated(null)
 			return ReaderPageRasterHydrationRequest { }
 		}
@@ -2053,6 +2058,13 @@ internal class ReaderPageTurnBundleSource(
 			request.identity.physicalLayoutEpoch != rasterPhysicalLayoutEpoch.get() ||
 			webView?.isAttachedToWindow != true
 		) {
+			logHydrationMiss(
+				request.identity.pageIndex,
+				"descriptor-rejected descriptor=${descriptor != null} " +
+					"ordinal=${descriptor?.visualPageOrdinal} " +
+					"generation=${request.identity.generation}/$activeGeneration " +
+					"layoutEpoch=${request.identity.physicalLayoutEpoch}/${rasterPhysicalLayoutEpoch.get()}"
+			)
 			recipients.forEach { recipient ->
 				deliverHydrationResult(recipient.callback, null)
 			}
@@ -2117,6 +2129,7 @@ internal class ReaderPageTurnBundleSource(
 		descriptorRequestTokens[request.identity]
 			?.takeIf { token -> token == requestToken }
 			?.let { descriptorRequestTokens.remove(request.identity) }
+		logHydrationMiss(request.identity.pageIndex, "descriptor-request-failed")
 		request.recipients.values.forEach { recipient ->
 			deliverHydrationResult(recipient.callback, null)
 		}
@@ -2132,8 +2145,17 @@ internal class ReaderPageTurnBundleSource(
 			val webView = hydration.webView.get() ?: return
 			raster = readPersistentRaster(webView, hydration.key)
 			if (!isHydrationCurrent(hydration)) return
-			val value = raster ?: return
-			if (value.key.identity != hydration.key.identity) return
+			val value = raster ?: run {
+				logHydrationMiss(
+					hydration.key.visualPageOrdinal,
+					"persistent-store-miss key=${hydration.key.digest.take(12)}"
+				)
+				return
+			}
+			if (value.key.identity != hydration.key.identity) {
+				logHydrationMiss(hydration.key.visualPageOrdinal, "persistent-identity-mismatch")
+				return
+			}
 			val bitmap = value.value
 			val leafGeometry = readerPageRasterLeafGeometry(
 				metadata = value.metadata,
@@ -2250,9 +2272,10 @@ internal class ReaderPageTurnBundleSource(
 		key: ReaderPageRasterKey
 	): ReaderPageRaster<Bitmap>? {
 		val injectedStore = hydrationStorePort
+		// A read never activates a retention profile: a fallback (issued-plan) descriptor has a
+		// different pagination fingerprint than published rasters and would retire all of them.
 		val productionStore = if (injectedStore == null) {
-			val scheduler = rasterScheduler(webView)
-			scheduler.activateProfile(key.profile)
+			rasterScheduler(webView)
 			persistentStore
 		} else {
 			null
@@ -2917,6 +2940,13 @@ internal class ReaderPageTurnBundleSource(
 				snapshotCache[key]
 				value
 			}
+	}
+
+	private fun logHydrationMiss(pageIndex: Int, reason: String) {
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page raster hydration miss page=$pageIndex reason=$reason"
+		)
 	}
 
 	private fun admitPhysicalLayout(

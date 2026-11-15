@@ -316,4 +316,30 @@ class ReaderPagePreparationPolicyTest {
 		assertEquals(ReaderPagePreparationPresentation.Compact, merged.presentation)
 		assertTrue(merged.retryable)
 	}
+
+	@Test
+	fun onlySessionsOverAPreparedChapterAreBackground() {
+		fun state(phase: ReaderPagePreparationPhase, interaction: ReaderPageInteractionState) =
+			readerPagePreparationState(
+				phase = phase,
+				requiredCount = 14,
+				completedCount = 3,
+				interactiveRequiredCount = 3,
+				interactiveCompletedCount = 3,
+				readiness = ReaderPageReadinessState(interaction = interaction)
+			)
+		assertTrue(
+			readerPagePreparationIsBackground(
+				state(ReaderPagePreparationPhase.Preparing, ReaderPageInteractionState.BackgroundPrefetch)
+			)
+		)
+		listOf(
+			ReaderPagePreparationPhase.Preparing to ReaderPageInteractionState.BlockingInitialPreparation,
+			ReaderPagePreparationPhase.Preparing to ReaderPageInteractionState.BlockingProfileRegeneration,
+			ReaderPagePreparationPhase.Ready to ReaderPageInteractionState.Ready,
+			ReaderPagePreparationPhase.Failed to ReaderPageInteractionState.Failed
+		).forEach { (phase, interaction) ->
+			assertFalse(readerPagePreparationIsBackground(state(phase, interaction)), "$phase/$interaction")
+		}
+	}
 }

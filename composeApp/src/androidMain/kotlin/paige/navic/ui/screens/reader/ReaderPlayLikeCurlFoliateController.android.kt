@@ -50,6 +50,7 @@ import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationState
+import paige.navic.reader.readerPagePreparationIsBackground
 import paige.navic.reader.ReaderPageGestureTerminalOutcome
 import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageRelocationDrain
@@ -870,6 +871,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var failedPreparationGeneration: Long? = null
 	private var activeDeckPreparationGeneration: Long? = null
 	private var retryPreparationInProgress = false
+	private var backgroundPreparationInProgress = false
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
@@ -1725,6 +1727,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		setPageOperationPolicy(state.operationPolicy)
 		preparationPhase = state.phase
+		backgroundPreparationInProgress = readerPagePreparationIsBackground(state)
 		if (!enabled || destroyed) return
 		logActivationState(
 			event = "preparation-state",
@@ -1788,6 +1791,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 						},
 						reason = "raster-background-prefetch"
 					)
+					// Each page stored by a background session may complete a refill that
+					// was waiting for it; turns never wait for the whole session.
+					if (backgroundPreparationInProgress && activePages != null) {
+						deferredDecodedRefillCenterOrdinal
+							?.takeIf { centerOrdinal -> centerOrdinal == currentOrdinal }
+							?.let { centerOrdinal ->
+								deferredDecodedRefillCenterOrdinal = null
+								refillDecodedWorkingSet(centerOrdinal, "raster-background-progress")
+							}
+					}
 				} else {
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Preparing,
@@ -2981,8 +2994,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			isAwaitingAuthoritativeRelocation() -> "awaiting-authoritative-relocation"
 			!capabilitiesAvailable -> "capabilities-unavailable"
 			!authoritativeLocationReady -> "authoritative-location-unavailable"
-			preparationPhase == ReaderPagePreparationPhase.Preparing &&
-				!retryPreparationInProgress -> "preparation-in-progress"
+			preparationBlocksDeck() -> "preparation-in-progress"
 			else -> null
 		}
 		if (gate != null) {
@@ -3022,10 +3034,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				logActivationState("refresh-gated", "stale-turn-request=$request")
 				return@evaluateJavascript
 			}
-			if (
-				preparationPhase == ReaderPagePreparationPhase.Preparing &&
-					!retryPreparationInProgress
-			) {
+			if (preparationBlocksDeck()) {
 				logActivationState("refresh-gated", "preparation-in-progress-after-plan")
 				return@evaluateJavascript
 			}
@@ -3389,6 +3398,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 							isCurrentRefill &&
 							activeDeckGenerationId != null &&
 							preparationPhase == ReaderPagePreparationPhase.Preparing &&
+							!backgroundPreparationInProgress &&
 							currentOrdinal == centerOrdinal
 					val needsCurrentWindowRetry =
 						isCurrentRefill &&
@@ -5073,6 +5083,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun validateLivePresentation(
 		request: ReaderPageRelocationRequest,
 		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
+	): ReaderPageRelocationContentValidationHandle =
+		validateLivePresentation(request, onValidated, hydrationBudget = 2)
+
+	private fun validateLivePresentation(
+		request: ReaderPageRelocationRequest,
+		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit,
+		hydrationBudget: Int
 	): ReaderPageRelocationContentValidationHandle {
 		val webView = webViewProvider()?.takeIf { it.isAttachedToWindow }
 		val generationOwner = generationOwners[request.textureGeneration]
@@ -5092,7 +5109,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				foregroundMutationGeneration
 			)
 		) {
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			invalidateLivePresentation(request, "preconditions", onValidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		val kind = profile.transitionKind()
@@ -5101,7 +5118,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				profile.sourcePageIndex(request.sourceOrdinal)
 		}.getOrNull()
 		if (snapshotPageIndices == null) {
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			invalidateLivePresentation(request, "source-index", onValidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		val expectedTarget = bundleSource.retainedCurrentLayoutSnapshot(
@@ -5111,7 +5128,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			expectedQuality = profile.quality
 		)
 		if (expectedTarget == null) {
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			if (hydrationBudget > 0) {
+				return hydrateLivePresentationSnapshot(
+					request = request,
+					webView = webView,
+					pageIndex = snapshotPageIndices.first,
+					kind = kind,
+					hydrationBudget = hydrationBudget,
+					onValidated = onValidated
+				)
+			}
+			invalidateLivePresentation(request, "target-snapshot", onValidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		val expectedSource = if (snapshotPageIndices.second == snapshotPageIndices.first) {
@@ -5125,7 +5152,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			if (retained == null) {
 				expectedTarget.release()
-				onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+				if (hydrationBudget > 0) {
+					return hydrateLivePresentationSnapshot(
+						request = request,
+						webView = webView,
+						pageIndex = snapshotPageIndices.second,
+						kind = kind,
+						hydrationBudget = hydrationBudget,
+						onValidated = onValidated
+					)
+				}
+				invalidateLivePresentation(request, "source-snapshot", onValidated)
 				return ReaderPageRelocationContentValidationHandle.Completed
 			}
 			retained
@@ -5139,7 +5176,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			expectedTarget.release()
 			expectedSource?.release()
-			onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
+			invalidateLivePresentation(request, "stale-after-snapshots", onValidated)
 			return ReaderPageRelocationContentValidationHandle.Completed
 		}
 		retainInlineHandoffSnapshot(request, expectedTarget)
@@ -5171,6 +5208,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 						ReaderPageRelocationContentValidationResult.Invalidated
 					}
 					if (fencedResult == ReaderPageRelocationContentValidationResult.Invalidated) {
+						Logger.w(
+							ReaderPlayLikeCurlFoliateControllerTag,
+							"PlayLikeCurl live validation invalidated target=${request.destinationOrdinal} " +
+								"reason=${if (result == fencedResult) "bundle" else "fence"}"
+						)
 						clearRetainedInlineHandoffSnapshot(request)
 					}
 					onValidated(fencedResult)
@@ -5180,6 +5222,68 @@ internal class ReaderPlayLikeCurlFoliateController(
 			clearRetainedInlineHandoffSnapshot(request)
 			throw failure
 		}
+	}
+
+	/**
+	 * The in-memory snapshot cache is small and shared with background prefetch, so a durable
+	 * page can be absent when its turn is validated. Missing evidence is rehydrated from the
+	 * persistent raster store instead of invalidating the turn (which would block the reader
+	 * mid-chapter); only a genuine hydration miss invalidates.
+	 */
+	private fun hydrateLivePresentationSnapshot(
+		request: ReaderPageRelocationRequest,
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		hydrationBudget: Int,
+		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
+	): ReaderPageRelocationContentValidationHandle {
+		val reference = bundleSource.retainedReferenceSnapshot(pageIndex, kind)
+		if (reference == null) {
+			invalidateLivePresentation(request, "snapshot-reference-unavailable", onValidated)
+			return ReaderPageRelocationContentValidationHandle.Completed
+		}
+		var cancelled = false
+		var next: ReaderPageRelocationContentValidationHandle? = null
+		val hydration = try {
+			bundleSource.hydrateSnapshot(
+				webView = webView,
+				pageIndex = pageIndex,
+				kind = kind,
+				reference = reference
+			) { hydrated ->
+				hydrated?.release()
+				if (cancelled) return@hydrateSnapshot
+				next = if (hydrated == null) {
+					invalidateLivePresentation(request, "snapshot-hydration-miss", onValidated)
+					ReaderPageRelocationContentValidationHandle.Completed
+				} else {
+					validateLivePresentation(request, onValidated, hydrationBudget - 1)
+				}
+			}
+		} finally {
+			reference.release()
+		}
+		return ReaderPageRelocationContentValidationHandle {
+			next?.cancel() ?: run {
+				cancelled = true
+				hydration.cancel()
+				true
+			}
+		}
+	}
+
+	private fun invalidateLivePresentation(
+		request: ReaderPageRelocationRequest,
+		reason: String,
+		onValidated: (ReaderPageRelocationContentValidationResult) -> Unit
+	) {
+		Logger.w(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl live validation invalidated target=${request.destinationOrdinal} " +
+				"reason=$reason activeDeck=$activeDeckGenerationId texture=${request.textureGeneration}"
+		)
+		onValidated(ReaderPageRelocationContentValidationResult.Invalidated)
 	}
 
 	private fun retainInlineHandoffSnapshot(
@@ -5465,6 +5569,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 			retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)
 			return
 		}
+		val state = relocationVisualState()
+		Logger.w(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl visual handoff invalidated reason=$reason " +
+				"target=${request.destinationOrdinal} webView=${state.webViewOrdinal} " +
+				"attached=${state.attached} resumed=${state.resumed} " +
+				"session=${state.foliateSessionId == request.foliateSessionId} " +
+				"raster=${request.rasterGeneration}/${state.rasterGeneration} " +
+				"texture=${request.textureGeneration}/${state.textureGeneration} " +
+				"activeDeck=$activeDeckGenerationId"
+		)
 		check(
 			relocationLiveDispatchCoordinator.fail(
 				request,
@@ -5823,6 +5938,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 						mutationGeneration.value
 					)
 				}
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl initial live page dispatched pageIndex=${request.pageIndex} " +
+						"currentOrdinal=$currentOrdinal webViewOrdinal=$currentWebViewOrdinal"
+				)
 				try {
 					webView.evaluateJavascript(
 						"window.NavicReaderBridge?.dispatch?.($command)"
@@ -6291,13 +6411,22 @@ internal class ReaderPlayLikeCurlFoliateController(
 					"visual-handoff-presentation-failed"
 			}
 		)
-		if (preparationPhase != ReaderPagePreparationPhase.Preparing) {
+		if (!preparationBlocksDeck()) {
 			refreshPreparedDeck()
 		}
 	}
 
+	/**
+	 * Only chapter-entry (cover) preparation holds the deck back. Background sessions over a
+	 * prepared chapter and retry sessions build from the pages already stored.
+	 */
+	private fun preparationBlocksDeck(): Boolean =
+		preparationPhase == ReaderPagePreparationPhase.Preparing &&
+			!retryPreparationInProgress &&
+			!backgroundPreparationInProgress
+
 	private fun requestPrewarmIfIdle(reason: String) {
-		if (preparationPhase != ReaderPagePreparationPhase.Preparing) {
+		if (!preparationBlocksDeck()) {
 			logActivationState("prewarm-requested", reason)
 			onRequestPrewarm()
 		} else {
