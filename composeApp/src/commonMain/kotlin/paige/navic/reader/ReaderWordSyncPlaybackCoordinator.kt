@@ -183,11 +183,10 @@ data class ReaderWordSyncPlaybackCoordinator(
 			)
 		val requestId = cueFragment.overlayRequestId
 		if (readerPreparedStart && !readerEvent) {
-			val chapterStart = candidate?.verified?.chapter?.ebookStart ?: 0
 			Logger.i(
 				WhispersyncSyncLogTag,
 				"WordSync prepared start visibleRaw=${preparedVisibleRange?.rawByteStart}..${preparedVisibleRange?.rawByteEnd} " +
-					"word=${candidate?.word?.ebookStart?.minus(chapterStart)}..${candidate?.word?.ebookEnd?.minus(chapterStart)} " +
+					"word=${candidate?.word?.ebookStart}..${candidate?.word?.ebookEnd} " +
 					"wordAudioMs=${candidate?.word?.audioStartMs} preparedMs=${preparedPlayback?.positionMs} " +
 					"livePlayback=${playback != null}"
 			)
@@ -470,6 +469,11 @@ data class ReaderWordSyncPlaybackCoordinator(
 			return ReaderWordSyncDecision(this, ReaderControllerStep(controller))
 		}
 		val descriptor = chapterProvenance.toReaderRawTextProvenanceDescriptor()
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"WordSync chapter verified spine=${chapter.spineIndex} ebook=${chapter.ebookStart}..${chapter.ebookEnd} " +
+				"descriptorBytes=${descriptor.byteLength}"
+		)
 		val sidecarInstalledReady =
 			controller.state.whispersync.sidecar?.referencedRawTextProvenanceDescriptors().orEmpty()
 				.any { it == descriptor } &&
@@ -664,10 +668,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val byteStart = range.rawByteStart ?: return null
 		val byteEnd = range.rawByteEnd?.takeIf { it > byteStart } ?: return null
 		val verified = chapters.values.singleOrNull { it.descriptor.id == provenanceId } ?: return null
-		val start = verified.chapter.ebookStart.toLong() + byteStart
-		val end = verified.chapter.ebookStart.toLong() + byteEnd
-		if (end > Int.MAX_VALUE) return null
-		val word = verified.chapter.firstMatchedWordInEbookRange(start.toInt(), end.toInt(), audioTrackIndex)
+		// WordSync offsets and raw provenance bytes share the document coordinate basis (#52).
+		val word = verified.chapter.firstMatchedWordInEbookRange(byteStart, byteEnd, audioTrackIndex)
 			?: return null
 		return ReaderWordSyncCandidate(verified, word)
 	}
@@ -717,9 +719,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 
 	private fun candidateForRawPoint(point: ReaderWordSyncRawPoint): ReaderWordSyncCandidate? {
 		val verified = chapters.values.singleOrNull { it.descriptor.id == point.provenanceId } ?: return null
-		val aggregateOffset = verified.chapter.ebookStart.toLong() + point.byteOffset
-		if (aggregateOffset > Int.MAX_VALUE) return null
-		val word = verified.chapter.wordAtEbookOffset(aggregateOffset.toInt()) ?: return null
+		val word = verified.chapter.wordAtEbookOffset(point.byteOffset) ?: return null
 		return ReaderWordSyncCandidate(verified, word)
 	}
 }
@@ -744,9 +744,8 @@ private data class ReaderWordSyncCandidate(
 		runtimeAudioResource: String? = null,
 		boundarySequence: Long? = null
 	): ReaderOverlayFragment {
-		val chapterStart = verified.chapter.ebookStart
-		val byteStart = word.ebookStart - chapterStart
-		val byteEnd = word.ebookEnd - chapterStart
+		val byteStart = word.ebookStart
+		val byteEnd = word.ebookEnd
 		val compatiblePlayback = playback?.takeIf {
 			it.audioTrackIndex == word.audioTrackIndex
 		}

@@ -26,7 +26,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 				spineIndex = chapter.spineIndex,
 				sourceHash = "sha256:${"b".repeat(64)}",
 				extractedTextHash = "sha256:${"c".repeat(64)}",
-				extractedByteLength = 9,
+				extractedByteLength = 109,
 				tokenCount = 3
 			)
 		)
@@ -320,8 +320,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		assertEquals(playback.audioResourceId, command.fragment.resourceHref)
 		assertEquals("Text/chapter.xhtml", command.fragment.textHref)
 		assertEquals(0L, command.fragment.wordBoundarySequence)
-		assertEquals(0, command.fragment.rawByteStart)
-		assertEquals(2, command.fragment.rawByteEnd)
+		assertEquals(100, command.fragment.rawByteStart)
+		assertEquals(102, command.fragment.rawByteEnd)
 		assertEquals(2, command.fragment.rawSpineIndex)
 
 		val boundaries = raw.coordinator.boundariesForPlayback(playback)
@@ -353,7 +353,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		)
 		val rawSeek = raw.coordinator.coordinateReaderEvent(
 			controllerStep = ReaderControllerStep(seekController, engineCommands = listOf(cue)),
-			rawPoint = ReaderWordSyncRawPoint(descriptor().id, byteOffset = 3)
+			rawPoint = ReaderWordSyncRawPoint(descriptor().id, byteOffset = 103)
 		)
 		assertEquals(
 			playback.audioResourceId,
@@ -502,8 +502,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			scheduled.controllerStep.engineCommands.single()
 		)
 		assertEquals(ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8, command.fragment.coordinateMode)
-		assertEquals(3, command.fragment.rawByteStart)
-		assertEquals(4, command.fragment.rawByteEnd)
+		assertEquals(103, command.fragment.rawByteStart)
+		assertEquals(104, command.fragment.rawByteEnd)
 		assertEquals(41, command.fragment.overlayRequestId)
 	}
 
@@ -696,8 +696,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			exact.controllerStep.engineCommands.single()
 		).fragment
-		assertEquals(3, fragment.rawByteStart)
-		assertEquals(4, fragment.rawByteEnd)
+		assertEquals(103, fragment.rawByteStart)
+		assertEquals(104, fragment.rawByteEnd)
 		assertEquals(1_300L, exact.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
 	}
 
@@ -722,8 +722,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 						visibleEnd = 30,
 						rawProvenanceId = descriptor().id,
 						rawSpineIndex = 2,
-						rawByteStart = 3,
-						rawByteEnd = 9,
+						rawByteStart = 103,
+						rawByteEnd = 109,
 						destinationCommitIdentity = commitIdentity
 					),
 					pendingAudioSeek = ReaderWhispersyncPendingAudioSeek(
@@ -742,8 +742,8 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
 			exact.controllerStep.engineCommands.single()
 		).fragment
-		assertEquals(3, fragment.rawByteStart)
-		assertEquals(4, fragment.rawByteEnd)
+		assertEquals(103, fragment.rawByteStart)
+		assertEquals(104, fragment.rawByteEnd)
 		assertEquals(1_300L, exact.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
 	}
 
@@ -786,7 +786,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 
 		val raw = ready.first.coordinateReaderEvent(
 			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(cueCommand())),
-			rawPoint = ReaderWordSyncRawPoint(descriptor().id, byteOffset = 3)
+			rawPoint = ReaderWordSyncRawPoint(descriptor().id, byteOffset = 103)
 		)
 
 		assertEquals(exactTrackIndex, raw.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.audioTrackIndex)
@@ -1006,7 +1006,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(cue)),
 			rawPoint = ReaderWordSyncRawPoint(
 				provenanceId = descriptor().id,
-				byteOffset = 3
+				byteOffset = 103
 			)
 		)
 

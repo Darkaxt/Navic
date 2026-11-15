@@ -491,11 +491,13 @@ export const retryReaderWordSyncOverlayFragment = (runtime, fragment) =>
 
 // A cue progress that cannot be shown or painted is rejected. One exact word progress that cannot
 // be resolved, shown or painted keeps the same-request presentation instead of tearing it down and
-// pausing playback (#24). Numeric trace only: reason,sequence,start,end,resolved.
+// pausing playback (#24). Numeric trace only: reason,sequence,start,end,resolved,failure,byteLength.
 export const refuseReaderWordSyncProgress = (runtime, fragment, rawMode, reason, previousFragment) => {
   if (!rawMode) return void runtime.rejectOverlayFragment(fragment, reason)
-  const resolved = runtime.rawTextProvenance.resolveRange(fragment) ? 1 : 0
-  log(`wordsync-progress-degraded:${reason},${fragment.wordBoundarySequence ?? -1},${fragment.rawByteStart ?? -1},${fragment.rawByteEnd ?? -1},${resolved}`)
+  const provenance = runtime.rawTextProvenance
+  const resolved = provenance.resolveRange(fragment) ? 1 : 0
+  const [failure, byteLength] = resolved ? [0, -1] : provenance.rangeFailure(fragment)
+  log(`wordsync-progress-degraded:${reason},${fragment.wordBoundarySequence ?? -1},${fragment.rawByteStart ?? -1},${fragment.rawByteEnd ?? -1},${resolved},${failure},${byteLength}`)
   if (!previousFragment || runtime.mediaOverlayActiveFragment === previousFragment) return
   runtime.paintActiveMediaOverlayFragment(previousFragment)
 }
@@ -1300,6 +1302,22 @@ export class ReaderWordSyncProvenanceStore {
       return null
     }
     return range.collapsed ? null : range
+  }
+
+  // Side-effect-free classification of an unresolved range (#52): 1 mode, 2 no document, 3 stale
+  // document, 4 href/spine, 5 start byte unmapped, 6 end byte unmapped, 7 progress byte unmapped.
+  rangeFailure(fragment) {
+    if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) return [1, -1]
+    const ready = this.readyById.get(fragment.rawProvenanceId)
+    if (!ready) return [2, -1]
+    const byteLength = ready.descriptor.byteLength ?? -1
+    if (!ready.valid) return [3, byteLength]
+    if (fragment.textHref !== ready.descriptor.href || fragment.rawSpineIndex !== ready.descriptor.spineIndex) return [4, byteLength]
+    if (!ready.projection.startPointByByte.has(fragment.rawByteStart)) return [5, byteLength]
+    if (!ready.projection.endPointByByte.has(fragment.rawByteEnd)) return [6, byteLength]
+    if (hasValue(fragment, 'rawProgressByteEnd') &&
+      !ready.projection.endPointByByte.has(fragment.rawProgressByteEnd)) return [7, byteLength]
+    return [0, byteLength]
   }
 
   resolvedRangeMatchesText(range, expectedText, fragment) {

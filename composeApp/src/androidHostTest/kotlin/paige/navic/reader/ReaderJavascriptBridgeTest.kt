@@ -187,10 +187,10 @@ class ReaderJavascriptBridgeTest {
 				description = "word sync degraded progress numeric trace",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",
-					message = "[NavicReader] wordsync-progress-degraded:progress-outside-visible-page,891,9120,9388,0 $messageCanary",
+					message = "[NavicReader] wordsync-progress-degraded:progress-outside-visible-page,891,9120,9388,0,5,41210 $messageCanary",
 					sourceId = sourceCanary
 				),
-				expected = "Reader console DEBUG: wordsync-progress-degraded:progress-outside-visible-page,891,9120,9388,0"
+				expected = "Reader console DEBUG: wordsync-progress-degraded:progress-outside-visible-page,891,9120,9388,0,5,41210"
 			),
 			ProjectionCase(
 				description = "word sync relayout anchor numeric trace",
