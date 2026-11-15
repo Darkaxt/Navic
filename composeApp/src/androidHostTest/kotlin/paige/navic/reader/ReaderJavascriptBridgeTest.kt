@@ -193,6 +193,15 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console DEBUG: wordsync-progress-degraded:progress-outside-visible-page,891,9120,9388,0"
 			),
 			ProjectionCase(
+				description = "word sync relayout anchor numeric trace",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-relayout-anchor:1 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: wordsync-relayout-anchor:1"
+			),
+			ProjectionCase(
 				description = "word sync degraded progress carrying text is redacted",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",

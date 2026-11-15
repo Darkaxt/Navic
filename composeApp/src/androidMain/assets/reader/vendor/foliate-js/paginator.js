@@ -1413,6 +1413,14 @@ export class Paginator extends HTMLElement {
     async scrollToAnchor(anchor, select) {
         return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
     }
+    // Navic #51: the next relayout restores this range (the live Whispersync word), not the
+    // first visible text. Only sets the anchor; the relayout's render scrolls to it.
+    anchorRelayoutToRange(range) {
+        if (!this.#view?.committed || !range?.startContainer?.isConnected ||
+            range.startContainer.ownerDocument !== this.#view.document) return false
+        this.#anchor = range
+        return true
+    }
     commitTextPageAnchor() {
         if (!Number.isInteger(Number(this.#anchor?.textPageIndex))) return false
         const range = this.#lastVisibleRange

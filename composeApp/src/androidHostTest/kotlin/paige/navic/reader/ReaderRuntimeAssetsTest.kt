@@ -1766,6 +1766,11 @@ class ReaderRuntimeAssetsTest {
 			resize.indexOf("this.destroyPageTurnPreviewRenderer('viewport-resize')") in 0 until
 				resize.indexOf("setStylesImportant(document.documentElement")
 		)
+		// #51: the live Whispersync word anchors the relayout before any layout change.
+		assertTrue(
+			resize.indexOf("anchorRelayoutToRange?.(liveRange)") in 0 until
+				resize.indexOf("setStylesImportant(document.documentElement")
+		)
 		assertTrue(
 			settings.indexOf("this.startCompletePaginationProfileReplacementAfterLayout('settings-change')") >
 				settings.indexOf("this.applyReaderViewportLayout('settings')")

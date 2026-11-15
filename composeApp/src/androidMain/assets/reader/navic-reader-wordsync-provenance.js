@@ -68,6 +68,19 @@ export const validatedReaderOverlayCoordinateMode = fragment => {
   return mode
 }
 
+// #51: while Whispersync presents a visible word, a relayout (rotation) restores the page holding it.
+export const readerLiveOverlayRelayoutRange = runtime => {
+  const fragment = runtime?.mediaOverlayActiveFragment
+  if (!fragment) return null
+  return routeReaderOverlayCoordinateMode(fragment, {
+    raw: () => runtime.rawTextProvenance?.rangeIsVisible?.(fragment, runtime.committedVisibleTextRange)
+      ? runtime.rawTextProvenance.resolveRange(fragment) || null
+      : null,
+    cue: () => runtime.mediaOverlayActiveRanges?.find(range => range && !range.collapsed) || null,
+    reject: () => null,
+  })
+}
+
 export const routeReaderOverlayCoordinateMode = (fragment, handlers) => {
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderWordSyncV1ExtractedUtf8Mode) return handlers.raw(fragment)
