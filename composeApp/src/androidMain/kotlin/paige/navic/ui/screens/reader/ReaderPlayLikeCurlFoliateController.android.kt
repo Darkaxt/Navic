@@ -5761,7 +5761,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				interaction = ReaderPageInteractionState.Failed,
 				reason = "visual-handoff-presentation-failed"
 			)
-			retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)
+			// #55: retry on the deck that is current now; a newer deck ends the head terminally.
+			relocationVisualState().textureGeneration
+				?.let(::retryRelocationVisualHandoffForPreparedDeck)
 			return
 		}
 		val state = relocationVisualState()

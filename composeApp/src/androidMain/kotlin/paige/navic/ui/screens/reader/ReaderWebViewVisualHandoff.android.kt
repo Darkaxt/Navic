@@ -1087,9 +1087,11 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		}
 		if (phase != Phase.Recovering) return false
 		if (presentationRecoveryPending) {
-			if (!event.matches(request) || !currentStateMatches(request)) return false
-			retainedRepreparedEvidence = null
-			return finalizePresentation(request)
+			if (event.matches(request) && currentStateMatches(request)) {
+				retainedRepreparedEvidence = null
+				return finalizePresentation(request)
+			}
+			return releaseSupersededPresentationRecovery(request, event)
 		}
 		if (
 			!contentValidationExhausted &&
@@ -1130,6 +1132,33 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 			is ReaderPageRelocationVisualRetryEvent.Resumed ->
 				replayRetainedRepreparedEvidence(request, event)
 		}
+	}
+
+	/**
+	 * #55: a presentation recovery can only finalize on the deck generation it was dispatched
+	 * for. Generation ids only grow, so once the renderer has prepared a newer deck the original
+	 * never returns; end the head through the terminal route (which re-prepares) instead of
+	 * parking in Recovering with input suppressed.
+	 */
+	private fun releaseSupersededPresentationRecovery(
+		request: ReaderPageRelocationRequest,
+		event: ReaderPageRelocationVisualRetryEvent
+	): Boolean {
+		if (
+			event !is ReaderPageRelocationVisualRetryEvent.Reprepared ||
+			event.matchesGenerations(request) ||
+			!repreparedEvidenceMatches(
+				request = request,
+				reprepared = event,
+				state = currentState(),
+				requireLifecycleReady = true
+			)
+		) {
+			return false
+		}
+		retainedRepreparedEvidence = null
+		releaseRejectedContent(request, ReaderWebViewVisualHandoffFailure.PresentationFailed)
+		return true
 	}
 
 	private fun retainRepreparedEvidenceIfCurrent(

@@ -1091,124 +1091,137 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
-	fun differentGenerationPresentationRecoveryCannotReplaceExactLiveOwner() {
+	fun differentGenerationPresentationRecoveryReleasesHeadTerminallyWithoutReplacement() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 3L)
-		var passiveAvailableEdges = 0
-		val ownership = ReaderForegroundWebViewOwnership {
-			passiveAvailableEdges += 1
-		}
-		val claim = ownership.acquireLive(request.gestureId)
-		val liveDispatch = ReaderPageRelocationLiveDispatchCoordinator(
-			foregroundWebViewOwnership = ownership,
-			isDispatchCurrent = { true },
-			dispatchExact = { _, _ -> ReaderPageRelocationExactDispatchResult.Dispatched },
-			onRejected = { _, reason -> error("Unexpected rejection: $reason") }
-		)
-		assertTrue(liveDispatch.transfer(request, claim))
-		assertTrue(liveDispatch.dispatch(request))
-		val mutationGeneration = checkNotNull(liveDispatch.mutationGeneration(request))
 		acknowledgeForVisualHandoff(queue, request)
-
 		val host = FakeVisualHandoffHost(attached = true)
 		var state = visualStateFor(request)
 		val finalizers = mutableListOf<(Boolean) -> Unit>()
-		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
 		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
 		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val replaced = mutableListOf<ReaderPageRelocationRequest>()
+		val released = mutableListOf<Pair<ReaderPageRelocationRequest, ReaderWebViewVisualHandoffFailure>>()
 		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
 			queue = queue,
 			host = host,
 			currentState = { state },
-			dispatch = { replacement ->
-				dispatched += replacement
-				assertTrue(liveDispatch.dispatch(replacement))
-			},
+			dispatch = dispatched::add,
 			publishRecovery = { _, reason -> recoveries += reason },
-			finalizePresentation = { finalizingRequest, onFinalized ->
-				assertEquals(
-					mutationGeneration,
-					liveDispatch.mutationGeneration(finalizingRequest)
-				)
-				finalizers += onFinalized
-			},
-			validateContent = { validatingRequest, onValidated ->
-				assertTrue(liveDispatch.isCurrent(validatingRequest, mutationGeneration))
+			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
+			validateContent = { _, onValidated ->
 				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
 				ReaderPageRelocationContentValidationHandle.Completed
 			},
-			onCompleted = { completedRequest ->
-				assertTrue(liveDispatch.complete(completedRequest))
-				completed += completedRequest
-			},
-			onReplaced = { original, replacement ->
-				assertTrue(liveDispatch.replace(original, replacement))
-			}
+			onCompleted = { completed += it },
+			onRejectedContentReleased = { head, reason -> released += head to reason },
+			onReplaced = { original, _ -> replaced += original }
 		)
 
 		assertTrue(coordinator.onAcknowledged(request))
 		host.completeVisualState()
 		host.runNextFrame()
 		val failedFinalizer = finalizers.single()
+		// The renderer recovered onto a newer deck while the exposure was being finalized.
 		state = state.copy(
 			rasterGeneration = request.rasterGeneration + 1L,
 			textureGeneration = request.textureGeneration + 1L
 		)
-		val differentGenerationEvent = ReaderPageRelocationVisualRetryEvent.Reprepared(
+		val newerDeck = ReaderPageRelocationVisualRetryEvent.Reprepared(
 			foliateSessionId = request.foliateSessionId,
 			destinationOrdinal = request.destinationOrdinal,
 			rasterGeneration = checkNotNull(state.rasterGeneration),
 			textureGeneration = checkNotNull(state.textureGeneration)
 		)
-		assertFalse(coordinator.onRetryEvent(differentGenerationEvent))
+		assertFalse(coordinator.onRetryEvent(newerDeck))
 		failedFinalizer(false)
-		assertEquals(
-			listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed),
-			recoveries
-		)
-		assertFalse(coordinator.onRetryEvent(differentGenerationEvent))
+		assertEquals(listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed), recoveries)
 		assertEquals(request, queue.head())
-		assertTrue(dispatched.isEmpty())
-		assertEquals(mutationGeneration, liveDispatch.mutationGeneration(request))
-		assertEquals(1, ownership.snapshot().liveClaims)
-		assertNull(
-			ownership.tryAcquirePassive(sessionId = 95L) {
-				error("Different-generation recovery must retain exact live ownership")
-			}
-		)
-		assertTrue(completed.isEmpty())
-		assertEquals(0, passiveAvailableEdges)
 
+		// The controller retries on the current deck; the original generation never returns,
+		// so the head ends terminally instead of staying parked with input suppressed.
+		assertTrue(coordinator.onRetryEvent(newerDeck))
+
+		assertEquals(
+			listOf(request to ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			released
+		)
+		assertNull(queue.head())
+		assertTrue(dispatched.isEmpty())
+		assertTrue(replaced.isEmpty())
+		assertTrue(completed.isEmpty())
+		assertEquals(0, coordinator.pendingCallbackCount())
 		failedFinalizer(true)
-		assertEquals(request, queue.head())
-		assertEquals(1, ownership.snapshot().liveClaims)
-		state = visualStateFor(request)
+		assertTrue(completed.isEmpty())
+		assertFalse(coordinator.onRetryEvent(newerDeck))
+	}
+
+	@Test
+	fun presentationRecoveryOnlyPreparedOnANewerDeckDispatchesTheNextQueuedTurn() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 3L)
+		acknowledgeForVisualHandoff(queue, request)
+		val host = FakeVisualHandoffHost(attached = true)
+		var state = visualStateFor(request)
+		val finalizers = mutableListOf<(Boolean) -> Unit>()
+		val recoveries = mutableListOf<ReaderWebViewVisualHandoffFailure>()
+		val dispatched = mutableListOf<ReaderPageRelocationRequest>()
+		val replaced = mutableListOf<ReaderPageRelocationRequest>()
+		val released = mutableListOf<Pair<ReaderPageRelocationRequest, ReaderWebViewVisualHandoffFailure>>()
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = dispatched::add,
+			publishRecovery = { _, reason -> recoveries += reason },
+			finalizePresentation = { _, onFinalized -> finalizers += onFinalized },
+			validateContent = { _, onValidated ->
+				onValidated(ReaderPageRelocationContentValidationResult.Accepted)
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onRejectedContentReleased = { head, reason -> released += head to reason },
+			onReplaced = { original, _ -> replaced += original }
+		)
+
+		assertTrue(coordinator.onAcknowledged(request))
+		host.completeVisualState()
+		host.runNextFrame()
+		val queued = enqueueVisualRequest(
+			queue = queue,
+			gestureId = 4L,
+			sourceOrdinal = 4,
+			destinationOrdinal = 5,
+			rasterGeneration = 11L,
+			textureGeneration = 21L
+		)
+		// Exposure fails while the original deck is still active, then only a newer deck is
+		// prepared (the emulator stall: deck recovery during the finalizing crossfade).
+		finalizers.single().invoke(false)
+		assertEquals(listOf(ReaderWebViewVisualHandoffFailure.PresentationFailed), recoveries)
+		state = state.copy(
+			rasterGeneration = request.rasterGeneration + 1L,
+			textureGeneration = request.textureGeneration + 1L
+		)
+
 		assertTrue(
 			coordinator.onRetryEvent(
 				ReaderPageRelocationVisualRetryEvent.Reprepared(
 					foliateSessionId = request.foliateSessionId,
 					destinationOrdinal = request.destinationOrdinal,
-					rasterGeneration = request.rasterGeneration,
-					textureGeneration = request.textureGeneration
+					rasterGeneration = checkNotNull(state.rasterGeneration),
+					textureGeneration = checkNotNull(state.textureGeneration)
 				)
 			)
 		)
-		assertEquals(2, finalizers.size)
-		assertEquals(mutationGeneration, liveDispatch.mutationGeneration(request))
-		assertNull(
-			ownership.tryAcquirePassive(sessionId = 96L) {
-				error("Exact retry must retain live ownership until exposure commits")
-			}
+
+		assertEquals(
+			listOf(request to ReaderWebViewVisualHandoffFailure.PresentationFailed),
+			released
 		)
-
-		val currentFinalizer = finalizers.last()
-		currentFinalizer(true)
-		currentFinalizer(true)
-
-		assertNull(queue.head())
-		assertEquals(listOf(request), completed)
-		assertEquals(0, ownership.snapshot().liveClaims)
-		assertEquals(1, passiveAvailableEdges)
+		assertTrue(replaced.isEmpty())
+		assertEquals(queued, queue.head())
+		assertEquals(listOf(queued), dispatched)
 	}
 
 	@Test

@@ -870,7 +870,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertFalse(presentationRecovery.contains("requestLivePresentationRecovery(reason)"))
 		assertContains(
 			presentationRecovery,
-			"retryRelocationVisualHandoffForPreparedDeck(request.textureGeneration)"
+			"relocationVisualState().textureGeneration\n\t\t\t\t?.let(::retryRelocationVisualHandoffForPreparedDeck)"
 		)
 		assertContains(
 			controllerCompletion,
