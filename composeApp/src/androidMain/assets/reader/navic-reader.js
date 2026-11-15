@@ -466,6 +466,12 @@ class NavicReaderRuntime {
         const result = identityMatches
           ? this.rawTextProvenance.validateCanonicalCues(command.cues)
           : { status: 'rejected', reason: 'invalid-cue' }
+        if (result.status !== 'ready') {
+          console.warn(`[NavicWhispersync] canonical preflight rejected reason=${result.reason} ` +
+            `identityMatches=${identityMatches} commandSequence=${Number(destination?.commitSequence)} ` +
+            `currentSequence=${this.destinationCommitSequence} ` +
+            `sessionMatches=${destination?.foliateSessionId === this.foliateSessionId} cues=${command.cues?.length}`)
+        }
         post({
           type: 'whispersyncCanonicalPreflightResult',
           revisionDigest: String(command.revisionDigest || ''),

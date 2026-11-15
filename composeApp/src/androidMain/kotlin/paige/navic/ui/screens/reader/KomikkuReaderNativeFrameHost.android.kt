@@ -1740,6 +1740,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		pageTurnReadingDirection = normalized
+		playLikeCurlController.pageTurnRightToLeft = normalized == "rtl"
 		playLikeCurlController.invalidate(
 			reason = "reading-direction",
 			profileRegeneration = true

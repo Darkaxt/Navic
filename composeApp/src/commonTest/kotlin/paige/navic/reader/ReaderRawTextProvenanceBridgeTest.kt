@@ -801,6 +801,95 @@ class ReaderRawTextProvenanceBridgeTest {
 	}
 
 	@Test
+	fun navigationIntentFollowsSettleCommitSoTocLandingAlwaysGetsAPreflight() {
+		val sidecar = publicSyntheticCanonicalSidecar()
+		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
+		val segment = sidecar.timeline.segments.single()
+		val firstCommit = ReaderDestinationCommitIdentity("public-synthetic-session", 31L)
+		val settleCommit = ReaderDestinationCommitIdentity("public-synthetic-session", 32L)
+		val opened = ReaderController().open(openRequest()).controller
+		val loaded = opened.copy(
+			state = opened.state.copy(destinationCommitIdentity = firstCommit)
+		).loadWhispersyncSidecar(sidecar).controller
+		val provenanceReady = loaded.onEngineEvent(
+			ReaderEngineEvent.RawTextProvenanceStatusChanged(
+				provenanceId = descriptor.id,
+				status = RawTextProvenanceStatus.Ready
+			)
+		).controller
+		fun range(destination: ReaderDestinationCommitIdentity, causalSequence: Long?) =
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = segment.textHref,
+				visibleStart = 0,
+				visibleEnd = 24,
+				rawProvenanceId = descriptor.id,
+				rawSpineIndex = descriptor.spineIndex,
+				rawByteStart = requireNotNull(segment.textStart),
+				rawByteEnd = requireNotNull(segment.textEnd),
+				causalSequence = causalSequence,
+				destinationCommitIdentity = destination
+			)
+		val navigating = provenanceReady.copy(
+			state = provenanceReady.state.copy(
+				whispersync = provenanceReady.state.whispersync.copy(
+					pendingCausalIntent = ReaderWhispersyncCausalIntent(
+						sequence = 9L,
+						provenance = ReaderWhispersyncEventProvenance.UserNavigation,
+						destinationCommitted = true,
+						destinationCommitIdentity = firstCommit
+					)
+				)
+			)
+		)
+		val firstRange = navigating.onEngineEvent(range(firstCommit, causalSequence = 9L))
+		val firstRequest = requireNotNull(firstRange.controller.state.whispersync.canonicalPreflight).request
+		assertEquals(firstCommit, firstRequest.destinationCommitIdentity)
+
+		// The settle relocation commits again before the first preflight answers.
+		val settled = firstRange.controller.copy(
+			state = firstRange.controller.state.copy(destinationCommitIdentity = settleCommit)
+		)
+		val settleRange = settled.onEngineEvent(range(settleCommit, causalSequence = null))
+		assertEquals(
+			listOf("ValidateWhispersyncCanonicalCues"),
+			settleRange.engineCommands.mapNotNull { it::class.simpleName }
+		)
+		val settleRequest = requireNotNull(settleRange.controller.state.whispersync.canonicalPreflight).request
+		assertEquals(settleCommit, settleRequest.destinationCommitIdentity)
+		assertEquals(settleCommit, settleRange.controller.state.whispersync.pendingCausalIntent?.destinationCommitIdentity)
+
+		// The engine answers the superseded request as stale; it must not disturb the live preflight.
+		val staleAnswer = settleRange.controller.onEngineEvent(
+			requireNotNull(
+				canonicalPreflightEngineEvent(
+					sidecar = sidecar,
+					descriptor = descriptor,
+					destination = firstCommit,
+					validationGeneration = firstRequest.validationGeneration,
+					status = "rejected",
+					reason = "invalid-cue"
+				)
+			)
+		).controller
+		assertEquals(settleRange.controller, staleAnswer)
+
+		val ready = staleAnswer.onEngineEvent(
+			requireNotNull(
+				canonicalPreflightEngineEvent(
+					sidecar = sidecar,
+					descriptor = descriptor,
+					destination = settleCommit,
+					validationGeneration = settleRequest.validationGeneration,
+					status = "ready"
+				)
+			)
+		).controller
+		assertEquals(settleCommit, ready.state.whispersync.preparedVisibleTarget?.destinationCommitIdentity)
+		assertNull(ready.state.whispersync.pendingCausalIntent)
+		assertEquals(ReaderWhispersyncEventProvenance.UserNavigation, ready.state.whispersync.lastEventProvenance)
+	}
+
+	@Test
 	fun canonicalTerminalRecoveryWaitsForResyncFreshRawRangeAndAcceptedPreflight() {
 		val sidecar = publicSyntheticCanonicalSidecar()
 		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()

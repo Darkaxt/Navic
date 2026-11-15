@@ -126,6 +126,23 @@ internal fun readerPlayLikeCurlTurnAdmissionAvailable(
 	otherwiseAvailable: Boolean
 ): Boolean = otherwiseAvailable && !relocationQueue.hasInFlightHead()
 
+/**
+ * A swipe that begins while the previous relocation is still in flight is not
+ * dropped: its logical direction is resolved on release and the turn replays
+ * once the in-flight head settles (#44).
+ */
+internal const val ReaderDeferredSwipeQueueLimit = 3
+
+internal fun readerDeferredSwipePageChange(
+	deltaX: Float,
+	minimumDistance: Float,
+	rightToLeft: Boolean
+): PageChange? = when {
+	kotlin.math.abs(deltaX) < minimumDistance -> null
+	(deltaX < 0f) != rightToLeft -> PageChange.NEXT
+	else -> PageChange.PREVIOUS
+}
+
 internal fun readerTerminalContentFailureRecoveryStillCurrent(
 	destroyed: Boolean,
 	failedGenerationMatches: Boolean,
@@ -882,8 +899,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var currentProtectedWindow = emptyList<Int>()
 	private val rasterRepairRequests = ReaderPlayLikeCurlRasterRepairRegistry()
 	private val relocationQueue = ReaderPageRelocationQueue(
-		onOwnershipMutated = onOwnershipMutated
+		onOwnershipMutated = {
+			onOwnershipMutated()
+			if (queuedDeferredSwipes.isNotEmpty()) {
+				mainHandler.post { replayDeferredSwipeIfReady() }
+			}
+		}
 	)
+
+	private class DeferredSwipe(val gestureId: Long, val downX: Float) {
+		var pageChange: PageChange? = null
+	}
+
+	private var trackingDeferredSwipe: DeferredSwipe? = null
+	private val queuedDeferredSwipes = ArrayDeque<DeferredSwipe>()
+	private val deferredSwipeMinimumDistance =
+		android.view.ViewConfiguration.get(host.context).scaledTouchSlop.toFloat()
+	var pageTurnRightToLeft: Boolean = false
 	private val relocationDiagnosticStarts = mutableMapOf<String, Long>()
 	private val relocationQaFaultCorrelations =
 		ReaderPageRelocationQaFaultCorrelationStore()
@@ -1533,6 +1565,90 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 		)
 
+	// A swipe can wait for the turn in front of it (its settling relocation and the working-set
+	// refill that follows) but never for a failed, detached or recovering presentation.
+	private fun canDeferSwipe(): Boolean =
+		readerPageLivePresentationAvailable(
+			hasFailedLivePresentation = failedLivePresentationGeneration != null,
+			otherwiseAvailable = enabled && attached && deckRecoveryCoordinator.canAcceptPointer
+		)
+
+	private fun isTurnStillSettling(): Boolean =
+		relocationQueue.hasInFlightHead() ||
+			readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet
+
+	private fun onDeferredSwipeEvent(
+		deferred: DeferredSwipe,
+		event: MotionEvent
+	): ReaderPageCurlDispatchResult {
+		if (deferred.pageChange != null) return ReaderPageCurlDispatchResult.Accepted
+		when (event.actionMasked) {
+			MotionEvent.ACTION_UP -> {
+				val pageChange = readerDeferredSwipePageChange(
+					deltaX = event.x - deferred.downX,
+					minimumDistance = deferredSwipeMinimumDistance,
+					rightToLeft = pageTurnRightToLeft
+				)
+				if (pageChange == null) {
+					rejectDeferredSwipe(deferred)
+					return ReaderPageCurlDispatchResult.TerminalPublished
+				}
+				trackingDeferredSwipe = null
+				deferred.pageChange = pageChange
+				queuedDeferredSwipes.addLast(deferred)
+				Logger.i(
+					ReaderPlayLikeCurlFoliateControllerTag,
+					"PlayLikeCurl deferred swipe queued gesture=${deferred.gestureId} change=$pageChange"
+				)
+				replayDeferredSwipeIfReady()
+			}
+			MotionEvent.ACTION_CANCEL -> {
+				rejectDeferredSwipe(deferred)
+				return ReaderPageCurlDispatchResult.TerminalPublished
+			}
+		}
+		return ReaderPageCurlDispatchResult.Accepted
+	}
+
+	private fun rejectDeferredSwipe(deferred: DeferredSwipe) {
+		if (trackingDeferredSwipe === deferred) trackingDeferredSwipe = null
+		check(
+			publishGestureTerminal(
+				deferred.gestureId,
+				ReaderPageGestureTerminalOutcome.RejectedRendererUnavailable,
+				ReaderPageGestureTerminalDetail.TouchRejected(MotionEvent.ACTION_DOWN)
+			)
+		) { "Deferred swipe terminal was not published" }
+		hideSurfaceAfterGesture(deferred.gestureId)
+	}
+
+	/**
+	 * Replays released deferred swipes in order, one animated turn per settled
+	 * head. While the presentation is only rebuilding after that turn (relocation,
+	 * refill, working-set repair) the queue waits; every readiness transition,
+	 * policy update, queue mutation and gesture terminal re-checks it. Hard
+	 * blockers (disabled, detached, failed live presentation) stop the wait and
+	 * [startTapTurn] publishes the ordinary rejection, so every deferred swipe
+	 * reaches a terminal.
+	 */
+	private fun replayDeferredSwipeIfReady() {
+		if (destroyed) {
+			queuedDeferredSwipes.clear()
+			trackingDeferredSwipe = null
+			return
+		}
+		if (activeGestureId != null || queuedDeferredSwipes.isEmpty()) return
+		val hardBlocked = !enabled || !attached || failedLivePresentationGeneration != null
+		if (!hardBlocked && (isTurnStillSettling() || !isAvailable)) return
+		val deferred = queuedDeferredSwipes.removeFirst()
+		val pageChange = checkNotNull(deferred.pageChange)
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl deferred swipe replayed gesture=${deferred.gestureId} change=$pageChange"
+		)
+		startTapTurn(pageChange, deferred.gestureId)
+	}
+
 	private val canPresentAcceptedGesture: Boolean
 		get() = enabled && attached && (
 			pageOperationPolicy.continueActivePointer ||
@@ -1541,6 +1657,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun setPageOperationPolicy(policy: ReaderPageOperationPolicy) {
 		pageOperationPolicy = policy
+		if (queuedDeferredSwipes.isNotEmpty()) {
+			mainHandler.post { replayDeferredSwipeIfReady() }
+		}
 	}
 
 	fun setWhispersyncOverlay(
@@ -1896,6 +2015,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		gestureId: Long
 	): ReaderPageCurlDispatchResult {
 		if (event.actionMasked != MotionEvent.ACTION_DOWN) {
+			val deferred = trackingDeferredSwipe
+			if (deferred != null && deferred.gestureId == gestureId) {
+				return onDeferredSwipeEvent(deferred, event)
+			}
 			surfaceView.onPageTouchEvent(event, gestureId)
 			if (event.actionMasked == MotionEvent.ACTION_MOVE) {
 				revealSurfaceAfterNextPresentedFrame(gestureId)
@@ -1904,8 +2027,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 
 		releaseInitialLivePresentationAuthority()
-		activeGestureId = gestureId
+		trackingDeferredSwipe?.takeIf { it.gestureId != gestureId }?.let(::rejectDeferredSwipe)
 		val metadata = relocationMetadata(gestureId)
+		// Swipes made while a turn is still settling keep their order behind it.
+		if (
+			metadata != null &&
+			queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit &&
+			(isTurnStillSettling() || queuedDeferredSwipes.isNotEmpty()) &&
+			canDeferSwipe()
+		) {
+			trackingDeferredSwipe = DeferredSwipe(gestureId, event.x)
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl swipe deferred behind in-flight relocation gesture=$gestureId"
+			)
+			return ReaderPageCurlDispatchResult.Accepted
+		}
+		activeGestureId = gestureId
 		if (!isAvailable || metadata == null) {
 			val detail = ReaderPageGestureTerminalDetail.TouchRejected(event.actionMasked)
 			check(
@@ -6393,6 +6531,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"interaction=${previous.interaction}->${next.interaction} reason=$reason"
 		)
 		onReadinessStateChange(next)
+		if (queuedDeferredSwipes.isNotEmpty()) {
+			mainHandler.post { replayDeferredSwipeIfReady() }
+		}
 	}
 
 	private fun requestLivePresentationRecovery(
@@ -6556,6 +6697,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			else -> tapSink(outcome, detail)
 		}
 		if (activeGestureEnded && activeGestureId == null) {
+			if (queuedDeferredSwipes.isNotEmpty()) {
+				mainHandler.post { replayDeferredSwipeIfReady() }
+			}
 			scheduleRecoveredDeckSubmissionRetry()
 			if (settlementMutationFence.takeDeferredRefreshIfUnblocked(activeGestureId)) {
 				schedulePreparedDeckRefresh("gesture-terminal:$gestureId")

@@ -31,9 +31,12 @@ fun readerPageOperationPolicy(readiness: ReaderPageReadinessState): ReaderPageOp
 		settling -> ReaderPageNewPointerDecision.Reject(
 			ReaderPageGestureTerminalOutcome.RejectedSettling
 		)
+		// A refill follows every committed turn; the renderer queues swipes made during it behind
+		// that turn (or rejects them itself), so they are not dropped at the host.
 		deckPrepared && (
 			readiness.interaction == ReaderPageInteractionState.Ready ||
-				readiness.interaction == ReaderPageInteractionState.BackgroundPrefetch
+				readiness.interaction == ReaderPageInteractionState.BackgroundPrefetch ||
+				readiness.interaction == ReaderPageInteractionState.RefillingWorkingSet
 			) -> ReaderPageNewPointerDecision.Accept
 		readiness.interaction == ReaderPageInteractionState.Failed ||
 			readiness.textureDeck == ReaderTextureDeckState.Failed -> ReaderPageNewPointerDecision.Reject(

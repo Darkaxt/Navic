@@ -864,8 +864,18 @@ private fun ReaderController.reduceWhispersyncCanonicalPreflightResult(
 	event: ReaderEngineEvent.WhispersyncCanonicalPreflightResult
 ): ReaderControllerStep {
 	val current = state.whispersync
-	val preflight = current.canonicalPreflight ?: return ReaderControllerStep(this)
-	val request = preflight.request
+	val preflight = current.canonicalPreflight
+	val request = preflight?.request
+	Logger.i(
+		WhispersyncSyncLogTag,
+		"Whispersync canonical preflight result status=${event.status} reason=${event.reason} " +
+			"tracked=${preflight?.status} generationMatches=${event.validationGeneration == request?.validationGeneration} " +
+			"requestDestinationMatches=${event.destinationCommitIdentity == request?.destinationCommitIdentity} " +
+			"stateDestinationMatches=${event.destinationCommitIdentity == state.destinationCommitIdentity} " +
+			"provenanceMatches=${event.provenanceId == request?.provenanceId && event.rawSpineIndex == request?.rawSpineIndex} " +
+			"provenanceReady=${request?.let { state.rawTextProvenanceById[it.provenanceId]?.status } == RawTextProvenanceStatus.Ready}"
+	)
+	if (preflight == null || request == null) return ReaderControllerStep(this)
 	if (
 		preflight.status != ReaderWhispersyncCanonicalPreflightStatus.Pending ||
 		event.revisionDigest != request.revisionDigest ||
@@ -1326,6 +1336,25 @@ private fun ReaderController.reduceRepairWhispersyncMismatch(): ReaderController
 	)
 }
 
+// A committed navigation can be followed by a settle relocation in the same session (a TOC jump
+// commits twice). The newer commit is the navigation's real landing, so the intent follows it instead
+// of waiting forever for a range of the superseded commit.
+private fun ReaderWhispersyncCausalIntent.followingSupersedingCommit(
+	current: ReaderDestinationCommitIdentity?
+): ReaderWhispersyncCausalIntent {
+	val bound = destinationCommitIdentity ?: return this
+	if (
+		provenance != ReaderWhispersyncEventProvenance.UserNavigation ||
+		!destinationCommitted ||
+		current == null ||
+		current.foliateSessionId != bound.foliateSessionId ||
+		current.commitSequence <= bound.commitSequence
+	) {
+		return this
+	}
+	return copy(destinationCommitIdentity = current, rangeObserved = true)
+}
+
 private fun ReaderController.reduceVisibleTextRange(
 	event: ReaderEngineEvent.VisibleTextRange
 ): ReaderControllerStep {
@@ -1378,6 +1407,7 @@ private fun ReaderController.reduceVisibleTextRange(
 	}
 	val destinationCommitIdentity = state.destinationCommitIdentity
 	val pendingIntent = currentWhispersync.pendingCausalIntent
+		?.followingSupersedingCommit(destinationCommitIdentity)
 	val pendingNavigation = pendingIntent?.takeIf {
 		it.provenance == ReaderWhispersyncEventProvenance.UserNavigation
 	}

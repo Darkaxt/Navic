@@ -1926,6 +1926,73 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun deferredSwipeResolvesLogicalDirectionAndIgnoresShortDrags() {
+		assertEquals(karacken.curl.PageChange.NEXT, readerDeferredSwipePageChange(-200f, 24f, rightToLeft = false))
+		assertEquals(karacken.curl.PageChange.PREVIOUS, readerDeferredSwipePageChange(200f, 24f, rightToLeft = false))
+		assertEquals(karacken.curl.PageChange.PREVIOUS, readerDeferredSwipePageChange(-200f, 24f, rightToLeft = true))
+		assertEquals(karacken.curl.PageChange.NEXT, readerDeferredSwipePageChange(200f, 24f, rightToLeft = true))
+		assertEquals(null, readerDeferredSwipePageChange(10f, 24f, rightToLeft = false))
+	}
+
+	@Test
+	fun swipeDuringInFlightRelocationIsDeferredAndAlwaysReachesATerminal() {
+		val source = controllerFile.readText()
+		val touch = source
+			.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("override fun start(")
+		// Only the in-flight fence defers; every other unavailability still rejects at DOWN.
+		val deferral = touch
+			.substringAfter("trackingDeferredSwipe?.takeIf { it.gestureId != gestureId }?.let(::rejectDeferredSwipe)")
+			.substringBefore("activeGestureId = gestureId")
+		assertContains(source, "private fun isTurnStillSettling(): Boolean =\n\t\trelocationQueue.hasInFlightHead() ||")
+		assertContains(deferral, "canDeferSwipe()")
+		assertContains(deferral, "queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit")
+		// Later swipes queue behind earlier ones instead of superseding them.
+		assertContains(deferral, "isTurnStillSettling() || queuedDeferredSwipes.isNotEmpty()")
+		// The post-commit working-set refill is part of the turn a swipe waits behind.
+		assertContains(source, "readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet")
+		assertContains(deferral, "trackingDeferredSwipe = DeferredSwipe(gestureId, event.x)")
+		assertContains(touch, "return onDeferredSwipeEvent(deferred, event)")
+		val events = requiredFoliateSourceSlice(
+			source,
+			"private fun onDeferredSwipeEvent(",
+			"private fun rejectDeferredSwipe("
+		)
+		assertContains(events, "MotionEvent.ACTION_CANCEL -> {\n\t\t\t\trejectDeferredSwipe(deferred)")
+		assertContains(events, "if (pageChange == null) {\n\t\t\t\t\trejectDeferredSwipe(deferred)")
+		val replay = requiredFoliateSourceSlice(
+			source,
+			"private fun replayDeferredSwipeIfReady() {",
+			"private val canPresentAcceptedGesture: Boolean"
+		)
+		// The queue waits only while the presentation rebuilds; hard blockers end the wait.
+		assertContains(replay, "val hardBlocked = !enabled || !attached || failedLivePresentationGeneration != null")
+		assertContains(replay, "if (!hardBlocked && (isTurnStillSettling() || !isAvailable)) return")
+		assertContains(replay, "queuedDeferredSwipes.removeFirst()")
+		val policy = source
+			.substringAfter("fun setPageOperationPolicy(")
+			.substringBefore("fun setWhispersyncOverlay(")
+		assertContains(policy, "mainHandler.post { replayDeferredSwipeIfReady() }")
+		// Replay goes through the ordinary tap-turn admission, which publishes any rejection.
+		assertContains(replay, "startTapTurn(pageChange, deferred.gestureId)")
+		// Both the head settling and a gesture terminal re-check the replay.
+		val queue = source
+			.substringAfter("private val relocationQueue = ReaderPageRelocationQueue(")
+			.substringBefore("private class DeferredSwipe(")
+		assertContains(queue, "mainHandler.post { replayDeferredSwipeIfReady() }")
+		val terminal = source
+			.substringAfter("private fun publishGestureTerminal(")
+			.substringBefore("private fun scheduleRecoveredDeckSubmissionRetry(")
+		assertContains(terminal, "mainHandler.post { replayDeferredSwipeIfReady() }")
+		// Leaving the refill re-checks the queue too, so no deferred swipe waits forever.
+		val readiness = source
+			.substringAfter("private fun updateReadiness(")
+			.substringBefore("private fun requestLivePresentationRecovery(")
+		assertContains(readiness, "mainHandler.post { replayDeferredSwipeIfReady() }")
+		assertContains(hostFile.readText(), "playLikeCurlController.pageTurnRightToLeft = normalized == \"rtl\"")
+	}
+
+	@Test
 	fun liveValidationRehydratesMissingSnapshotsInsteadOfInvalidatingTheTurn() {
 		val source = controllerFile.readText()
 		val validation = requiredFoliateSourceSlice(

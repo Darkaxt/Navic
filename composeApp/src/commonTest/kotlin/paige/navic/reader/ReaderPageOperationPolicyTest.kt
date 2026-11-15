@@ -55,7 +55,7 @@ class ReaderPageOperationPolicyTest {
 	}
 
 	@Test
-	fun refillingWorkingSetRejectsNextPointerWithoutCancellingActivePointer() {
+	fun refillingWorkingSetHandsNextPointerToRendererWithoutCancellingActivePointer() {
 		val policy = readerPageOperationPolicy(
 			ReaderPageReadinessState(
 				decodedWorkingSet = ReaderDecodedWorkingSetState.Hydrating,
@@ -64,12 +64,7 @@ class ReaderPageOperationPolicyTest {
 			)
 		)
 
-		assertEquals(
-			ReaderPageNewPointerDecision.Reject(
-				ReaderPageGestureTerminalOutcome.RejectedPreparing
-			),
-			policy.newPointer
-		)
+		assertEquals(ReaderPageNewPointerDecision.Accept, policy.newPointer)
 		assertTrue(policy.continueActivePointer)
 		assertFalse(policy.cancelForReadinessChange)
 	}
