@@ -809,6 +809,100 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun refusedWordProgressWithoutFallbackRepresentsTheCueWithoutPausing() {
+		val ready = readyCoordinatorAndController()
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				chrome = ready.second.state.chrome.copy(
+					readaloudPlayback = ReaderReadaloudPlaybackUiState(isPlaying = true)
+				)
+			)
+		)
+		val remembered = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(canonicalCueCommand())),
+			playback = playbackIdentity(positionMs = 1_050)
+		)
+		val inactive = { coordinator: ReaderWordSyncPlaybackCoordinator, reason: String ->
+			coordinator.onEngineEvent(
+				controller = remembered.controllerStep.controller,
+				event = ReaderEngineEvent.MediaOverlayInactive(
+					overlayRequestId = 41,
+					coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+					reason = reason
+				)
+			)
+		}
+		// The single-use fallback is spent by the first refusal; later word refusals still re-present.
+		val spent = inactive(remembered.coordinator, "progress-paint-rejected").coordinator
+
+		for (reason in listOf("stale-progress-request", "progress-outside-visible-page", "progress-paint-rejected")) {
+			val decision = inactive(spent, reason)
+			val command = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+				decision.controllerStep.engineCommands.single(),
+				reason
+			)
+			assertEquals(canonicalCueCommand().fragment, command.fragment, reason)
+			assertNull(decision.controllerStep.readaloudPlaybackCommand, reason)
+		}
+
+		// A refused presentation is not a word progress: it still reaches the controller.
+		val refused = inactive(spent, "outside-visible-page")
+		assertTrue(refused.controllerStep.engineCommands.none { it is ReaderEngineCommand.ApplyMediaOverlay })
+	}
+
+	@Test
+	fun cuePresentationIsNotFencedByClearedWordSequences() {
+		val ready = readyCoordinatorAndController()
+		val cue = ReaderEngineCommand.ApplyMediaOverlay(
+			canonicalCueCommand().fragment.copy(wordBoundarySequence = 0)
+		)
+		val controller = ready.second
+		val remembered = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(cue)),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+		val boundary = remembered.boundariesForPlayback(
+			playbackIdentity(positionMs = 1_050)
+		).single { it.audioStartMs == 1_000L }
+		val exact = remembered.coordinateBoundary(
+			controller = controller,
+			playback = playbackIdentity(positionMs = 1_050),
+			boundary = boundary
+		)
+		val word = assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(
+			exact.controllerStep.engineCommands.single()
+		).fragment
+		assertTrue((word.wordBoundarySequence ?: -1) >= 0)
+		val cleared = exact.coordinator.coordinateClear(
+			controller = controller,
+			playback = playbackIdentity(positionMs = 1_200)
+		)
+
+		val awaiting = cleared.controllerStep.controller.let {
+			it.copy(
+				state = it.state.copy(
+					whispersync = it.state.whispersync.copy(
+						sync = ReaderOverlaySyncState(activeOverlayRequestId = 41)
+					)
+				)
+			)
+		}
+
+		// The late word stays fenced...
+		val lateWord = cleared.coordinator.onEngineEvent(
+			controller = awaiting,
+			event = ReaderEngineEvent.MediaOverlayActive(word)
+		)
+		assertNull(lateWord.controllerStep.controller.state.whispersync.sync.confirmedOverlayRequestId)
+		// ...but the cue presentation (ordinal 0) is not a cleared word and reaches the controller.
+		val presented = cleared.coordinator.onEngineEvent(
+			controller = awaiting,
+			event = ReaderEngineEvent.MediaOverlayActive(cue.fragment)
+		)
+		assertEquals(41L, presented.controllerStep.controller.state.whispersync.sync.confirmedOverlayRequestId)
+	}
+
+	@Test
 	fun rawRejectionRetriesCueWithoutPausingPlayback() {
 		val ready = readyCoordinatorAndController()
 		val pending = ReaderWhispersyncPendingAudioSeek(

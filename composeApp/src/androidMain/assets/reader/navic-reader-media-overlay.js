@@ -57,7 +57,9 @@ function beginExactWordSyncOverlayRelocation() {
   return epoch
 }
 
-function deferExactWordSyncOverlayFragment(fragment) {
+// A presentation (Apply) carries its cue ordinal, which is not comparable with the word boundary
+// sequences recorded by a clear; only word progress is fenced by it (#24).
+function deferExactWordSyncOverlayFragment(fragment, { presentation = false } = {}) {
   if (validatedReaderOverlayCoordinateMode(fragment) !== ReaderWordSyncV1ExtractedUtf8Mode) {
     return false
   }
@@ -65,6 +67,7 @@ function deferExactWordSyncOverlayFragment(fragment) {
   if (boundarySequence == null) return true
   const cleared = this.exactWordSyncClearedPresentation
   if (
+    !presentation &&
     cleared?.overlayRequestId === fragment.overlayRequestId &&
     boundarySequence <= cleared.boundarySequence
   ) return true
@@ -107,6 +110,7 @@ function deferExactWordSyncOverlayFragment(fragment) {
     foliateSessionId: relocation.foliateSessionId,
     boundarySequence,
     fragment,
+    presentation,
   }
   this.exactWordSyncActiveRequestId = fragment.overlayRequestId
   return true
@@ -147,6 +151,7 @@ function clearExactWordSyncOverlayPresentation(
   const pending = this.deferredExactWordSyncOverlay
   if (
     pending?.fragment?.overlayRequestId === overlayRequestId &&
+    pending.presentation !== true &&
     pending.boundarySequence <= clearedThroughBoundarySequence
   ) {
     this.deferredExactWordSyncOverlay = null

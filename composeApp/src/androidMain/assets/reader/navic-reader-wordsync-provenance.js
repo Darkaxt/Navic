@@ -464,6 +464,17 @@ export const retryReaderWordSyncOverlayFragment = (runtime, fragment) =>
   validatedReaderOverlayCoordinateMode(fragment) === ReaderWordSyncV1ExtractedUtf8Mode &&
   presentReaderWordSyncOverlayFragment(runtime, fragment) == null
 
+// A cue progress that cannot be shown or painted is rejected. One exact word progress that cannot
+// be resolved, shown or painted keeps the same-request presentation instead of tearing it down and
+// pausing playback (#24). Numeric trace only: reason,sequence,start,end,resolved.
+export const refuseReaderWordSyncProgress = (runtime, fragment, rawMode, reason, previousFragment) => {
+  if (!rawMode) return void runtime.rejectOverlayFragment(fragment, reason)
+  const resolved = runtime.rawTextProvenance.resolveRange(fragment) ? 1 : 0
+  log(`wordsync-progress-degraded:${reason},${fragment.wordBoundarySequence ?? -1},${fragment.rawByteStart ?? -1},${fragment.rawByteEnd ?? -1},${resolved}`)
+  if (!previousFragment || runtime.mediaOverlayActiveFragment === previousFragment) return
+  runtime.paintActiveMediaOverlayFragment(previousFragment)
+}
+
 export const applyReaderWordSyncOverlayFragment = (runtime, fragment) => {
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderCueV1DomUtf16Mode) return false
@@ -471,7 +482,7 @@ export const applyReaderWordSyncOverlayFragment = (runtime, fragment) => {
     runtime.rejectOverlayFragment(fragment, 'invalid-coordinate-mode')
     return true
   }
-  if (runtime.deferExactWordSyncOverlayFragment?.(fragment) === true) return true
+  if (runtime.deferExactWordSyncOverlayFragment?.(fragment, { presentation: true }) === true) return true
   const rejectionReason = presentReaderWordSyncOverlayFragment(runtime, fragment)
   if (rejectionReason) runtime.rejectOverlayFragment(fragment, rejectionReason)
   return true

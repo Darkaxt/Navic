@@ -2402,6 +2402,18 @@ class ReaderControllerTest {
 		assertEquals(requested, step.controller.state.activeMediaOverlay)
 		assertTrue(step.engineCommands.isEmpty())
 		assertNull(step.readaloudPlaybackCommand)
+		// #24: the withheld cue change is not committed, so it is handled once the exact word ends.
+		// Here the next cue lies beyond the visible page (10..42), so it ends the page.
+		assertEquals(
+			confirmed.state.whispersync.sync.activeOverlayRequestId,
+			step.controller.state.whispersync.sync.activeOverlayRequestId
+		)
+		val released = step.controller.onReadaloudPlaybackState(
+			playbackState = playback.copy(positionMs = 5_600L),
+			publishOverlayProgress = true
+		)
+		assertEquals(listOf<ReaderEngineCommand>(ReaderEngineCommand.ClearMediaOverlay), released.engineCommands)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, released.readaloudPlaybackCommand)
 	}
 
 	@Test

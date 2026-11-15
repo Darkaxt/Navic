@@ -454,6 +454,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 					it !is ReaderEngineCommand.UpdateMediaOverlayProgress
 			)
 	}
+	val committedSync = if (command != null && publishedCommand == null) currentWhispersync.sync else syncState
 	val publishedOverlayFragment = publishedCommand.overlayFragmentOrNull()
 	val publishedClearOverlay = publishedCommand == ReaderEngineCommand.ClearMediaOverlay
 	val publishedAnchorReceipt = when (publishedCommand) {
@@ -534,9 +535,9 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 			state = state.copy(
 				chrome = state.chrome.onReadaloudPlaybackState(playbackState),
 				whispersync = currentWhispersync.copy(
-					sync = syncState,
+					sync = committedSync,
 					pendingAudioSeek = currentWhispersync.pendingAudioSeek
-						?.takeIf { it.overlayRequestId == syncState.activeOverlayRequestId },
+						?.takeIf { it.overlayRequestId == committedSync.activeOverlayRequestId },
 					preparedVisibleTarget =
 						acknowledgedPreparedTarget ?: currentWhispersync.preparedVisibleTarget,
 					preparationGeneration = acknowledgedPreparedTarget

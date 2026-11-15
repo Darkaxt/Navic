@@ -507,7 +507,14 @@ data class ReaderWordSyncPlaybackCoordinator(
 			val requestId = event.fragment.overlayRequestId
 			val boundarySequence = event.fragment.wordBoundarySequence
 			val clearedThrough = requestId?.let(clearedThroughBoundaryByRequestId::get)
+			// The cue presentation carries its cue ordinal, not a word boundary sequence (#24).
+			val cue = lastCueCommand.asCueOverlayCommand()?.overlayFragmentOrNull()
+			val isCuePresentation = cue != null && cue.overlayRequestId == requestId &&
+				cue.wordBoundarySequence == boundarySequence &&
+				cue.rawByteStart == event.fragment.rawByteStart &&
+				cue.rawByteEnd == event.fragment.rawByteEnd
 			if (
+				!isCuePresentation &&
 				requestId != null &&
 				boundarySequence != null &&
 				clearedThrough != null &&
@@ -521,7 +528,13 @@ data class ReaderWordSyncPlaybackCoordinator(
 			event.coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8
 		) {
 			val requestId = event.overlayRequestId
+			// A refused word progress never pauses playback: the current cue is presented again (#24).
+			// Presentation-level refusals (outside-visible-page, anchor/paint rejected) still pause.
+			val currentCue = lastCueCommand.asCueOverlayCommand()?.overlayFragmentOrNull()
+				?.takeIf { requestId != null && it.overlayRequestId == requestId }
 			val fallback = requestId?.let(fallbackByRequestId::get)
+				?: currentCue?.takeIf { event.reason in WordSyncProgressRefusalReasons }
+					?.let(ReaderEngineCommand::ApplyMediaOverlay)
 			if (requestId != null && fallback != null) {
 				return ReaderWordSyncDecision(
 					coordinator = copy(fallbackByRequestId = fallbackByRequestId - requestId),
@@ -870,3 +883,6 @@ private fun ReaderEngineEvent.VisibleTextRange.rawPointOrNull(): ReaderWordSyncR
 	val offset = rawByteStart ?: return null
 	return ReaderWordSyncRawPoint(id, offset)
 }
+
+private val WordSyncProgressRefusalReasons =
+	setOf("stale-progress-request", "progress-outside-visible-page", "progress-paint-rejected")

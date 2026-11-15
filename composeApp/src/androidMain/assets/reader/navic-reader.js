@@ -179,6 +179,7 @@ import {
   postReaderWordSyncOverlayActive,
   readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor,
   readerMediaOverlayAnchorReceipt,
+  refuseReaderWordSyncProgress,
   rejectReaderWordSyncOverlay,
   validatedReaderOverlayCoordinateMode,
 } from './navic-reader-wordsync-provenance.js'
@@ -1113,14 +1114,11 @@ class NavicReaderRuntime {
       this.postOverlayFragmentInactive(fragment, 'stale-progress-request')
       return
     }
-    if (!this.mediaOverlayFragmentProgressAlreadyVisible(fragment)) {
-      this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')
-      return
-    }
+    const previousFragment = this.mediaOverlayActiveFragment
+    if (!this.mediaOverlayFragmentProgressAlreadyVisible(fragment)) return void refuseReaderWordSyncProgress(this, fragment, rawMode, 'progress-outside-visible-page', previousFragment)
     if (!rawMode) this.prunePlayedMediaOverlayFragments(fragment)
     if (!this.paintActiveMediaOverlayFragment(fragment)) {
-      this.rejectOverlayFragment(fragment, 'progress-paint-rejected')
-      return
+      return void refuseReaderWordSyncProgress(this, fragment, rawMode, 'progress-paint-rejected', previousFragment)
     }
     if (rawMode) postReaderWordSyncOverlayActive(this, fragment)
     else this.postCueOverlayFragmentActive(fragment)

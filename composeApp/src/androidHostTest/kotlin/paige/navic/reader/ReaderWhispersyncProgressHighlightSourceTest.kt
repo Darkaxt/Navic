@@ -463,12 +463,22 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		)
 		assertContains(
 			updateOverlay,
-			"this.rejectOverlayFragment(fragment, 'progress-outside-visible-page')"
+			"refuseReaderWordSyncProgress(this, fragment, rawMode, 'progress-outside-visible-page', previousFragment)"
 		)
 		assertContains(
 			updateOverlay,
-			"this.rejectOverlayFragment(fragment, 'progress-paint-rejected')"
+			"refuseReaderWordSyncProgress(this, fragment, rawMode, 'progress-paint-rejected', previousFragment)"
 		)
+		// Cue progress is still rejected (cleared); one refused exact word keeps the previous word
+		// presentation instead of tearing it down and pausing playback (#24).
+		val refuse = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-wordsync-provenance.js")
+			.readText()
+			.substringAfter("export const refuseReaderWordSyncProgress = ")
+			.substringBefore("\n}")
+		assertContains(refuse, "if (!rawMode) return void runtime.rejectOverlayFragment(fragment, reason)")
+		assertContains(refuse, "wordsync-progress-degraded:")
+		assertContains(refuse, "runtime.paintActiveMediaOverlayFragment(previousFragment)")
+		assertFalse(refuse.contains("postOverlayFragmentInactive"))
 	}
 
 	@Test
