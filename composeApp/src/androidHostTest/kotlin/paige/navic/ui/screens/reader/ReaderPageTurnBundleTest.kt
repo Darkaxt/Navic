@@ -986,6 +986,50 @@ class ReaderPageTurnBundleTest {
 			}
 	}
 
+	@Test
+	fun liveValidationRejectDumpIsDebugOnlyAndBounded() {
+		assertFalse(readerPageLiveValidationRejectDumpEnabled(applicationFlags = 0))
+		assertTrue(
+			readerPageLiveValidationRejectDumpEnabled(
+				applicationFlags = android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
+			)
+		)
+		assertEquals(0, readerPageLiveValidationRejectDumpSlot(claimed = 0, limit = 4))
+		assertEquals(3, readerPageLiveValidationRejectDumpSlot(claimed = 3, limit = 4))
+		assertNull(readerPageLiveValidationRejectDumpSlot(claimed = 4, limit = 4))
+		assertNull(readerPageLiveValidationRejectDumpSlot(claimed = -1, limit = 4))
+		assertEquals(4, ReaderPageLiveValidationRejectDumpLimit)
+		assertEquals(
+			"reject-33-1-expected.png",
+			readerPageLiveValidationRejectDumpFileName(pageOrdinal = 33, slot = 1, role = "expected")
+		)
+
+		val source = File(
+			"src/androidMain/kotlin/paige/navic/ui/screens/reader/" +
+				"ReaderPageTurnBundleSource.android.kt"
+		).readText()
+		val validator = source.substringAfter(
+			"fun validateLivePresentation("
+		).substringBefore("fun capturePreparedRasterPage(")
+		val worker = validator.substringAfter("rasterScope.launch(Dispatchers.Default)")
+			.substringBefore("ownership.attachWorker(")
+		assertTrue(
+			validator.contains(
+				"val rejectDumpDirectory = ReaderPageLiveValidationRejectDump.directory(webView.context)"
+			)
+		)
+		val dump = worker.indexOf("ReaderPageLiveValidationRejectDump.write(")
+		assertTrue(dump >= 0)
+		assertTrue(
+			worker.lastIndexOf(
+				"ReaderPageRelocationContentValidationResult.ContentRejected",
+				dump
+			) > worker.indexOf("readerPageLiveCaptureValidationResult(")
+		)
+		// The dump reads the owned bitmaps, so it must finish before the worker hands them back.
+		assertTrue(dump < worker.indexOf("ownership.recordWorkerResult(result)"))
+	}
+
 	private class TestRaster private constructor(
 		override val width: Int,
 		override val height: Int,

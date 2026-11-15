@@ -2559,6 +2559,7 @@ internal class ReaderPageTurnBundleSource(
 		val validationGeneration = synchronized(closeFenceLock) { activeGeneration }
 		val expectedTargetBitmapWidth = expectedTarget.bitmap.width
 		val expectedTargetBitmapHeight = expectedTarget.bitmap.height
+		val rejectDumpDirectory = ReaderPageLiveValidationRejectDump.directory(webView.context)
 		fun validationIsCurrent(): Boolean {
 			val callerCurrent = runCatching(isStillCurrent).getOrDefault(false)
 			return synchronized(closeFenceLock) {
@@ -2688,6 +2689,18 @@ internal class ReaderPageTurnBundleSource(
 									ReaderPageTurnBundleSourceTag,
 									"Live page-turn validation comparison result=$compared"
 								)
+								if (
+									compared ==
+										ReaderPageRelocationContentValidationResult.ContentRejected &&
+									rejectDumpDirectory != null
+								) {
+									ReaderPageLiveValidationRejectDump.write(
+										directory = rejectDumpDirectory,
+										pageOrdinal = request.destinationOrdinal,
+										expected = work.expectedTarget.bitmap,
+										candidate = work.candidate.captured.bitmap
+									)
+								}
 								if (liveValidationGenerationIsCurrent()) compared
 								else ReaderPageRelocationContentValidationResult.Invalidated
 							}
