@@ -69,6 +69,8 @@ data class ReaderControllerState(
 	val rawTextProvenanceById: Map<String, RawTextProvenanceState> = emptyMap(),
 	val activeMediaOverlay: ReaderOverlayFragment? = null,
 	val activeMediaOverlayAnchorReceipt: ReaderWhispersyncAnchorReceipt? = null,
+	// The engine confirmed the active overlay without an anchor receipt (anchor refused).
+	val activeMediaOverlayAnchorRefused: Boolean = false,
 	val audioMetadataLabel: String? = null,
 	val lastContentActionClaim: ReaderContentActionClaim? = null,
 	val errorMessage: String? = null,
@@ -117,3 +119,14 @@ data class ReaderControllerState(
 
 fun ReaderControllerState.supportsReaderEngineCapability(capability: ReaderEngineCapability): Boolean =
 	activeEngine?.supportsReaderEngineCapability(capability) != false
+
+/**
+ * Whether the native host should hold live-presentation authority for the Whispersync overlay:
+ * the engine confirmed the active overlay, with an anchor receipt or with an explicit refusal.
+ * A fragment still awaiting its confirmation (every new word after a silent gap) has no receipt
+ * yet but was not refused; treating it as a lost anchor re-presented the page on every gap, which
+ * made the engine reject the following words as stale and paused playback (#24).
+ */
+val ReaderControllerState.whispersyncAnchorAuthorityOverlayActive: Boolean
+	get() = activeMediaOverlay != null &&
+		(activeMediaOverlayAnchorReceipt != null || activeMediaOverlayAnchorRefused)

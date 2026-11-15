@@ -267,6 +267,27 @@ internal fun readerMergedPagePreparationState(
 	)
 }
 
+/**
+ * A layout-only change (rotation, reader settings, direction, quality) of a chapter that was
+ * readable keeps the live page visible: rasters regenerate behind it with compact progress
+ * instead of the opaque preparation cover (#50). Turns stay blocked by the operation policy.
+ * Failures keep their own presentation.
+ */
+internal fun readerLayoutRegenerationPreparationState(
+	state: ReaderPagePreparationState,
+	regeneratingReadableLayout: Boolean
+): ReaderPagePreparationState =
+	if (
+		regeneratingReadableLayout &&
+		state.presentation == ReaderPagePreparationPresentation.Cover &&
+		state.phase != ReaderPagePreparationPhase.Failed &&
+		state.readiness.interaction != ReaderPageInteractionState.Failed
+	) {
+		state.copy(presentation = ReaderPagePreparationPresentation.Compact)
+	} else {
+		state
+	}
+
 internal fun readerNativePresentationLayerVisibility(
 	shellCoverVisible: Boolean,
 	pagePreparationCoverVisible: Boolean,
@@ -1627,13 +1648,34 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun consumeStartupShellPreparedHandoff(): Boolean =
 		startupShellHandoff.consumePreparedHandoff()
 
+	// #50: set by layout-only changes while the page was readable; cleared once readable again.
+	private var regeneratingReadableLayout = false
+	private var lastPublishedPagePreparationPresentation = ReaderPagePreparationPresentation.Cover
+
+	private fun beginReadableLayoutRegeneration() {
+		if (shellCoverVisible) return
+		if (lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden) {
+			regeneratingReadableLayout = true
+		}
+	}
+
 	private fun publishMergedPagePreparationState() {
-		val merged = readerMergedPagePreparationState(
-			pageTurnCanvasEnabled = pageTurnCanvasEnabled,
-			pageTurnContentReady = pageTurnContentReadyKey != null,
-			rasterState = latestRasterPreparationState,
-			rendererState = latestRendererReadinessState
+		val merged = readerLayoutRegenerationPreparationState(
+			state = readerMergedPagePreparationState(
+				pageTurnCanvasEnabled = pageTurnCanvasEnabled,
+				pageTurnContentReady = pageTurnContentReadyKey != null,
+				rasterState = latestRasterPreparationState,
+				rendererState = latestRendererReadinessState
+			),
+			regeneratingReadableLayout = regeneratingReadableLayout
 		)
+		if (
+			merged.presentation == ReaderPagePreparationPresentation.Hidden ||
+			merged.phase == ReaderPagePreparationPhase.Failed
+		) {
+			regeneratingReadableLayout = false
+		}
+		lastPublishedPagePreparationPresentation = merged.presentation
 		setPageOperationPolicy(merged.operationPolicy)
 		onPagePreparationStateChange(merged)
 	}
@@ -1678,6 +1720,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.RendererReplaced
 		)
+		regeneratingReadableLayout = false
 		playLikeCurlController.invalidate("viewer-replaced")
 		pageRasterPreparationController.invalidate(
 			reason = "viewer-replaced",
@@ -1739,6 +1782,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
+		beginReadableLayoutRegeneration()
 		pageTurnReadingDirection = normalized
 		playLikeCurlController.pageTurnRightToLeft = normalized == "rtl"
 		playLikeCurlController.invalidate(
@@ -1755,6 +1799,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
+		beginReadableLayoutRegeneration()
 		pageTurnBitmapQuality = normalized
 		playLikeCurlController.updateBitmapQuality(normalized.persistedValue)
 		pageRasterPreparationController.updateBitmapQuality(normalized.persistedValue)
@@ -1775,6 +1820,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
+		beginReadableLayoutRegeneration()
 		pageTurnSnapshotKey = snapshotKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
 		pageRasterPreparationController.invalidate("settings-changed")
@@ -1909,6 +1955,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		shellCoverVisible = visible
 		if (!visible) resetShellCoverSwipeOffset()
 		if (visible) {
+			regeneratingReadableLayout = false
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
 			pageRasterPreparationController.invalidate("shell-cover-visible")
@@ -3123,6 +3170,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
 		if (oldw <= 0 || oldh <= 0 || (w == oldw && h == oldh)) return
+		beginReadableLayoutRegeneration()
 		closePassiveRasterPreparationAdapter()
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ViewportChanged
@@ -3151,6 +3199,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.WindowHidden
 		)
+		regeneratingReadableLayout = false
 		removePageTurnPrewarmLayoutListener()
 		playLikeCurlController.onHostWindowHidden()
 		pageRasterPreparationController.invalidate("window-hidden")

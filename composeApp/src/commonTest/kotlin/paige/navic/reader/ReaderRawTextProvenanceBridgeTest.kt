@@ -586,6 +586,109 @@ class ReaderRawTextProvenanceBridgeTest {
 	}
 
 	@Test
+	fun redisplayedPageOfTheSameSessionKeepsTheCanonicalAdmissionAndHighlight() {
+		// #24: restoring live authority re-presents the same page as a new commit of the same
+		// Foliate session. Re-validating there cleared the highlight, which requested another
+		// restoration: a loop. The accepted admission carries to the new commit.
+		val sidecar = publicSyntheticCanonicalSidecar()
+		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
+		val segment = sidecar.timeline.segments.single()
+		val redisplayed = ReaderDestinationCommitIdentity("public-synthetic-session", 2L)
+		val active = activeCanonicalController(sidecar).let { controller ->
+			controller.copy(state = controller.state.copy(destinationCommitIdentity = redisplayed))
+		}
+
+		val range = active.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = segment.textHref,
+				visibleStart = 0,
+				visibleEnd = 24,
+				rawProvenanceId = descriptor.id,
+				rawSpineIndex = descriptor.spineIndex,
+				rawByteStart = requireNotNull(segment.textStart),
+				rawByteEnd = requireNotNull(segment.textEnd),
+				destinationCommitIdentity = redisplayed
+			)
+		)
+
+		assertTrue(range.engineCommands.none {
+			it is ReaderEngineCommand.ValidateWhispersyncCanonicalCues || it == ReaderEngineCommand.ClearMediaOverlay
+		})
+		assertNull(range.readaloudPlaybackCommand)
+		val preflight = assertNotNull(range.controller.state.whispersync.canonicalPreflight)
+		assertEquals(ReaderWhispersyncCanonicalPreflightStatus.Ready, preflight.status)
+		assertEquals(redisplayed, preflight.request.destinationCommitIdentity)
+		assertEquals(ReaderWhispersyncTransportPhase.Playing, range.controller.state.whispersync.transportPhase)
+		assertNotNull(range.controller.state.activeMediaOverlay)
+	}
+
+	@Test
+	fun redisplayRevalidationKeepsAdmittedPlaybackPlayingUntilThePreflightAnswers() {
+		// #24: the live page was re-dispatched under playing audio (new destination identity). The
+		// canonical preflight re-runs; audio progress during it must not pause the playback.
+		val sidecar = publicSyntheticCanonicalSidecar()
+		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
+		val segment = sidecar.timeline.segments.single()
+		// A new Foliate session (document reloaded) must re-validate.
+		val redisplayed = ReaderDestinationCommitIdentity("public-synthetic-session-reloaded", 2L)
+		val active = activeCanonicalController(sidecar).let { controller ->
+			controller.copy(state = controller.state.copy(destinationCommitIdentity = redisplayed))
+		}
+
+		val range = active.onEngineEvent(
+			ReaderEngineEvent.VisibleTextRange(
+				textHref = segment.textHref,
+				visibleStart = 0,
+				visibleEnd = 24,
+				rawProvenanceId = descriptor.id,
+				rawSpineIndex = descriptor.spineIndex,
+				rawByteStart = requireNotNull(segment.textStart),
+				rawByteEnd = requireNotNull(segment.textEnd),
+				destinationCommitIdentity = redisplayed
+			)
+		)
+		val validation = range.engineCommands
+			.filterIsInstance<ReaderEngineCommand.ValidateWhispersyncCanonicalCues>()
+			.single()
+		assertNull(range.readaloudPlaybackCommand)
+		assertEquals(ReaderWhispersyncTransportPhase.Playing, range.controller.state.whispersync.transportPhase)
+
+		val pulse = ReaderReadaloudPlaybackUiState(
+			isAvailable = true,
+			isPlaying = true,
+			audioResource = segment.audioResource,
+			positionMs = segment.startMs + 10L
+		)
+		val held = range.controller.onReadaloudPlaybackState(pulse)
+		assertNull(held.readaloudPlaybackCommand)
+		assertTrue(held.controller.state.chrome.readaloudPlayback.isPlaying)
+		assertNull(held.controller.state.activeMediaOverlay)
+		assertTrue(
+			held.engineCommands.none {
+				it is ReaderEngineCommand.ApplyMediaOverlay ||
+					it is ReaderEngineCommand.UpdateMediaOverlayProgress
+			}
+		)
+
+		val accepted = held.controller.onEngineEvent(
+			ReaderEngineEvent.WhispersyncCanonicalPreflightResult(
+				revisionDigest = validation.request.revisionDigest,
+				validationGeneration = validation.request.validationGeneration,
+				destinationCommitIdentity = validation.request.destinationCommitIdentity,
+				provenanceId = validation.request.provenanceId,
+				rawSpineIndex = validation.request.rawSpineIndex,
+				status = ReaderWhispersyncCanonicalPreflightStatus.Ready
+			)
+		)
+		assertNull(accepted.readaloudPlaybackCommand)
+		val resumed = accepted.controller.onReadaloudPlaybackState(pulse.copy(positionMs = segment.startMs + 20L))
+		assertNull(resumed.readaloudPlaybackCommand)
+		assertEquals(ReaderWhispersyncTransportPhase.Playing, resumed.controller.state.whispersync.transportPhase)
+		// The highlight is dispatched again; the engine confirms it into activeMediaOverlay.
+		assertTrue(resumed.engineCommands.any { it is ReaderEngineCommand.ApplyMediaOverlay })
+	}
+
+	@Test
 	fun mandatoryCanonicalPreflightRunsWithCueMapDisabledAndFencesStaleRejection() {
 		val sidecar = publicSyntheticCanonicalSidecar()
 		val descriptor = sidecar.referencedRawTextProvenanceDescriptors().single()
@@ -690,7 +793,8 @@ class ReaderRawTextProvenanceBridgeTest {
 		assertNotNull(accepted.controller.state.whispersync.preparedVisibleTarget)
 		assertTrue(accepted.engineCommands.none { it is ReaderEngineCommand.ReplaceWhispersyncCueMap })
 
-		val nextDestination = ReaderDestinationCommitIdentity("public-synthetic-session", 12L)
+		// A reloaded Foliate session re-validates (same-session commits carry the admission, #24).
+		val nextDestination = ReaderDestinationCommitIdentity("public-synthetic-session-reloaded", 12L)
 		val movedController = accepted.controller.copy(
 			state = accepted.controller.state.copy(destinationCommitIdentity = nextDestination)
 		)

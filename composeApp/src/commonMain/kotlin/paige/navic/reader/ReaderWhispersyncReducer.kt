@@ -47,7 +47,9 @@ internal object ReaderWhispersyncReducer {
 	fun onVisibleTextRange(
 		controller: ReaderController,
 		event: ReaderEngineEvent.VisibleTextRange
-	): ReaderControllerStep = controller.reduceVisibleTextRange(event)
+	): ReaderControllerStep = controller
+		.carryCanonicalAdmissionToRedisplayedDestination(event)
+		.reduceVisibleTextRange(event)
 
 	fun onTextPoint(
 		controller: ReaderController,
@@ -241,6 +243,36 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 				state.rawTextProvenanceById[provenanceId]?.status
 			} == RawTextProvenanceStatus.Ready
 	)
+	if (
+		canonicalSidecar != null && !canonicalAdmitted && playbackState.isPlaying &&
+		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.Playing &&
+		currentWhispersync.canonicalGenerationState == ReaderWhispersyncCanonicalGenerationState.Open &&
+		currentWhispersync.canonicalPreflight?.status == ReaderWhispersyncCanonicalPreflightStatus.Pending
+	) {
+		// Admitted playback whose page was re-presented (same page redisplayed, new destination
+		// identity) re-validates its canonical mapping. That is not a failure: hold the highlight
+		// and keep the audio playing until the preflight answers. Ready re-admits on the next
+		// progress tick; Rejected pauses through failCanonicalWhispersyncMapping (#24).
+		val hasCanonicalOverlay = state.hasCanonicalWhispersyncOverlay()
+		return ReaderControllerStep(
+			controller = copy(
+				state = state.copy(
+					chrome = state.chrome.onReadaloudPlaybackState(playbackState),
+					whispersync = currentWhispersync.copy(
+						sync = currentWhispersync.sync.rejectOverlay(null),
+						lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress
+					),
+					activeMediaOverlay = state.activeMediaOverlay.takeUnless { hasCanonicalOverlay },
+					activeMediaOverlayAnchorReceipt = state.activeMediaOverlayAnchorReceipt
+						.takeUnless { hasCanonicalOverlay },
+					audioMetadataLabel = state.audioMetadataLabel.takeUnless { hasCanonicalOverlay }
+				)
+			),
+			engineCommands = listOfNotNull(
+				ReaderEngineCommand.ClearMediaOverlay.takeIf { hasCanonicalOverlay }
+			)
+		)
+	}
 	if (canonicalSidecar != null && !canonicalAdmitted) {
 		val terminal = currentWhispersync.isCanonicalMappingTerminal()
 		val hasCanonicalOverlay = state.hasCanonicalWhispersyncOverlay()
@@ -1018,10 +1050,12 @@ private fun ReaderController.beginCanonicalPreflightIfPossible(): ReaderControll
 				pendingAudioSeek = null,
 				preparedVisibleTarget = null,
 				playbackStartPending = false,
-				transportPhase = if (current.isCanonicalMappingTerminal()) {
-					ReaderWhispersyncTransportPhase.Failed
-				} else {
-					ReaderWhispersyncTransportPhase.Preparing
+				transportPhase = when {
+					current.isCanonicalMappingTerminal() -> ReaderWhispersyncTransportPhase.Failed
+					// Re-validation under admitted, playing audio keeps playing (#24).
+					current.transportPhase == ReaderWhispersyncTransportPhase.Playing ->
+						ReaderWhispersyncTransportPhase.Playing
+					else -> ReaderWhispersyncTransportPhase.Preparing
 				},
 				canonicalPreflightGeneration = nextGeneration,
 				canonicalPreflight = ReaderWhispersyncCanonicalPreflightState(
@@ -1355,22 +1389,64 @@ private fun ReaderWhispersyncCausalIntent.followingSupersedingCommit(
 	return copy(destinationCommitIdentity = current, rangeObserved = true)
 }
 
+private fun ReaderEngineEvent.VisibleTextRange.toWhispersyncVisibleTextRange() =
+	ReaderWhispersyncVisibleTextRange(
+		textHref = textHref,
+		visibleStart = visibleStart,
+		visibleEnd = visibleEnd,
+		rangeCfi = rangeCfi,
+		source = source,
+		rawProvenanceId = rawProvenanceId,
+		rawSpineIndex = rawSpineIndex,
+		rawByteStart = rawByteStart,
+		rawByteEnd = rawByteEnd,
+		causalSequence = causalSequence,
+		destinationCommitIdentity = destinationCommitIdentity
+	)
+
+/**
+ * The canonical preflight validates the whole spine's cues against the Foliate session's
+ * document; it does not depend on which page of that spine is visible. A new commit of the same
+ * session and spine (the live page re-presented to restore its authority, or a turn within the
+ * spine) therefore keeps an accepted admission instead of clearing the highlight to re-validate
+ * it. Re-validating there re-presented the page again and looped (#24). A new session, another
+ * spine, a changed descriptor or a non-Ready preflight still re-validates.
+ */
+private fun ReaderController.carryCanonicalAdmissionToRedisplayedDestination(
+	event: ReaderEngineEvent.VisibleTextRange
+): ReaderController {
+	val current = state.whispersync
+	val existing = current.canonicalPreflight
+		?.takeIf { it.status == ReaderWhispersyncCanonicalPreflightStatus.Ready }
+		?: return this
+	val destination = state.destinationCommitIdentity ?: return this
+	val admitted = existing.request.destinationCommitIdentity
+	if (
+		state.shellCoverVisible ||
+		current.canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open ||
+		event.destinationCommitIdentity != destination ||
+		admitted == destination ||
+		admitted.foliateSessionId != destination.foliateSessionId
+	) {
+		return this
+	}
+	val request = copy(
+		state = state.copy(
+			whispersync = current.copy(visibleTextRange = event.toWhispersyncVisibleTextRange())
+		)
+	).canonicalPreflightRequest(existing.request.validationGeneration) ?: return this
+	if (request.copy(destinationCommitIdentity = admitted) != existing.request) return this
+	return copy(
+		state = state.copy(
+			whispersync = current.copy(canonicalPreflight = existing.copy(request = request))
+		)
+	)
+}
+
 private fun ReaderController.reduceVisibleTextRange(
 	event: ReaderEngineEvent.VisibleTextRange
 ): ReaderControllerStep {
-	val visibleRange = ReaderWhispersyncVisibleTextRange(
-		textHref = event.textHref,
-		visibleStart = event.visibleStart,
-		visibleEnd = event.visibleEnd,
-		rangeCfi = event.rangeCfi,
-		source = event.source,
-		rawProvenanceId = event.rawProvenanceId,
-		rawSpineIndex = event.rawSpineIndex,
-		rawByteStart = event.rawByteStart,
-		rawByteEnd = event.rawByteEnd,
-		causalSequence = event.causalSequence,
-		destinationCommitIdentity = event.destinationCommitIdentity
-	)
+	val visibleRange = event.toWhispersyncVisibleTextRange()
 	val currentWhispersync = state.whispersync
 	if (state.shellCoverVisible) {
 		val shouldClearOverlay =
@@ -1542,10 +1618,13 @@ private fun ReaderController.reduceVisibleTextRange(
 					} else {
 						pendingIntent
 					},
-					transportPhase = if (currentWhispersync.isCanonicalMappingTerminal()) {
-						ReaderWhispersyncTransportPhase.Failed
-					} else {
-						ReaderWhispersyncTransportPhase.Preparing
+					transportPhase = when {
+						currentWhispersync.isCanonicalMappingTerminal() -> ReaderWhispersyncTransportPhase.Failed
+						// Redisplay of the page under playing audio: re-validation, not navigation (#24).
+						navigationMatched == null &&
+							currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.Playing ->
+							ReaderWhispersyncTransportPhase.Playing
+						else -> ReaderWhispersyncTransportPhase.Preparing
 					},
 					lastEventProvenance = if (navigationMatched != null) {
 						ReaderWhispersyncEventProvenance.UserNavigation

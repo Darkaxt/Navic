@@ -4050,6 +4050,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 								interaction = ReaderPageInteractionState.BackgroundPrefetch,
 								reason = "deck-load-deferred:$request"
 							)
+						} else if (preparationPhase == ReaderPagePreparationPhase.Preparing) {
+							// Rasters still generating: the deck reloads when preparation is Ready (#50).
+							updateReadiness(
+								textureDeck = ReaderTextureDeckState.Preparing,
+								interaction = blockingPreparationState(),
+								reason = "deck-load-awaiting-preparation:$request"
+							)
 						} else {
 							updateReadiness(
 								textureDeck = ReaderTextureDeckState.Failed,

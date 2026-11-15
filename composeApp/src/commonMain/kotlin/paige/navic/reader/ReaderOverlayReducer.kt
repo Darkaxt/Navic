@@ -175,6 +175,7 @@ internal object ReaderOverlayReducer {
 				),
 				activeMediaOverlay = event.fragment,
 				activeMediaOverlayAnchorReceipt = event.anchorReceipt,
+				activeMediaOverlayAnchorRefused = event.anchorReceipt == null,
 				audioMetadataLabel = event.fragment.label
 			)
 		)

@@ -131,6 +131,92 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun readableLayoutRegenerationKeepsTheLivePageVisibleButBlocksTurns() {
+		// #50: after a rotation both the raster and the renderer side report blocking states.
+		val rasterState = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Preparing,
+			requiredCount = 12,
+			completedCount = 2,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+		val blocked = readerMergedPagePreparationState(
+			pageTurnCanvasEnabled = true,
+			pageTurnContentReady = true,
+			rasterState = rasterState,
+			rendererState = ReaderPageRendererReadinessState(
+				interaction = ReaderPageInteractionState.BlockingProfileRegeneration
+			)
+		)
+		assertEquals(ReaderPagePreparationPresentation.Cover, blocked.presentation)
+
+		val regenerating = readerLayoutRegenerationPreparationState(blocked, regeneratingReadableLayout = true)
+		assertEquals(ReaderPagePreparationPresentation.Compact, regenerating.presentation)
+		assertTrue(regenerating.showsProgress)
+		assertFalse(regenerating.interactiveReady)
+		assertEquals(blocked.operationPolicy, regenerating.operationPolicy)
+		assertFalse(
+			readerNativePresentationLayerVisibility(
+				shellCoverVisible = false,
+				pagePreparationCoverVisible =
+					regenerating.presentation == ReaderPagePreparationPresentation.Cover,
+				hasValidatedRasterPresentation = false
+			).preparationShield
+		)
+
+		// While the new layout is still being measured, the live page shows without any card.
+		val measuring = readerLayoutRegenerationPreparationState(
+			readerMergedPagePreparationState(
+				pageTurnCanvasEnabled = true,
+				pageTurnContentReady = false,
+				rasterState = rasterState,
+				rendererState = ReaderPageRendererReadinessState()
+			),
+			regeneratingReadableLayout = true
+		)
+		assertEquals(ReaderPagePreparationPresentation.Compact, measuring.presentation)
+		assertFalse(measuring.showsProgress)
+		assertFalse(measuring.interactiveReady)
+
+		// Initial open (no readable layout) and failures stay fail-closed.
+		assertEquals(blocked, readerLayoutRegenerationPreparationState(blocked, regeneratingReadableLayout = false))
+		val failed = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Failed,
+			requiredCount = 12,
+			completedCount = 2,
+			interactiveRequiredCount = 3,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(interaction = ReaderPageInteractionState.Failed)
+		)
+		assertEquals(failed, readerLayoutRegenerationPreparationState(failed, regeneratingReadableLayout = true))
+	}
+
+	@Test
+	fun readableLayoutRegenerationIsOnlyStartedByLayoutChanges() {
+		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
+			.substringAfter("private class KomikkuReaderNativeViewerContainer(")
+		val sizeChanged = source.substringAfter("override fun onSizeChanged(").substringBefore("override fun onWindowVisibilityChanged(")
+		assertTrue(sizeChanged.indexOf("beginReadableLayoutRegeneration()") in 0 until sizeChanged.indexOf("onHostSizeChanged()"))
+		for (entry in listOf("fun setPageTurnReadingDirection(", "fun setPageTurnBitmapQuality(", "fun setPageTurnSnapshotKey(")) {
+			assertContains(source.substringAfter(entry).substringBefore("\n\t}"), "beginReadableLayoutRegeneration()", message = entry)
+		}
+		val begin = source.substringAfter("private fun beginReadableLayoutRegeneration()").substringBefore("\n\t}")
+		assertContains(begin, "if (shellCoverVisible) return")
+		assertContains(begin, "lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden")
+		for (exit in listOf(
+			"playLikeCurlController.invalidate(\"viewer-replaced\")",
+			"playLikeCurlController.invalidate(\"shell-cover-visible\")",
+			"playLikeCurlController.onHostWindowHidden()"
+		)) {
+			val before = source.substringBefore(exit).takeLast(160)
+			assertContains(before, "regeneratingReadableLayout = false", message = exit)
+		}
+	}
+
+	@Test
 	fun disabledCanvasStaysBlockedUntilPublicationContentBecomesReady() {
 		val rasterState = readerPagePreparationState(
 			phase = ReaderPagePreparationPhase.Idle,

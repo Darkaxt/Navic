@@ -333,6 +333,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 					state = controller.state.copy(
 						activeMediaOverlay = null,
 						activeMediaOverlayAnchorReceipt = null,
+						activeMediaOverlayAnchorRefused = false,
 						audioMetadataLabel = null
 					)
 				),
@@ -460,7 +461,15 @@ data class ReaderWordSyncPlaybackCoordinator(
 			return ReaderWordSyncDecision(this, ReaderControllerStep(controller))
 		}
 		val descriptor = chapterProvenance.toReaderRawTextProvenanceDescriptor()
-		val installed = controller.installRawTextProvenance(descriptor)
+		val sidecarInstalledReady =
+			controller.state.whispersync.sidecar?.referencedRawTextProvenanceDescriptors().orEmpty()
+				.any { it == descriptor } &&
+				controller.state.rawTextProvenanceById[descriptor.id]?.status == RawTextProvenanceStatus.Ready
+		val installed = if (sidecarInstalledReady) {
+			ReaderControllerStep(controller)
+		} else {
+			controller.installRawTextProvenance(descriptor)
+		}
 		return ReaderWordSyncDecision(
 			coordinator = copy(
 				chapters = chapters + (
@@ -825,15 +834,19 @@ private fun ReaderControllerStep.withExactWordSyncSeek(
 	)
 }
 
+// Whispersync segment cues, in DOM coordinates or, for canonical sidecars (coordinateBasis), in
+// WordSync extracted-UTF-8 coordinates (#24). Both demand the WordSync index and are refined into
+// word fragments. Only controller commands reach this point: the coordinator's own word fragments
+// go straight to the engine and are never fed back as cues.
 private fun ReaderEngineCommand?.asCueOverlayCommand(): ReaderEngineCommand? = when (this) {
-	is ReaderEngineCommand.ApplyMediaOverlay -> takeIf {
-		fragment.coordinateMode == ReaderOverlayCoordinateMode.CueV1DomUtf16
-	}
-	is ReaderEngineCommand.UpdateMediaOverlayProgress -> takeIf {
-		fragment.coordinateMode == ReaderOverlayCoordinateMode.CueV1DomUtf16
-	}
+	is ReaderEngineCommand.ApplyMediaOverlay -> takeIf { fragment.isWhispersyncCue() }
+	is ReaderEngineCommand.UpdateMediaOverlayProgress -> takeIf { fragment.isWhispersyncCue() }
 	else -> null
 }
+
+private fun ReaderOverlayFragment.isWhispersyncCue(): Boolean =
+	coordinateMode == ReaderOverlayCoordinateMode.CueV1DomUtf16 ||
+		(coordinateMode == ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8 && rawProvenanceId != null)
 
 private fun WordSyncPublicationChapterProvenance.toReaderRawTextProvenanceDescriptor() =
 	ReaderRawTextProvenanceDescriptor(

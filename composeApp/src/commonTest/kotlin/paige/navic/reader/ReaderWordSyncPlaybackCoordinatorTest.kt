@@ -234,6 +234,73 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun verifiedChapterKeepsTheCanonicalSidecarsReadyProof() {
+		// #24: the canonical sidecar already installed this exact proof; re-installing it reset it
+		// to Pending and paused playback as soon as the WordSync chapter arrived.
+		val d = descriptor()
+		val sidecar = decodeWhispersyncSidecar(
+			"""
+			{
+			  "coordinateBasis": {
+			    "extractor": "bindery-epub-text",
+			    "extractorVersion": "1",
+			    "normalization": "raw-extracted-text-offsets",
+			    "unit": "utf8-byte",
+			    "scope": "spine",
+			    "spines": [{
+			      "href": "${d.href}",
+			      "spineIndex": ${d.spineIndex},
+			      "sourceHash": "${d.sourceHash}",
+			      "extractedTextHash": "${d.extractedTextHash}",
+			      "byteLength": ${d.byteLength},
+			      "tokenCount": ${d.tokenCount}
+			    }]
+			  },
+			  "cues": [{
+			    "id": 1040,
+			    "audioHref": "Audio/a.mp3",
+			    "audioStart": 1,
+			    "audioEnd": 2,
+			    "ebookHref": "${d.href}",
+			    "spineIndex": ${d.spineIndex},
+			    "ebookStart": 0,
+			    "ebookEnd": 1,
+			    "ebookText": "x"
+			  }]
+			}
+			""".trimIndent()
+		)
+		val loaded = ReaderController().loadWhispersyncSidecar(sidecar).controller
+		assertEquals(listOf(d), loaded.state.whispersync.sidecar?.referencedRawTextProvenanceDescriptors())
+		val ready = loaded.onEngineEvent(
+			ReaderEngineEvent.RawTextProvenanceStatusChanged(provenanceId = d.id, status = RawTextProvenanceStatus.Ready)
+		).controller
+		val demand = ReaderWordSyncPlaybackCoordinator()
+			.configure(reference)
+			.coordinate(
+				controllerStep = ReaderControllerStep(ready, engineCommands = listOf(cueCommand())),
+				playback = playbackIdentity(positionMs = 1_050)
+			)
+		val indexed = demand.coordinator.onIndexVerified(
+			generation = assertIs<ReaderWordSyncEffect.LoadIndex>(demand.effects.single()).generation,
+			index = index,
+			provenance = provenance,
+			controller = ready
+		)
+
+		val verified = indexed.coordinator.onChapterVerified(
+			generation = assertIs<ReaderWordSyncEffect.LoadChapter>(indexed.effects.single()).generation,
+			chapter = chapter,
+			controller = ready
+		)
+
+		assertTrue(verified.controllerStep.engineCommands.none { it is ReaderEngineCommand.InstallRawTextProvenance })
+		assertEquals(RawTextProvenanceStatus.Ready, verified.controllerStep.controller.state.rawTextProvenanceById[d.id]?.status)
+		assertNull(verified.controllerStep.readaloudPlaybackCommand)
+		assertEquals(setOf(chapter.chapterKey), verified.coordinator.chapters.keys)
+	}
+
+	@Test
 	fun explicitTrackIndexOutranksAStaleRuntimeResourceIdentity() {
 		val ready = readyCoordinatorAndController()
 		val cue = cueCommand()
@@ -696,6 +763,52 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
+	fun canonicalSidecarCueDemandsTheWordSyncIndex() {
+		// #24: canonical-coordinate sidecars (Alcatraz) emit WordSync-coordinate cues.
+		val cue = canonicalCueCommand()
+		val configured = ReaderWordSyncPlaybackCoordinator().configure(reference)
+		val first = configured.coordinate(
+			controllerStep = ReaderControllerStep(ReaderController(), engineCommands = listOf(cue)),
+			playback = playbackIdentity(positionMs = 1_050)
+		)
+
+		assertIs<ReaderWordSyncEffect.LoadIndex>(first.effects.single())
+		assertEquals(listOf(cue), first.controllerStep.engineCommands)
+	}
+
+	@Test
+	fun canonicalCueIsRefinedToTheWordAndIsTheRawFallback() {
+		val ready = readyCoordinatorAndController()
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				chrome = ready.second.state.chrome.copy(
+					readaloudPlayback = ReaderReadaloudPlaybackUiState(isPlaying = true)
+				)
+			)
+		)
+		val raw = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(canonicalCueCommand())),
+			playback = playbackIdentity(positionMs = 1_050)
+		)
+		val word = raw.controllerStep.engineCommands.single().overlayFragmentOrNull()
+		assertEquals(ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8, word?.coordinateMode)
+		assertEquals(41, word?.overlayRequestId)
+		assertTrue(word != canonicalCueCommand().fragment)
+
+		val fallback = raw.coordinator.onEngineEvent(
+			controller = raw.controllerStep.controller,
+			event = ReaderEngineEvent.MediaOverlayInactive(
+				overlayRequestId = 41,
+				coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+				reason = "paint-rejected"
+			)
+		)
+		val fallbackCommand = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(fallback.controllerStep.engineCommands.single())
+		assertEquals(canonicalCueCommand().fragment, fallbackCommand.fragment)
+		assertNull(fallback.controllerStep.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun rawRejectionRetriesCueWithoutPausingPlayback() {
 		val ready = readyCoordinatorAndController()
 		val pending = ReaderWhispersyncPendingAudioSeek(
@@ -836,6 +949,23 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			textStart = 10,
 			textEnd = 30,
 			label = "Chapter"
+		)
+	)
+
+	private fun canonicalCueCommand() = ReaderEngineCommand.ApplyMediaOverlay(
+		ReaderOverlayFragment(
+			resourceHref = "Audio/a.mp3",
+			coordinateMode = ReaderOverlayCoordinateMode.WordSyncV1ExtractedUtf8,
+			overlayRequestId = 41,
+			wordBoundarySequence = 7,
+			textHref = "Text/chapter.xhtml",
+			clipBeginSeconds = 0.9,
+			clipEndSeconds = 1.6,
+			label = "Chapter",
+			rawProvenanceId = descriptor().id,
+			rawSpineIndex = descriptor().spineIndex,
+			rawByteStart = 0,
+			rawByteEnd = 12
 		)
 	)
 

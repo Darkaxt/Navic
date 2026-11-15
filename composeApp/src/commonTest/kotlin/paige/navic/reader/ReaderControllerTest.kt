@@ -2227,6 +2227,9 @@ class ReaderControllerTest {
 		assertEquals(5_000L, missingReceipt.whispersyncAudioSeekTarget?.positionMs)
 		assertEquals(overlay.fragment, missingReceipt.controller.state.activeMediaOverlay)
 		assertNull(missingReceipt.controller.state.activeMediaOverlayAnchorReceipt)
+		// An engine-confirmed overlay without a receipt is a refused anchor: restore authority.
+		assertTrue(missingReceipt.controller.state.activeMediaOverlayAnchorRefused)
+		assertTrue(missingReceipt.controller.state.whispersyncAnchorAuthorityOverlayActive)
 		assertEquals(
 			requestId,
 			missingReceipt.controller.state.whispersync.sync.confirmedOverlayRequestId
@@ -2287,6 +2290,8 @@ class ReaderControllerTest {
 		assertNotNull(confirmed.progressToSave)
 		assertEquals(overlay.fragment, confirmed.controller.state.activeMediaOverlay)
 		assertEquals(receipt, confirmed.controller.state.activeMediaOverlayAnchorReceipt)
+		assertFalse(confirmed.controller.state.activeMediaOverlayAnchorRefused)
+		assertTrue(confirmed.controller.state.whispersyncAnchorAuthorityOverlayActive)
 		assertEquals("Second sentence", confirmed.controller.state.audioMetadataLabel)
 		assertEquals(
 			requestId,
@@ -2300,6 +2305,22 @@ class ReaderControllerTest {
 		assertNull(duplicate.whispersyncAudioSeekTarget)
 		assertEquals(overlay.fragment, duplicate.controller.state.activeMediaOverlay)
 		assertEquals(receipt, duplicate.controller.state.activeMediaOverlayAnchorReceipt)
+	}
+
+	@Test
+	fun overlayAwaitingItsConfirmationIsNotARefusedAnchor() {
+		// #24: after a silent gap the next word is published before the engine confirms it.
+		// That pending fragment must not request live-authority restoration (page re-present).
+		val pending = ReaderControllerState(
+			activeMediaOverlay = ReaderOverlayFragment(resourceHref = "Audio/a.mp3", overlayRequestId = 7L)
+		)
+		assertFalse(pending.whispersyncAnchorAuthorityOverlayActive)
+		assertTrue(pending.copy(activeMediaOverlayAnchorRefused = true).whispersyncAnchorAuthorityOverlayActive)
+		assertTrue(
+			pending.copy(activeMediaOverlayAnchorReceipt = testAnchorReceipt("session-a"))
+				.whispersyncAnchorAuthorityOverlayActive
+		)
+		assertFalse(ReaderControllerState(activeMediaOverlayAnchorRefused = true).whispersyncAnchorAuthorityOverlayActive)
 	}
 
 	@Test

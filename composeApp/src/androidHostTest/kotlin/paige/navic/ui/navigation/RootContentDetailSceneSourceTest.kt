@@ -24,7 +24,8 @@ class RootContentDetailSceneSourceTest {
 			"AurralArtist",
 			"AurralMissingAlbum",
 			"CollectionDetail",
-			"SongDetail"
+			"SongDetail",
+			"Reader"
 		).forEach { destination ->
 			val entryDeclaration = source.lineSequence()
 				.firstOrNull { "entry<Screen.$destination>" in it }

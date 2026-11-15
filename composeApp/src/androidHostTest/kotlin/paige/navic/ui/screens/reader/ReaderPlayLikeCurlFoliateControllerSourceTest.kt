@@ -188,6 +188,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(prepare, "deck-load-progress")
 		assertContains(prepare, "\"deck-load-completed\"")
 		assertContains(prepare, "\"deck-load-failed\"")
+		// #50: an unavailable deck during preparation stays blocking preparation, not Failed.
+		val unavailable = prepare.substringAfter("if (deck == null) {").substringBefore("logActivationState(")
+		assertTrue(
+			unavailable.indexOf("preparationPhase == ReaderPagePreparationPhase.Preparing") in
+				0 until unavailable.indexOf("reason = \"deck-load-failed:${'$'}request\"")
+		)
+		assertContains(unavailable, "interaction = blockingPreparationState()")
 		assertContains(prepare, "pageIndices.joinToString")
 		assertContains(prepare, "elapsedMillis")
 		assertContains(prepare, "onProgress =")
@@ -1098,7 +1105,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 
 		assertContains(
 			root,
-			"whispersyncOverlayActive = controllerState.activeMediaOverlay != null"
+			// #24: only engine-confirmed overlays (receipt or refusal) can request restoration.
+			"whispersyncOverlayActive = controllerState.whispersyncAnchorAuthorityOverlayActive"
 		)
 		assertContains(hostPublication, "readerWhispersyncAuthorityRestorationRequested(")
 		assertContains(hostPublication, "playLikeCurlController.onWhispersyncOverlayAnchorUnavailable()")

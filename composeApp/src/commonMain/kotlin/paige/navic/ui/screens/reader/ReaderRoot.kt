@@ -48,6 +48,7 @@ import paige.navic.reader.productionDiagnosticSurface
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.supportsReaderEngineCapability
+import paige.navic.reader.whispersyncAnchorAuthorityOverlayActive
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -187,7 +188,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnVisualLocationReason = controllerState.chrome.currentLocator?.reason,
 			pageTurnFoliateSessionId = controllerState.foliateSessionId,
 			pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
-			whispersyncOverlayActive = controllerState.activeMediaOverlay != null,
+			whispersyncOverlayActive = controllerState.whispersyncAnchorAuthorityOverlayActive,
 			whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
 			whispersyncHighlightColorArgb =
 				controllerState.chrome.settings.whispersyncHighlightColorArgb

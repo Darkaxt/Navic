@@ -429,7 +429,9 @@ private fun entryProvider(
 				title = key.title
 			)
 		}
-		entry<Screen.Reader>(metadata = navtabMetadata) { key ->
+		// Single-pane in every window size: a list-detail scene change on rotation would move the
+		// reader's native host, detaching it and reloading the book behind a dark shield (#50).
+		entry<Screen.Reader> { key ->
 			ReaderScreen(key)
 		}
 
