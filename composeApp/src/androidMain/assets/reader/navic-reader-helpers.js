@@ -1130,6 +1130,12 @@ export const updateReaderShellCoverLayer = (layer, coverUrl, settings, title = '
     'box-shadow': 'none',
     'z-index': '1',
   })
+  // Expanded (CoverX) landscape covers fill the screen, centre-cropped (#25).
+  const fillExpandedCover = () => {
+    if (image.naturalWidth > image.naturalHeight) image.style.setProperty('object-fit', 'cover', 'important')
+  }
+  if (image.complete) fillExpandedCover()
+  else image.onload = fillExpandedCover
 }
 
 export const updateReaderStaticPaperBackingLayer = (layer, textureSlots, settings, decorationGeometry = null) => {

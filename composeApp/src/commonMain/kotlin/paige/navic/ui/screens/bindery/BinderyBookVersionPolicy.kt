@@ -610,7 +610,8 @@ private fun BinderyBookResource.toEbookVersionRow(
 		readerSupported = readerFormat != null,
 		downloadExtension = if (readerFormat == null) displayFormat.downloadExtension() else null,
 		finding = bookFileId()?.let(findingByBookFileId::get),
-		ebookBookFileId = bookFileId()
+		ebookBookFileId = bookFileId(),
+		fullscreenCoverHref = propertyValues.expandedCoverObjectHref()
 	)
 }
 
@@ -749,7 +750,8 @@ private fun BinderyLink.toBookResource(): BinderyBookResource =
 		type = type,
 		kind = properties["kind"],
 		sizeBytes = properties["size"]?.toLongOrNull(),
-		properties = properties
+		properties = properties,
+		propertyValues = propertyValues
 	)
 
 private fun BinderyBookResource.toReadingOrderItem(): BinderyReadingOrderItem =

@@ -129,9 +129,19 @@ internal fun BinderyBookVersionRow.fullscreenCoverUrl(
 		?.let { href -> binderyEndpoint(opdsBaseUrl, href) }
 }
 
+// Bindery CoverX publishes the generated cover as an object ({url, status, width, height, ...}) on
+// each ebook resource (#25). Only a ready asset is used; otherwise the normal cover applies.
+internal fun BinderyPropertyBag.expandedCoverObjectHref(): String? =
+	BinderyFullscreenCoverPropertyKeys.firstNotNullOfOrNull { key ->
+		objectBag(key)
+			?.takeIf { cover -> cover.string("status")?.equals("ready", ignoreCase = true) != false }
+			?.firstNonBlankString("url", "href")
+	}
+
 internal fun BinderyManifest.fullscreenCoverHref(): String? =
 	properties.firstNonBlankValue(*BinderyFullscreenCoverPropertyKeys) ?:
 		propertyValues.firstNonBlankString(*BinderyFullscreenCoverPropertyKeys) ?:
+		propertyValues.expandedCoverObjectHref() ?:
 		(images + links).firstNotNullOfOrNull(BinderyLink::fullscreenCoverHref)
 
 internal fun BinderyManifest.fullscreenCoverVariants(): List<BinderyFullscreenCoverVariant> =

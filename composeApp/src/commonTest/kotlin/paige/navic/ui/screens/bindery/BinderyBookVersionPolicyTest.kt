@@ -1538,6 +1538,64 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun ebookVersionRowsUseTheirOwnReadyBinderyCoverXExpandedCover() {
+		fun expandedCover(bookFileId: Int, status: String) = BinderyPropertyBag(
+			mapOf(
+				"expandedCover" to BinderyPropertyValue.ObjectValue(
+					mapOf(
+						"url" to BinderyPropertyValue.StringValue(
+							"/api/v1/book/3959/file/expanded-cover?bookFileId=$bookFileId&variant=ambient-subtle"
+						),
+						"status" to BinderyPropertyValue.StringValue(status),
+						"width" to BinderyPropertyValue.NumberValue(828.0, "828"),
+						"height" to BinderyPropertyValue.NumberValue(555.0, "555")
+					)
+				)
+			)
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				BinderyBookResource(
+					href = "/opds/books/3959/resources/ebook-212",
+					title = "Alcatraz EPUB",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 2_000,
+					properties = mapOf("format" to "epub", "bookFileId" to "212"),
+					propertyValues = expandedCover(212, "ready")
+				),
+				BinderyBookResource(
+					href = "/opds/books/3959/resources/ebook-571",
+					title = "Alcatraz EPUB other edition",
+					type = "application/epub+zip",
+					kind = "ebook",
+					sizeBytes = 1_000,
+					properties = mapOf("format" to "epub", "bookFileId" to "571"),
+					propertyValues = expandedCover(571, "pending")
+				)
+			)
+		)
+
+		val rows = binderyBookVersionRows(BinderyManifest(id = "urn:bindery:book:3959", title = "Alcatraz"), resources)
+
+		val ready = rows.single { it.id == "/opds/books/3959/resources/ebook-212" }
+		assertEquals("/api/v1/book/3959/file/expanded-cover?bookFileId=212&variant=ambient-subtle", ready.fullscreenCoverHref)
+		assertEquals(
+			"https://bindery.local/api/v1/book/3959/file/expanded-cover?bookFileId=212&variant=ambient-subtle",
+			binderyReaderDestinationForVersionRow(
+				row = ready,
+				bookId = "3959",
+				bookTitle = "Alcatraz",
+				opdsBaseUrl = "https://bindery.local/opds",
+				fullscreenCoverTargetAspectRatio = 2560.0 / 1600.0
+			)?.fullscreenCoverUrl
+		)
+		// A CoverX asset that is not ready falls back to the normal cover.
+		assertNull(rows.single { it.id == "/opds/books/3959/resources/ebook-571" }.fullscreenCoverHref)
+	}
+
+	@Test
 	fun regularCoverImagesDoNotBecomeFullscreenShellCoverRoutes() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3816",

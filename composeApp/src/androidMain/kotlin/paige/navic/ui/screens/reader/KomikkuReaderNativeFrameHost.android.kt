@@ -926,6 +926,10 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			canvas.drawText(title.ifBlank { "Cover" }, width / 2f, height / 2f, titlePaint)
 			return
 		}
+		if (currentBitmap.width > currentBitmap.height) {
+			drawFullBleedNativeShellCover(canvas, currentBitmap)
+			return
+		}
 		val shellGeometry = resolveNativeReaderShellCoverGeometry(
 			viewWidth = width,
 			viewHeight = height,
@@ -959,6 +963,20 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 		canvas.drawBitmap(currentBitmap, source, backdropDestination, backdropImagePaint)
 		canvas.restoreToCount(checkpoint)
 		canvas.drawRect(backdropRect, dimPaint)
+	}
+
+	// Expanded (CoverX) covers fill the screen, centre-cropped like Bindery's tablet viewports (#25).
+	private fun drawFullBleedNativeShellCover(canvas: Canvas, currentBitmap: Bitmap) {
+		val scale = max(width / currentBitmap.width.toFloat(), height / currentBitmap.height.toFloat())
+		val drawWidth = currentBitmap.width * scale
+		val drawHeight = currentBitmap.height * scale
+		destination.set(
+			(width - drawWidth) / 2f,
+			(height - drawHeight) / 2f,
+			(width + drawWidth) / 2f,
+			(height + drawHeight) / 2f
+		)
+		canvas.drawBitmap(currentBitmap, null, destination, imagePaint)
 	}
 
 	private fun drawContainedNativeShellCover(
