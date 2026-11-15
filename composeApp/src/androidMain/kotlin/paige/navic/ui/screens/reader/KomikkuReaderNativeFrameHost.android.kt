@@ -1981,6 +1981,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			pageRasterPreparationController.invalidate("shell-cover-visible")
 		} else if (!preservePreparedHandoff) {
 			pageRasterPreparationController.invalidateCurrentVisualSnapshot("shell-cover-hidden")
+		} else {
+			playLikeCurlController.releaseStartupShellPresentation()
 		}
 		requestPageTurnPrewarmWhenReady()
 		commitStartupShellPresentationIfReady()

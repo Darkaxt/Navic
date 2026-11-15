@@ -872,7 +872,7 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(window, "preserveCurrentPresentation: Boolean = false")
 		assertContains(window, "captureCurrentPresentation(")
 		assertContains(window, "val presentationRoot = host.rootView")
-		assertContains(window, "presentationRoot.draw(canvas)")
+		assertContains(window, "view = presentationRoot,")
 		assertFalse(window.contains("host.draw(canvas)"))
 		assertContains(window, "private var ownedBitmap: Bitmap? = null")
 		assertContains(window, "ownedBitmap?.recycle()")

@@ -78,15 +78,10 @@ class ReaderPageTurnBitmapSourceTest {
 		assertTrue(capture.contains("foreground?.settlementSignature(allowStableLowContrast)"))
 		assertFalse(capture.contains("previousSparseSignature"))
 		assertFalse(capture.contains("previousLowContrastSignature"))
-		assertTrue(helper.contains("webView.draw(canvas)"))
+		assertTrue(helper.contains("drawViewAtNativeScale("))
 		assertTrue(
 			helper.contains(
-				"webViewLocationInWindow[0] - sourceRectInWindow.left.toFloat()"
-			)
-		)
-		assertTrue(
-			helper.contains(
-				"webViewLocationInWindow[1] - sourceRectInWindow.top.toFloat()"
+				"offset(-webViewLocationInWindow[0], -webViewLocationInWindow[1])"
 			)
 		)
 	}

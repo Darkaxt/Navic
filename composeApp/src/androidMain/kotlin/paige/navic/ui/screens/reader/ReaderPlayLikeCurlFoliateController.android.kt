@@ -2192,6 +2192,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	/**
+	 * #54: the startup shell raster only bridges the cover-to-page transition. Once the cover
+	 * is gone the live WebView owns the page; leaving the scaled raster up kept the opening
+	 * page blurry (and without live text) until the first turn.
+	 */
+	fun releaseStartupShellPresentation() {
+		if (
+			relocationQueue.occupiedCount() != 0 ||
+			!inlineRasterShield.ownsPresentation() ||
+			inlineRasterShield.pendingCallbackCount() != 0
+		) {
+			return
+		}
+		inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis) {
+			if (inlineRasterShield.ownsPresentation()) inlineRasterShield.dismiss()
+		}
+	}
+
 	private fun startTapTurn(
 		pageChange: PageChange,
 		gestureId: Long

@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
@@ -144,13 +143,14 @@ internal class ReaderPageStaticWindowShield(
 		}.getOrNull() ?: return null
 		return runCatching {
 			captured.density = referenceBitmap.density
-			val canvas = Canvas(captured)
-			canvas.scale(
-				captured.width / surfaceRectInWindow.width().toFloat(),
-				captured.height / surfaceRectInWindow.height().toFloat()
+			check(
+				drawViewAtNativeScale(
+					view = presentationRoot,
+					sourceInView = Rect(sourceLeft, sourceTop, sourceRight, sourceBottom),
+					target = captured,
+					backgroundColor = null
+				)
 			)
-			canvas.translate(-sourceLeft.toFloat(), -sourceTop.toFloat())
-			presentationRoot.draw(canvas)
 			captured
 		}.getOrElse {
 			captured.recycle()

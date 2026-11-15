@@ -1367,7 +1367,7 @@ class ReaderPageTurnDestinationSourceTest {
 		assertContains(source, "captureStagedSurface(")
 		assertContains(source, "if (generation != activeGeneration)")
 		assertContains(source, "current.bitmap.takeUnless { it.isRecycled }?.recycle()")
-		assertContains(source, "webView.draw(canvas)")
+		assertContains(source, "drawViewAtNativeScale(webView, sourceInView, bitmap, backgroundColor)")
 		assertFalse(source.contains("postDelayed"))
 		assertFalse(source.contains("setTimeout"))
 	}
@@ -1486,11 +1486,10 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("private fun captureCompositedSurface(")
 			.substringBefore("fun invalidatePage(")
 
-		assertContains(capture, "canvas.drawColor(backgroundColor)")
-		assertContains(capture, "webView.draw(canvas)")
+		assertContains(capture, "drawViewAtNativeScale(webView, sourceInView, bitmap, backgroundColor)")
 		assertContains(capture, "bitmap.setHasAlpha(false)")
 		assertContains(capture, "bitmap.setPremultiplied(true)")
-		val draw = capture.indexOf("webView.draw(canvas)")
+		val draw = capture.indexOf("drawViewAtNativeScale(")
 		val opaque = capture.indexOf("bitmap.setHasAlpha(false)")
 		val premultiplied = capture.indexOf("bitmap.setPremultiplied(true)")
 		val publish = capture.indexOf("onCaptured(bitmap)")

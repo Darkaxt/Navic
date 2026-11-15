@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
@@ -1201,19 +1200,14 @@ private fun drawWebViewIntoBitmap(
 	backgroundColorArgb: Int
 ): Boolean = runCatching {
 	bitmap.eraseColor(backgroundColorArgb)
-	val canvas = Canvas(bitmap)
-	val checkpoint = canvas.save()
-	canvas.scale(
-		bitmap.width.toFloat() / sourceRectInWindow.width(),
-		bitmap.height.toFloat() / sourceRectInWindow.height()
+	drawViewAtNativeScale(
+		view = webView,
+		sourceInView = Rect(sourceRectInWindow).apply {
+			offset(-webViewLocationInWindow[0], -webViewLocationInWindow[1])
+		},
+		target = bitmap,
+		backgroundColor = backgroundColorArgb
 	)
-	canvas.translate(
-		webViewLocationInWindow[0] - sourceRectInWindow.left.toFloat(),
-		webViewLocationInWindow[1] - sourceRectInWindow.top.toFloat()
-	)
-	webView.draw(canvas)
-	canvas.restoreToCount(checkpoint)
-	true
 }.getOrElse { failure ->
 	Logger.w(
 		ReaderPageTurnBitmapSourceTag,

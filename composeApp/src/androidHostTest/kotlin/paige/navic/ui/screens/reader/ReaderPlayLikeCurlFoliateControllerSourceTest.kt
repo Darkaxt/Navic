@@ -3921,6 +3921,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun startupShellRasterIsCrossfadedToLiveWebViewOnceTheCoverHides() {
+		val controller = controllerFile.readText()
+		val host = hostFile.readText()
+		val release = controller
+			.substringAfter("fun releaseStartupShellPresentation()")
+			.substringBefore("\n\t}")
+		val coverVisibility = host
+			.substringAfter("fun setShellCoverVisible(visible: Boolean)")
+			.substringBefore("\n\t}")
+
+		assertContains(release, "inlineRasterShield.fadeOut(ReaderPageLiveHandoffCrossfadeMillis)")
+		assertContains(release, "inlineRasterShield.dismiss()")
+		assertContains(release, "relocationQueue.occupiedCount() != 0")
+		assertContains(coverVisibility, "consumeStartupShellPreparedHandoff()")
+		assertContains(coverVisibility, "playLikeCurlController.releaseStartupShellPresentation()")
+	}
+
+	@Test
 	fun preparedCanvasShellTransitionPreservesDeckAndUsesExistingGestureRelocation() {
 		val controller = controllerFile.readText()
 		val host = hostFile.readText()

@@ -1,7 +1,6 @@
 package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.os.Handler
@@ -3897,20 +3896,15 @@ internal class ReaderPageTurnBundleSource(
 			} else {
 				val location = IntArray(2)
 				webView.getLocationInWindow(location)
-				val canvas = Canvas(bitmap)
-				canvas.drawColor(backgroundColor)
-				canvas.scale(
-					bitmap.width / sourceRectInWindow.width().toFloat(),
-					bitmap.height / sourceRectInWindow.height().toFloat()
-				)
-				canvas.translate(
-					-(sourceRectInWindow.left - location[0]).toFloat(),
-					-(sourceRectInWindow.top - location[1]).toFloat()
-				)
-				webView.draw(canvas)
-				bitmap.setHasAlpha(false)
-				bitmap.setPremultiplied(true)
-				onCaptured(bitmap)
+				val sourceInView = Rect(sourceRectInWindow).apply { offset(-location[0], -location[1]) }
+				if (drawViewAtNativeScale(webView, sourceInView, bitmap, backgroundColor)) {
+					bitmap.setHasAlpha(false)
+					bitmap.setPremultiplied(true)
+					onCaptured(bitmap)
+				} else {
+					bitmap.recycle()
+					onCaptured(null)
+				}
 			}
 		}
 		val awaitCompositedPreview = {
