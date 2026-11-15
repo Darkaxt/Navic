@@ -68,6 +68,7 @@ internal object ReaderEngineLogProjector {
 	private val approvedWordSyncProgressDegraded =
 		Regex("^wordsync-progress-degraded:progress-(outside-visible-page|paint-rejected)(,-?[0-9]{1,12}){4}$")
 	private val approvedWordSyncRelayoutAnchor = Regex("^wordsync-relayout-anchor:[01](,[01]){3}$")
+	private val approvedRelayoutReadingAnchor = Regex("^relayout-reading-anchor:[01],[01]$")
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =
 		"Dispatching reader engine command: ${dispatch.command.type}"
@@ -88,7 +89,8 @@ internal object ReaderEngineLogProjector {
 					approvedWordSyncAnchorGeometry.matches(it) ||
 					approvedWordSyncSegment.matches(it) ||
 					approvedWordSyncProgressDegraded.matches(it) ||
-					approvedWordSyncRelayoutAnchor.matches(it)
+					approvedWordSyncRelayoutAnchor.matches(it) ||
+					approvedRelayoutReadingAnchor.matches(it)
 			}
 			?: RedactedConsoleDiagnostic
 		return "Reader console ${level.diagnosticName()}: $diagnostic"

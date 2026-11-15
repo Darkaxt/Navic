@@ -55,9 +55,32 @@ export const normalizedReaderPdfPageGapPercent = value => {
   return Math.min(ReaderPdfPageGapMaxPercent, Math.max(0, gap))
 }
 
+// #53: a layout-only change keeps the reading position the reader chose. A relayout records where the
+// visible text started and later relayouts reuse it while it is still on the page, so a rotation
+// round-trip returns to the same spread. Navigating away moves it off the page, which replaces it.
+const readerRangeStartWithin = (range, container) => {
+  if (!range?.startContainer?.isConnected || !container?.startContainer?.isConnected ||
+    range.startContainer.ownerDocument !== container.startContainer.ownerDocument) return false
+  try {
+    return container.comparePoint(range.startContainer, range.startOffset) === 0
+  } catch (_) {
+    return false
+  }
+}
+
+function anchorReaderRelayoutToReadingStart(runtime) {
+  const committed = runtime.committedVisibleTextRange?.domRange || null
+  const stored = runtime.relayoutReadingStart || null
+  const kept = readerRangeStartWithin(stored, committed)
+  const range = kept ? stored : committed?.startContainer?.isConnected ? committed.cloneRange() : null
+  runtime.relayoutReadingStart = range
+  const anchored = range ? runtime.view?.renderer?.anchorRelayoutToRange?.(range) === true : false
+  log(`relayout-reading-anchor:${kept ? 1 : 0},${anchored ? 1 : 0}`)
+}
+
 function applyReaderViewportLayout(label = 'unknown', options = {}) {
   if (label === 'resize') {
-    anchorReaderRelayoutToLiveOverlay(this)
+    if (!anchorReaderRelayoutToLiveOverlay(this)) anchorReaderRelayoutToReadingStart(this)
     this.clearPaginationProfileOwnership('viewport-resize')
     this.destroyPageTurnPreviewRenderer('viewport-resize')
   }

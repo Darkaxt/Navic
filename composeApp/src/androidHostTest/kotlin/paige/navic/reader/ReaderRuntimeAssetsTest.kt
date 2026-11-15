@@ -1766,9 +1766,10 @@ class ReaderRuntimeAssetsTest {
 			resize.indexOf("this.destroyPageTurnPreviewRenderer('viewport-resize')") in 0 until
 				resize.indexOf("setStylesImportant(document.documentElement")
 		)
-		// #51: the live Whispersync word anchors the relayout before any layout change.
+		// #51/#53: the live Whispersync word, else the kept reading start, anchors the relayout
+		// before any layout change.
 		assertTrue(
-			resize.indexOf("anchorReaderRelayoutToLiveOverlay(this)") in 0 until
+			resize.indexOf("if (!anchorReaderRelayoutToLiveOverlay(this)) anchorReaderRelayoutToReadingStart(this)") in 0 until
 				resize.indexOf("setStylesImportant(document.documentElement")
 		)
 		assertTrue(
