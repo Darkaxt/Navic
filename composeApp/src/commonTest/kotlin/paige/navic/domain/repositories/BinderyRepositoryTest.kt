@@ -231,12 +231,71 @@ class BinderyRepositoryTest {
 			metadataCache = metadataCache
 		)
 
+		metadataCache.put(syncTestRecord(BinderyMetadataPayloadType.WhispersyncSidecar, "sidecar"))
+		metadataCache.put(syncTestRecord(BinderyMetadataPayloadType.WordSyncChapter, "chapter"))
+		metadataCache.put(syncTestRecord(BinderyMetadataPayloadType.Catalog, "catalog"))
+
 		repository.performAction("/opds/discover/authors/hc%3Apeter-sanderson/monitor").getOrThrow()
 
 		assertEquals(listOf("https://bindery.example.com/opds"), apiClient.actionBaseUrls)
 		assertEquals(listOf(mapOf("X-Api-Key" to "secret")), apiClient.actionHeaders)
 		assertEquals(listOf("/opds/discover/authors/hc%3Apeter-sanderson/monitor"), apiClient.actionPaths)
-		assertEquals(listOf("https://bindery.example.com/opds"), metadataCache.clearedBaseUrls)
+		// Broad invalidation drops volatile metadata but keeps the sync data on disk.
+		assertEquals(emptyList(), metadataCache.clearedBaseUrls)
+		assertEquals(
+			setOf(BinderyMetadataPayloadType.WhispersyncSidecar, BinderyMetadataPayloadType.WordSyncChapter),
+			metadataCache.records.values.map { it.payloadType }.toSet()
+		)
+	}
+
+	private fun syncTestRecord(payloadType: String, path: String) = BinderyMetadataCacheRecord(
+		cacheKey = "$payloadType:$path",
+		baseUrl = "https://bindery.example.com/opds",
+		payloadType = payloadType,
+		path = path,
+		payloadJson = "{}",
+		updatedAtMillis = 1_000L
+	)
+
+	@Test
+	fun cachedWhispersyncSidecarOfAnyAgeIsServedWithoutNetwork() = runBlocking {
+		val path = "/api/v1/sync/artifacts/2"
+		val apiClient = FakeBinderyApiClient(
+			whispersyncSidecarJson = """
+			{
+			  "artifactId": "artifact-3",
+			  "ebookBookFileId": "3913",
+			  "audiobookBookFileId": "694",
+			  "segments": [
+			    {
+			      "audioHref": "Audio/chapter01.m4b",
+			      "startMs": 1250,
+			      "endMs": 3500,
+			      "textHref": "Text/chapter1.xhtml",
+			      "textStart": 10,
+			      "textEnd": 42,
+			      "spokenText": "Opening words",
+			      "ebookText": "Opening words"
+			    }
+			  ]
+			}
+			""".trimIndent()
+		)
+		val metadataCache = RecordingBinderyMetadataCache()
+		var now = 1_000L
+		val repository = configuredBinderyRepository(
+			apiClient = apiClient,
+			metadataCache = metadataCache,
+			currentTimeMillis = { now }
+		)
+		assertNull(repository.getCachedWhispersyncSidecar(path).getOrThrow())
+		val live = repository.getWhispersyncSidecar(path).getOrThrow()
+		now += 30L * 24 * 60 * 60 * 1000
+
+		val cached = repository.getCachedWhispersyncSidecar(path).getOrThrow()
+
+		assertEquals(live.revisionDigest, cached?.revisionDigest)
+		assertEquals(listOf(path), apiClient.whispersyncSidecarPaths)
 	}
 
 	@Test

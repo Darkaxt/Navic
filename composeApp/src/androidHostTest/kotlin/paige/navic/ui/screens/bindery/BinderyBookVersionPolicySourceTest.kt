@@ -68,11 +68,11 @@ class BinderyBookVersionPolicySourceTest {
 			message = "BinderyBookScreen must keep one layout-derived aspect value for all reader launch paths."
 		)
 		assertEquals(
-			4,
+			5,
 			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
 				.findAll(screen)
 				.count(),
-			"Every BookScreen reader launch path must pass the layout aspect into fullscreen cover variant selection."
+			"Every BookScreen reader launch path and its background prefetch must pass the layout aspect into fullscreen cover variant selection."
 		)
 	}
 
@@ -102,11 +102,11 @@ class BinderyBookVersionPolicySourceTest {
 			message = "The continue-reading Whispersync sheet must use the same aspect-aware route policy as ebook-only launches."
 		)
 		assertEquals(
-			3,
+			4,
 			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
 				.findAll(screen)
 				.count(),
-			"Every Hub continue-reading launch path must pass the layout aspect into fullscreen cover variant selection."
+			"Every Hub continue-reading launch path and its background prefetch must pass the layout aspect into fullscreen cover variant selection."
 		)
 	}
 

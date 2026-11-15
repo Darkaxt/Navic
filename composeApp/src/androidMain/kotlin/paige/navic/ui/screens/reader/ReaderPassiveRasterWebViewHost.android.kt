@@ -300,6 +300,7 @@ internal class ReaderPassiveRasterWebViewHost(
 	private var lastPreconditionFailure: ReaderPassiveRasterWebViewPreconditionFailure? = null
 	private var lastGeometryWidthDelta = 0
 	private var lastGeometryHeightDelta = 0
+	private val createdAtMillis = SystemClock.elapsedRealtime()
 	private val webView: WebView
 
 	override val isReady: Boolean
@@ -435,6 +436,11 @@ internal class ReaderPassiveRasterWebViewHost(
 			if (!callbackIsCurrent(generation)) return@evaluateJavascript
 			if (encoded == "true") {
 				runtimeReady = true
+				Logger.i(
+					"ReaderPassiveRaster",
+					"Passive runtime ready elapsedMs=${SystemClock.elapsedRealtime() - createdAtMillis} " +
+						"polls=$pollCount"
+				)
 			} else {
 				webView.postOnAnimation {
 					pollRuntimeReady(generation, pollCount + 1)

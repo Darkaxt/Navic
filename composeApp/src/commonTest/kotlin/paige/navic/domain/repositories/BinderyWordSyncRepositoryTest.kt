@@ -349,6 +349,28 @@ class BinderyWordSyncRepositoryTest {
 	}
 
 	@Test
+	fun committedGenerationChapterIsServedFromCacheAfterTheFreshnessWindow() = runBlocking {
+		val identity = WordSyncTestFixtures.identity()
+		val api = FakeBinderyApiClient(
+			wordSyncIndexJson = WordSyncTestFixtures.indexJson(),
+			wordSyncChapterJson = WordSyncTestFixtures.chapterJson()
+		)
+		val cache = RecordingBinderyMetadataCache()
+		var now = 10_000L
+		val repository = configuredBinderyRepository(api, cache) { now }
+		val index = repository.getWordSyncIndex(identity, discovery()).getOrThrow()
+		repository.getWordSyncChapter(identity, index.chapters.single()).getOrThrow()
+
+		now += 7L * 24 * 60 * 60 * 1000
+		repository.getWordSyncChapter(identity, index.chapters.single()).getOrThrow()
+		assertEquals(1, api.wordSyncChapterIdentities.size)
+
+		// The index keeps its freshness window: it is what detects a regenerated publication.
+		repository.getWordSyncIndex(identity, discovery()).getOrThrow()
+		assertEquals(2, api.wordSyncIndexIdentities.size)
+	}
+
+	@Test
 	fun refreshedIndexTimestampInvalidatesSameArtifactChapterShards() = runBlocking {
 		val cache = RecordingBinderyMetadataCache()
 		val identity = WordSyncTestFixtures.identity(artifactId = 17)

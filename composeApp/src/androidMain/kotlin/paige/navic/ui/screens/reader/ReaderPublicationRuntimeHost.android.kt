@@ -7,19 +7,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.async
 import org.koin.compose.koinInject
 import paige.navic.domain.repositories.BinderyReadingProgress
 import paige.navic.domain.repositories.BinderyRepository
-import paige.navic.reader.BinderyReaderPublicationResolver
-import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPublicationKind
-import paige.navic.reader.ReaderPublicationResourceRequest
 import paige.navic.reader.ReaderSessionLease
-import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.WordSyncPublicationVerifier
 import paige.navic.reader.androidWordSyncPublicationVerifierOrNull
-import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.reader.binderyReaderPublicationResolver
+import paige.navic.reader.readerDirectPublicationUrl
+import paige.navic.reader.readerPreferredShellCoverUrl
 import paige.navic.reader.readerPublicationResourceLogLabel
+import paige.navic.reader.toPublicationResourceRequest
 import paige.navic.reader.toReaderStartLocatorForReader
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
@@ -60,12 +60,10 @@ actual fun ReaderPublicationRuntimeHost(
 		reader.mediaOverlayEnabled,
 		reader.fullscreenCoverUrl
 	) {
-		val savedProgress = repository.savedReaderProgressFor(reader)
-		val preferredShellCoverUrl = reader.fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
-		val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }
-		val directUrl = reader.publicationUrl.takeIf {
-			reader.resourceHref.isBlank() || it.isLocalReaderPublicationUrl()
-		}
+		// Saved progress is network-only; look it up while the publication resolves instead of before it.
+		val savedProgressLookup = async { repository.savedReaderProgressFor(reader) }
+		val preferredShellCoverUrl = reader.readerPreferredShellCoverUrl()
+		val directUrl = reader.readerDirectPublicationUrl()
 		if (directUrl != null) {
 			val directShellCoverLog = if (preferredShellCoverUrl == null) {
 				"shellCover=unavailable"
@@ -78,9 +76,12 @@ actual fun ReaderPublicationRuntimeHost(
 					"url=${readerPublicationResourceLogLabel(directUrl)} " +
 					directShellCoverLog
 			)
+			val savedProgress = savedProgressLookup.await()
 			currentOnPublicationReady(directUrl, preferredShellCoverUrl, null, savedProgress, null)
 			return@LaunchedEffect
 		}
+		val request = reader.toPublicationResourceRequest()
+		val externalShellCoverHref = request.externalShellCoverHref
 		Logger.i(
 			ReaderPublicationRuntimeLogTag,
 			"Preparing reader publication kind=${reader.kind} bookId=${reader.bookId} " +
@@ -88,33 +89,7 @@ actual fun ReaderPublicationRuntimeHost(
 				"source=${readerPublicationResourceLogLabel(reader.publicationUrl)}"
 		)
 		runCatching {
-			val resolved = BinderyReaderPublicationResolver(
-				fetchResourceBytes = { path ->
-					Logger.i(
-						ReaderPublicationRuntimeLogTag,
-						"Fetching reader publication resource path=${readerPublicationResourceLogLabel(path)}"
-					)
-					repository.getResourceBytes(path).getOrThrow().also { bytes ->
-						Logger.i(
-							ReaderPublicationRuntimeLogTag,
-							"Fetched reader publication resource path=${readerPublicationResourceLogLabel(path)} " +
-								"bytes=${bytes.size}"
-						)
-					}
-				},
-				cacheRoot = readerManagedStorageRoot(context)
-			).resolve(
-				ReaderPublicationResourceRequest(
-					bookId = reader.bookId,
-					title = reader.title,
-					resourceHref = reader.resourceHref,
-					sourceUrl = reader.publicationUrl,
-					kind = reader.kind,
-					format = reader.publicationFormat,
-					mediaOverlayEnabled = reader.mediaOverlayEnabled,
-					externalShellCoverHref = externalShellCoverHref
-				)
-			)
+			val resolved = binderyReaderPublicationResolver(context, repository).resolve(request)
 			Logger.i(
 				ReaderPublicationRuntimeLogTag,
 				"Reader publication prepared url=${readerPublicationResourceLogLabel(resolved.publicationUrl)} " +
@@ -128,6 +103,7 @@ actual fun ReaderPublicationRuntimeHost(
 		}.fold(
 			onSuccess = { resolved ->
 				sessionLeases += resolved.sessionLease
+				val savedProgress = savedProgressLookup.await()
 				val shellCoverUrl = if (externalShellCoverHref == null) {
 					preferredShellCoverUrl ?: resolved.shellCoverUrl
 				} else {
@@ -156,11 +132,6 @@ actual fun ReaderPublicationRuntimeHost(
 		)
 	}
 }
-
-private fun String.isLocalReaderPublicationUrl(): Boolean =
-	startsWith("file:", ignoreCase = true) ||
-	startsWith("content:", ignoreCase = true) ||
-	startsWith("${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix", ignoreCase = true)
 
 private suspend fun BinderyRepository.savedReaderProgressFor(reader: Screen.Reader): BinderyReadingProgress? {
 	if (reader.bookId.isBlank() || reader.resourceHref.isBlank()) return null

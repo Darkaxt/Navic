@@ -61,7 +61,7 @@ class ReaderRuntimeNavigationFlowTest {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
 		val readaloudHostText = readerAndroidFile("ReaderReadaloudRuntimeHost.android.kt").readText()
 
-		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
+		assertContains(runtimeHostText, "val resolved = binderyReaderPublicationResolver(context, repository).resolve(request)")
 		assertContains(runtimeHostText, "cache=${'$'}{if (resolved.fromCache) \"hit\" else \"miss\"}")
 		assertContains(runtimeHostText, "cacheKey=${'$'}{resolved.cacheKey}")
 		assertContains(runtimeHostText, "fileBytes=${'$'}{resolved.publicationFile.length()}")
@@ -72,9 +72,11 @@ class ReaderRuntimeNavigationFlowTest {
 	@Test
 	fun androidReaderDevLoopbackPublicationsUseResolverCacheInsteadOfDirectWebViewFetch() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val resourceText = readerAndroidPackageFile("ReaderPublicationResource.android.kt").readText()
 
-		assertContains(runtimeHostText, "val resolved = BinderyReaderPublicationResolver")
-		assertContains(runtimeHostText, "sourceUrl = reader.publicationUrl")
+		assertContains(runtimeHostText, "val resolved = binderyReaderPublicationResolver(context, repository).resolve(request)")
+		assertContains(runtimeHostText, "val request = reader.toPublicationResourceRequest()")
+		assertContains(resourceText, "sourceUrl = publicationUrl")
 		assertFalse(
 			runtimeHostText.contains("isReaderDevLoopbackPublicationUrl"),
 			"Readerdev loopback HTTP sources must be materialized by the native resolver cache; WebView fetches can fail under the appassets HTTPS origin."

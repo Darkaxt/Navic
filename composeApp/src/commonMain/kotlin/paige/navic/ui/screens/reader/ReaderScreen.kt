@@ -715,7 +715,17 @@ fun ReaderScreen(reader: Screen.Reader) {
 				}
 				coroutineScope.launch {
 					val sidecar = withContext(Dispatchers.IO) {
-						binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+						val cached = binderyRepository.getCachedWhispersyncSidecar(attachment.sidecarPath)
+							.getOrNull()
+						if (cached == null) {
+							binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+						} else {
+							// Refresh in background when stale; the next open uses the refreshed copy.
+							coroutineScope.launch(Dispatchers.IO) {
+								binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+							}
+							Result.success(cached)
+						}
 					}.fold(
 						onSuccess = { sidecar ->
 							Logger.i(

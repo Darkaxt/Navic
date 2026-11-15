@@ -33,7 +33,9 @@ internal class FakeBinderyApiClient(
 	private val externalTextByUrl: Map<String, String> = emptyMap(),
 	private val rootFailure: Throwable? = null,
 	private val catalogFailure: Throwable? = null,
-	private val bookFindingsFailure: Throwable? = null
+	private val bookFindingsFailure: Throwable? = null,
+	/** Shared, ordered record of fetch kinds, so tests can assert cross-endpoint call order. */
+	private val callLog: MutableList<String>? = null
 ) : BinderyApiClient {
 	var rootCalls = 0
 	val rootBaseUrls = mutableListOf<String>()
@@ -121,6 +123,7 @@ internal class FakeBinderyApiClient(
 		manifestBaseUrls += baseUrl
 		manifestHeaders += requestHeaders
 		manifestBookIds += bookId
+		callLog?.add("manifest")
 		return BinderyManifest(
 			id = "urn:bindery:book:$bookId",
 			title = "Book $bookId"
@@ -170,6 +173,7 @@ internal class FakeBinderyApiClient(
 		audiobookManifestBaseUrls += baseUrl
 		audiobookManifestHeaders += requestHeaders
 		audiobookManifestIds += audiobookId
+		callLog?.add("audiobook-manifest")
 		return audiobookManifest
 	}
 
@@ -181,6 +185,7 @@ internal class FakeBinderyApiClient(
 		audiobookManifestBaseUrls += baseUrl
 		audiobookManifestHeaders += requestHeaders
 		audiobookManifestPaths += path
+		callLog?.add("audiobook-manifest")
 		return audiobookManifest
 	}
 
@@ -192,6 +197,7 @@ internal class FakeBinderyApiClient(
 		bookSyncBaseUrls += baseUrl
 		bookSyncHeaders += requestHeaders
 		bookSyncIds += bookId
+		callLog?.add("book-sync")
 		return bookSync
 	}
 
@@ -203,6 +209,7 @@ internal class FakeBinderyApiClient(
 		whispersyncSidecarBaseUrls += baseUrl
 		whispersyncSidecarHeaders += requestHeaders
 		whispersyncSidecarPaths += path
+		callLog?.add("sidecar")
 		return whispersyncSidecarJson
 	}
 
@@ -215,6 +222,7 @@ internal class FakeBinderyApiClient(
 		wordSyncIndexIdentities += identity
 		wordSyncIndexHrefs += advertisedHref
 		wordSyncIndexHeaders += requestHeaders
+		callLog?.add("wordsync-index")
 		wordSyncFailure?.let { throw it }
 		return wordSyncIndexJson
 	}
@@ -230,6 +238,7 @@ internal class FakeBinderyApiClient(
 		wordSyncChapterKeys += chapterKey
 		wordSyncChapterHrefs += advertisedHref
 		wordSyncChapterHeaders += requestHeaders
+		callLog?.add("wordsync-chapter")
 		wordSyncFailure?.let { throw it }
 		return wordSyncChapterJson
 	}

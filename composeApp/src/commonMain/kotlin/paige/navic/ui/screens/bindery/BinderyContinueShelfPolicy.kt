@@ -266,6 +266,33 @@ fun binderyContinueReadingWhispersyncDestination(
 		fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
 	)
 
+/** The reader destinations a continue-reading tap can open, via the same launch decision the tap uses. */
+fun binderyContinueReadingPrefetchDestinations(
+	items: List<BinderyContinueReadingItem>,
+	opdsBaseUrl: String,
+	fullscreenCoverTargetAspectRatio: Double?
+): List<Screen.Reader> =
+	items.flatMap { item ->
+		when (
+			val decision = binderyContinueReadingLaunchDecision(
+				item = item,
+				opdsBaseUrl = opdsBaseUrl,
+				fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+			)
+		) {
+			is BinderyContinueReadingLaunchDecision.OpenEbook -> listOf(decision.destination)
+			is BinderyContinueReadingLaunchDecision.AskWhispersync -> listOf(decision.ebookDestination) +
+				decision.matches.mapNotNull { match ->
+					binderyContinueReadingWhispersyncDestination(
+						decision = decision,
+						match = match,
+						opdsBaseUrl = opdsBaseUrl,
+						fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+					)
+				}
+		}
+	}
+
 private fun BinderyContinueReadingItem.aspectAwareEbookDestination(
 	opdsBaseUrl: String?,
 	fullscreenCoverTargetAspectRatio: Double?

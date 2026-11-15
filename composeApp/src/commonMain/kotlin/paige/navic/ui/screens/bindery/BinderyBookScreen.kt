@@ -70,6 +70,7 @@ import org.koin.core.parameter.parametersOf
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.BinderyReaderPrefetcher
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.repositories.BinderyLink
@@ -117,6 +118,7 @@ fun BinderyBookScreen(
 	val bookState by viewModel.bookState.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val readerPrefetcher = koinInject<BinderyReaderPrefetcher>()
 	val binderyConfigured = shouldLoadBinderyUi(
 		binderyEnabled = preferenceManager.binderyEnabled,
 		opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
@@ -187,6 +189,22 @@ fun BinderyBookScreen(
 			widthDp = maxWidth.value,
 			heightDp = maxHeight.value
 		)
+
+		// Opening this book's versions is likely next: keep their publications and sync data on disk ahead of the tap.
+		LaunchedEffect(binderyConfigured, versionRows, readerLaunchTargetAspectRatio) {
+			val bookData = data ?: return@LaunchedEffect
+			if (!binderyConfigured) return@LaunchedEffect
+			readerPrefetcher.enqueue(
+				readers = binderyPrefetchReaderDestinations(
+					rows = versionRows,
+					bookId = bookId,
+					bookTitle = bookData.manifest.title,
+					opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+					fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
+				),
+				highIntent = true
+			)
+		}
 
 	Scaffold(
 		topBar = {

@@ -48,6 +48,20 @@ data class BinderyHubCatalogRow(
 fun BinderyHubState.whispersyncReadyAudiobooks(languageFilter: String? = null): List<BinderyCatalogCard.Book> =
 	rows.whispersyncReadyAudiobookCards(languageFilter)
 
+/** Route ids of the newest books in the hub's Recently Added row, the same ids a card tap opens. */
+fun BinderyHubState.recentlyAddedBookIds(
+	languageFilter: String? = null,
+	limit: Int = BinderyRecentlyAddedPrefetchLimit
+): List<String> =
+	rows.firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.RecentlyAdded }
+		?.cards(languageFilter)
+		.orEmpty()
+		.filterIsInstance<BinderyCatalogCard.Book>()
+		.take(limit)
+		.map { card -> binderyBookRouteId(card.id) }
+
+internal const val BinderyRecentlyAddedPrefetchLimit = 6
+
 fun List<BinderyHubCatalogRow>.whispersyncReadyAudiobookCards(
 	languageFilter: String? = null
 ): List<BinderyCatalogCard.Book> =

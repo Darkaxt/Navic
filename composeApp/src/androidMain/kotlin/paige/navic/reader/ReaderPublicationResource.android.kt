@@ -9,16 +9,27 @@ import java.net.URL
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
+import paige.navic.domain.manager.ReaderPublicationPrefetch
+import paige.navic.domain.repositories.BinderyRepository
+import paige.navic.ui.navigation.Screen
+import paige.navic.util.core.Logger
 
 internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
 private const val ReaderPublicationCachePublicationDirectory = "reader-publications"
+private const val ReaderPublicationFetchLogTag = "ReaderPublicationRuntime"
+
+/** One writer per cached book, process-wide: a reader open during a background prefetch waits instead of double-writing. */
+private val ReaderPublicationResolveLocks = ConcurrentHashMap<String, Mutex>()
 
 data class ReaderPublicationResourceRequest(
 	val bookId: String,
@@ -51,6 +62,16 @@ class BinderyReaderPublicationResolver(
 	suspend fun resolve(request: ReaderPublicationResourceRequest): ReaderResolvedPublicationResource {
 		val resourceHref = request.safeResourceHref()
 		val cacheKey = request.readerPublicationCacheKey()
+		return ReaderPublicationResolveLocks.computeIfAbsent(cacheKey) { Mutex() }.withLock {
+			resolveLocked(request, resourceHref, cacheKey)
+		}
+	}
+
+	private suspend fun resolveLocked(
+		request: ReaderPublicationResourceRequest,
+		resourceHref: String,
+		cacheKey: String
+	): ReaderResolvedPublicationResource {
 		val publicationExtension = request.publicationExtension()
 		val publicationFile = File(
 			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
@@ -83,6 +104,66 @@ class BinderyReaderPublicationResolver(
 			.withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
 			.withShellCoverTint()
 	}
+}
+
+/** The single reader-to-request mapping shared by reader opens and background prefetch, so cache keys cannot drift. */
+internal fun Screen.Reader.toPublicationResourceRequest(): ReaderPublicationResourceRequest {
+	val preferredShellCoverUrl = readerPreferredShellCoverUrl()
+	val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }
+	return ReaderPublicationResourceRequest(
+		bookId = bookId,
+		title = title,
+		resourceHref = resourceHref,
+		sourceUrl = publicationUrl,
+		kind = kind,
+		format = publicationFormat,
+		mediaOverlayEnabled = mediaOverlayEnabled,
+		externalShellCoverHref = externalShellCoverHref
+	)
+}
+
+internal fun Screen.Reader.readerPreferredShellCoverUrl(): String? =
+	fullscreenCoverUrl?.trim()?.takeIf { it.isNotEmpty() }
+
+/** Local or href-less publications open as-is; nothing is resolved into the publication cache for them. */
+internal fun Screen.Reader.readerDirectPublicationUrl(): String? =
+	publicationUrl.takeIf { resourceHref.isBlank() || it.isLocalReaderPublicationUrl() }
+
+internal fun String.isLocalReaderPublicationUrl(): Boolean =
+	startsWith("file:", ignoreCase = true) ||
+	startsWith("content:", ignoreCase = true) ||
+	startsWith("${ReaderWebRuntime.AssetLoaderOrigin}$ReaderPublicationCachePathPrefix", ignoreCase = true)
+
+internal fun binderyReaderPublicationResolver(
+	context: Context,
+	repository: BinderyRepository
+): BinderyReaderPublicationResolver =
+	BinderyReaderPublicationResolver(
+		fetchResourceBytes = { path ->
+			Logger.i(
+				ReaderPublicationFetchLogTag,
+				"Fetching reader publication resource path=${readerPublicationResourceLogLabel(path)}"
+			)
+			repository.getResourceBytes(path).getOrThrow().also { bytes ->
+				Logger.i(
+					ReaderPublicationFetchLogTag,
+					"Fetched reader publication resource path=${readerPublicationResourceLogLabel(path)} " +
+						"bytes=${bytes.size}"
+				)
+			}
+		},
+		cacheRoot = readerManagedStorageRoot(context)
+	)
+
+/** Background prefetch stores plain ebook publications; read-aloud runtimes are prepared by their own host. */
+internal fun androidReaderPublicationPrefetch(
+	context: Context,
+	repository: BinderyRepository
+): ReaderPublicationPrefetch = ReaderPublicationPrefetch { reader ->
+	if (reader.kind != ReaderPublicationKind.Ebook || reader.readerDirectPublicationUrl() != null) {
+		return@ReaderPublicationPrefetch
+	}
+	binderyReaderPublicationResolver(context, repository).resolve(reader.toPublicationResourceRequest())
 }
 
 private fun ReaderPublicationResourceRequest.shouldFetchReaderDevSourceUrl(resourceHref: String): Boolean =
@@ -320,9 +401,7 @@ private fun File.extractReaderShellCoverUrl(cacheKey: String): String? =
 			val coverDirectory = parentFile ?: return@use null
 			val coverFile = coverDirectory.resolve("cover.$extension")
 			if (!coverFile.isFile || coverFile.length() <= 0L) {
-				zip.getInputStream(cover.entry).use { input ->
-					coverFile.outputStream().use(input::copyTo)
-				}
+				coverFile.writeBytesAtomically(zip.getInputStream(cover.entry).use(InputStream::readBytes))
 			}
 			readerPublicationAssetUrl("$ReaderPublicationCachePublicationDirectory/$cacheKey/${coverFile.name}")
 		}
@@ -333,9 +412,7 @@ private fun File.extractReaderShellCoverUrl(cacheKey: String): String? =
 			val coverDirectory = parentFile ?: return@use null
 			val coverFile = coverDirectory.resolve("cover.$extension")
 			if (!coverFile.isFile || coverFile.length() <= 0L) {
-				zip.getInputStream(cover.entry).use { input ->
-					coverFile.outputStream().use(input::copyTo)
-				}
+				coverFile.writeBytesAtomically(zip.getInputStream(cover.entry).use(InputStream::readBytes))
 			}
 			readerPublicationAssetUrl("$ReaderPublicationCachePublicationDirectory/$cacheKey/${coverFile.name}")
 		}

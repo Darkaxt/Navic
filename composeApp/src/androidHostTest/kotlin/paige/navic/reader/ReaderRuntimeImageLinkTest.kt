@@ -244,6 +244,7 @@ class ReaderRuntimeImageLinkTest {
 	@Test
 	fun androidPublicationRuntimePrefersBinderyFullscreenCoverOverExtractedEpubCover() {
 		val runtimeHostText = readerAndroidFile("ReaderPublicationRuntimeHost.android.kt").readText()
+		val resourceText = readerAndroidPackageFile("ReaderPublicationResource.android.kt").readText()
 
 		assertContains(
 			runtimeHostText,
@@ -251,14 +252,19 @@ class ReaderRuntimeImageLinkTest {
 			message = "Bindery's optional generated fullscreen cover URL must reach Android publication preparation."
 		)
 		assertContains(
-			runtimeHostText,
+			resourceText,
 			"val externalShellCoverHref = preferredShellCoverUrl?.takeUnless { it.isLocalReaderPublicationUrl() }",
 			message = "Authenticated server-provided fullscreen covers must be routed through the publication resolver before native cover rendering."
 		)
 		assertContains(
-			runtimeHostText,
+			resourceText,
 			"externalShellCoverHref = externalShellCoverHref",
 			message = "The resolver must receive remote fullscreen cover URLs so it can fetch them with the same Bindery resource headers."
+		)
+		assertContains(
+			runtimeHostText,
+			"val externalShellCoverHref = request.externalShellCoverHref",
+			message = "The runtime host must choose the shell cover from the same shared request the resolver and prefetch use."
 		)
 		assertContains(
 			runtimeHostText,

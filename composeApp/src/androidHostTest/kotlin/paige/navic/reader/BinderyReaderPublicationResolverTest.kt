@@ -1,5 +1,9 @@
 package paige.navic.reader
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -10,6 +14,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -54,6 +59,39 @@ class BinderyReaderPublicationResolverTest {
 		)
 		assertTrue(reopened.fromCache)
 		assertEquals(resolved.publicationUrl, reopened.publicationUrl)
+	}
+
+	@Test
+	fun concurrentResolvesOfTheSameBookFetchOnce() = runBlocking {
+		val cacheRoot = createTempDirectory("navic-reader-publication-concurrent").toFile()
+		val fetches = AtomicInteger()
+		val request = ReaderPublicationResourceRequest(
+			bookId = "concurrent-book",
+			title = "Concurrent Book",
+			resourceHref = "/opds/books/concurrent-book/resources/epub",
+			sourceUrl = "https://bindery.local/concurrent-book.epub",
+			kind = ReaderPublicationKind.Ebook,
+			mediaOverlayEnabled = false
+		)
+		// A background prefetch and a reader open race on the same book through separate resolver instances.
+		val resolved = List(2) {
+			async(Dispatchers.Default) {
+				BinderyReaderPublicationResolver(
+					fetchResourceBytes = {
+						fetches.incrementAndGet()
+						delay(50)
+						"EPUB_BYTES".encodeToByteArray()
+					},
+					cacheRoot = cacheRoot
+				).resolve(request)
+			}
+		}.awaitAll()
+
+		assertEquals(1, fetches.get())
+		assertEquals(1, resolved.count { it.fromCache })
+		assertEquals(resolved[0].publicationUrl, resolved[1].publicationUrl)
+		assertEquals("EPUB_BYTES", resolved[0].publicationFile.readText())
+		assertTrue(resolved[0].publicationFile.parentFile!!.listFiles().orEmpty().none { file -> file.name.endsWith(".tmp") })
 	}
 
 	@Test

@@ -2158,6 +2158,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			coldOwnershipAdmission.requestColdBaseline()
 			return
 		}
+		startPassiveRasterRuntimeEarly()
 		if (
 			pageTurnVisualPageIndex == null ||
 			pageTurnPrewarmLayoutListener != null
@@ -2225,6 +2226,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnPrewarmLayoutListener = listener
 		viewTreeObserver.addOnPreDrawListener(listener)
 		postInvalidateOnAnimation()
+	}
+
+	// The prewarm listener below still (re)creates the runtime when geometry differs; this only lets
+	// the offscreen runtime boot in parallel with the publication load on cold open.
+	private fun startPassiveRasterRuntimeEarly() {
+		if (passiveRasterPreparationAdapter?.isRetired == false) return
+		if (observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return
+		val webView = viewerContentContainer.findDescendantWebView() ?: return
+		if (!webView.isAttachedToWindow || webView.isLayoutRequested) return
+		replacePassiveRasterPreparationAdapter(webView)
 	}
 
 	private fun pageTurnPrewarmLayoutSignature(

@@ -2,6 +2,8 @@ package paige.navic.di
 
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
+import paige.navic.domain.manager.BinderyReaderPrefetcher
+import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.data.remote.aurral.AurralApiClient
 import paige.navic.data.remote.aurral.KtorAurralApiClient
@@ -46,6 +48,17 @@ val repositoryModule = module {
 	single<BinderyMetadataCache> { RoomBinderyMetadataCache(get()) }
 	single<BinderyApiClient> { KtorBinderyApiClient(get()) }
 	single { BinderyRepository(preferenceManager = get(), apiClient = get(), metadataCache = get()) }
+	single {
+		val connectivityManager = get<ConnectivityManager>()
+		BinderyReaderPrefetcher(
+			repository = get(),
+			publication = get(),
+			canPrefetch = { requireUnmetered ->
+				connectivityManager.isOnline.value &&
+					!(requireUnmetered && connectivityManager.isCellular.value)
+			}
+		)
+	}
 	single<LidaClipsApiClient> { KtorLidaClipsApiClient(get()) }
 	single { LidaClipsRepository(preferenceManager = get(), apiClient = get()) }
 	single<AurralApiClient> { KtorAurralApiClient(get()) }

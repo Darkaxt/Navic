@@ -386,6 +386,13 @@ class BinderyRepository(
 			acceptCached = ::acceptCachedWhispersyncSidecar
 		)
 
+	suspend fun getCachedWhispersyncSidecar(path: String): Result<WhispersyncSidecar?> =
+		getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.WhispersyncSidecar,
+			path = path,
+			decode = ::decodeCachedWhispersyncSidecar
+		).map { sidecar -> sidecar?.takeIf(::acceptCachedWhispersyncSidecar) }
+
 	suspend fun getWordSyncIndex(
 		identity: BinderyWhispersyncIdentity,
 		discovery: BinderyWordSyncDiscovery,
@@ -630,7 +637,9 @@ class BinderyRepository(
 		val cached = metadataCache.get(cacheKey).takeIf {
 			committedArtifactId == wordSyncIdentity.artifactId && committedGeneratedAt != null
 		}
-		if (!forceRefresh && cached != null && isFresh(cached.updatedAtMillis)) {
+		val cacheIsCurrent = cached != null &&
+			(!advancesWordSyncGeneration || isFresh(cached.updatedAtMillis))
+		if (!forceRefresh && cached != null && cacheIsCurrent) {
 			runCatching { decode(cached.payloadJson) }
 				.onSuccess { cachedPayload ->
 					return@withConfiguredClientAvailability Result.success(cachedPayload)
@@ -913,10 +922,16 @@ class BinderyRepository(
 	private fun configuredBinderyCacheFingerprint(): String =
 		binderyApiKeyFingerprint(preferenceManager.binderyApiKey)
 
+	private suspend fun clearVolatileMetadata(baseUrl: String) {
+		BinderyVolatilePayloadTypes.forEach { payloadType ->
+			metadataCache.clearPayload(baseUrl, payloadType)
+		}
+	}
+
 	private suspend fun invalidateBinderyProgressMutation(baseUrl: String, bookId: String) {
 		val normalizedBookId = bookId.trim().takeIf { it.isNotEmpty() }
 		if (normalizedBookId == null) {
-			metadataCache.clearBaseUrl(baseUrl)
+			clearVolatileMetadata(baseUrl)
 			return
 		}
 		metadataCache.clearPayload(
@@ -938,7 +953,7 @@ class BinderyRepository(
 			?.trim()
 			?.takeIf { it.isNotEmpty() }
 		if (bookId == null) {
-			metadataCache.clearBaseUrl(baseUrl)
+			clearVolatileMetadata(baseUrl)
 			return
 		}
 
@@ -1044,6 +1059,19 @@ private fun BinderyWordSyncDiscovery.validateWordSyncIndex(index: WordSyncIndex)
 		}
 	}
 }
+
+// Everything except the Whispersync sidecar and WordSync payloads (kept on disk at all times).
+internal val BinderyVolatilePayloadTypes = listOf(
+	BinderyMetadataPayloadType.Catalog,
+	BinderyMetadataPayloadType.Manifest,
+	BinderyMetadataPayloadType.Resources,
+	BinderyMetadataPayloadType.AudiobookVersions,
+	BinderyMetadataPayloadType.AudiobookDetail,
+	BinderyMetadataPayloadType.AudiobookManifest,
+	BinderyMetadataPayloadType.BookSync,
+	BinderyMetadataPayloadType.BookFindings,
+	BinderyMetadataPayloadType.ProviderCover
+)
 
 private fun BinderyCatalog.isOptionalIntegrationEmpty(): Boolean =
 	publications.isEmpty() && navigation.isEmpty()

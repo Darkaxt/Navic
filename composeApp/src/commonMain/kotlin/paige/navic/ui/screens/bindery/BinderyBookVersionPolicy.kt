@@ -287,6 +287,42 @@ fun binderyWhispersyncReaderDestinationForRowMatch(
 		else -> null
 	}
 
+/**
+ * Every ebook reader destination a tap on [rows] can open (plain ebook launches and Whispersync pairings),
+ * built by the same policies the taps use so background prefetch fills exactly the cache entries they read.
+ */
+fun binderyPrefetchReaderDestinations(
+	rows: List<BinderyBookVersionRow>,
+	bookId: String,
+	bookTitle: String,
+	opdsBaseUrl: String,
+	fullscreenCoverTargetAspectRatio: Double?
+): List<Screen.Reader> =
+	rows.flatMap { row ->
+		val ebookDestination = if (row.kind == BinderyBookVersionKind.Ebook) {
+			binderyReaderDestinationForVersionRow(
+				row = row,
+				bookId = bookId,
+				bookTitle = bookTitle,
+				opdsBaseUrl = opdsBaseUrl,
+				fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+			)
+		} else {
+			null
+		}
+		val whispersyncDestinations = row.syncMatches.mapNotNull { match ->
+			binderyWhispersyncReaderDestinationForRowMatch(
+				row = row,
+				match = match,
+				bookId = bookId,
+				bookTitle = bookTitle,
+				opdsBaseUrl = opdsBaseUrl,
+				fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
+			)
+		}
+		listOfNotNull(ebookDestination) + whispersyncDestinations
+	}.distinct()
+
 fun binderyBookVersionRows(
 	manifest: BinderyManifest?,
 	resourceCatalog: BinderyResourceCatalog?,

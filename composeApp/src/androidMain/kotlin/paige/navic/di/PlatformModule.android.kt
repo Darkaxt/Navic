@@ -11,9 +11,11 @@ import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.QueueNotificationManager
+import paige.navic.domain.manager.ReaderPublicationPrefetch
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.reader.androidReaderPublicationPrefetch
 import paige.navic.shared.AndroidAudiobookPlaybackManager
 import paige.navic.shared.AndroidMediaPlayerViewModel
 import paige.navic.shared.AudiobookPlaybackManager
@@ -62,6 +64,10 @@ actual val platformModule = module {
 			preferenceManager = get(),
 			snackBarManager = get()
 		)
+	}
+
+	single<ReaderPublicationPrefetch> {
+		androidReaderPublicationPrefetch(context = androidApplication(), repository = get())
 	}
 
 	singleOf(::ShareManager)

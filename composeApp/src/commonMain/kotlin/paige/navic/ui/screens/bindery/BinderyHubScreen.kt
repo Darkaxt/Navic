@@ -64,6 +64,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalBottomBarScrollManager
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
+import paige.navic.domain.manager.BinderyReaderPrefetcher
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.binderyCarouselCardWidthDp
 import paige.navic.domain.models.normalizedBinderyBookGridColumns
@@ -107,6 +108,7 @@ fun BinderyHubScreen() {
 	val collectionArtworkByPath by viewModel.collectionArtworkByPath.collectAsStateWithLifecycle()
 	val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val readerPrefetcher = koinInject<BinderyReaderPrefetcher>()
 	val platformContext = LocalPlatformContext.current
 	val backStack = LocalNavStack.current
 	val binderyConfigured = shouldLoadBinderyUi(
@@ -173,6 +175,26 @@ fun BinderyHubScreen() {
 				widthDp = maxWidth.value,
 				heightDp = maxHeight.value
 			)
+			val prefetchHubData = hubState.data
+			// Continue-reading books are opened next most often; newly added books follow on unmetered networks.
+			LaunchedEffect(binderyConfigured, prefetchHubData, readerLaunchTargetAspectRatio) {
+				val hubData = prefetchHubData ?: return@LaunchedEffect
+				if (!binderyConfigured) return@LaunchedEffect
+				readerPrefetcher.enqueue(
+					readers = binderyContinueReadingPrefetchDestinations(
+						items = hubData.continueReading,
+						opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+						fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
+					),
+					highIntent = true
+				)
+				readerPrefetcher.enqueueBooks(
+					bookIds = hubData.recentlyAddedBookIds(languageFilter),
+					opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+					languageFilter = languageFilter,
+					aspectRatio = readerLaunchTargetAspectRatio
+				)
+			}
 			PullToRefreshBox(
 				modifier = Modifier
 					.padding(top = innerPadding.calculateTopPadding())
