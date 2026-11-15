@@ -914,7 +914,9 @@ sealed interface ReaderBridgeDecodeResult {
 	data class Decoded(val event: ReaderBridgeEvent) : ReaderBridgeDecodeResult
 	data class Rejected(
 		val failure: ReaderBridgeDecodeFailure,
-		val rawMessage: String
+		val rawMessage: String,
+		/** Identifier-shaped type name of an UnknownType message; never message content. */
+		val rejectedType: String? = null
 	) : ReaderBridgeDecodeResult
 }
 
@@ -960,6 +962,8 @@ private val ReaderBridgeEventTypes = setOf(
 	"error"
 )
 
+private val ReaderBridgeDiagnosticTypeName = Regex("^[A-Za-z][A-Za-z0-9_-]{0,47}$")
+
 fun decodeReaderBridgeMessage(message: String): ReaderBridgeDecodeResult {
 	val rawMessage = ReaderRedactedBridgePayload
 	val element = runCatching { ReaderBridgeJson.parseToJsonElement(message) }
@@ -982,7 +986,8 @@ fun decodeReaderBridgeMessage(message: String): ReaderBridgeDecodeResult {
 	if (type !in ReaderBridgeEventTypes) {
 		return ReaderBridgeDecodeResult.Rejected(
 			failure = ReaderBridgeDecodeFailure.UnknownType,
-			rawMessage = rawMessage
+			rawMessage = rawMessage,
+			rejectedType = type.takeIf { it.matches(ReaderBridgeDiagnosticTypeName) }
 		)
 	}
 	val event = runCatching { decodeReaderBridgeEventPayload(json, type) }

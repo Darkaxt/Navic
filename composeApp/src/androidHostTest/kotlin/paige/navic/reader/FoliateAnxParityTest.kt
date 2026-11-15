@@ -217,12 +217,13 @@ class FoliateAnxParityTest {
 		),
 		"onPushState" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
-				RouteStop(readerAssetRoot().resolve("navic-reader.js"), "type: 'pushState'"),
+				RouteStop(readerAssetRoot().resolve("navic-reader.js"), "type: 'pushState'", mustBeAbsent = true),
 				RouteStop(readerCommonFile("ReaderBridgeProtocol.kt"), "\"pushState\"", mustBeAbsent = true),
 				RouteStop(readerCommonUiFile("ReaderRoot.kt"), "KomikkuReaderHistoryCapsule", mustBeAbsent = true)
 			),
 			rationale = "Navic intentionally omits Anx's WebView-history capsule because normal page turns " +
-				"made it overlap the progress rail; controller-owned chapter and progress navigation remain canonical."
+				"made it overlap the progress rail; controller-owned chapter and progress navigation remain canonical. " +
+				"The runtime no longer posts the orphaned pushState event, which Kotlin rejected as UnknownType on every turn."
 		),
 		"click-image" to GapStatus.ProductDivergence(
 			navicRoute = listOf(
@@ -678,7 +679,6 @@ class FoliateAnxParityTest {
 		)
 		assertTrue(
 			runtimeText.contains("type: 'loadDoc'") &&
-				runtimeText.contains("type: 'pushState'") &&
 				runtimeText.contains("type: 'selectionCleared'") &&
 				runtimeText.contains("type: 'footnoteClose'") &&
 				runtimeText.contains("type: 'pullUp'"),

@@ -69,7 +69,8 @@ class ReaderJavascriptBridge(
 	private val onRejected: (ReaderBridgeDecodeResult.Rejected) -> Unit = { rejection ->
 		Logger.w(
 			ReaderWebRuntimeTag,
-			"Reader bridge message rejected: failure=${rejection.failure} raw=${rejection.rawMessage}"
+			"Reader bridge message rejected: failure=${rejection.failure} raw=${rejection.rawMessage}" +
+				rejection.rejectedType?.let { type -> " type=$type" }.orEmpty()
 		)
 	}
 ) {

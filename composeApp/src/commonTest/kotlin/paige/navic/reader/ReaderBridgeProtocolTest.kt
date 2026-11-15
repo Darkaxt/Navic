@@ -1407,6 +1407,18 @@ class ReaderBridgeProtocolTest {
 			).failure
 		)
 		assertEquals(
+			"unknown",
+			assertIs<ReaderBridgeDecodeResult.Rejected>(
+				decodeReaderBridgeMessage("""{"type":"unknown"}""")
+			).rejectedType
+		)
+		assertEquals(
+			null,
+			assertIs<ReaderBridgeDecodeResult.Rejected>(
+				decodeReaderBridgeMessage("""{"type":"secret words here"}""")
+			).rejectedType
+		)
+		assertEquals(
 			ReaderBridgeDecodeFailure.InvalidPayload,
 			assertIs<ReaderBridgeDecodeResult.Rejected>(
 				decodeReaderBridgeMessage("""{"type":"cfiChanged"}""")

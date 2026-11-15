@@ -571,13 +571,11 @@ class NavicReaderRuntime {
       this.view.addEventListener('draw-annotation', event => this.onAnnotationDrawn(event.detail || {}))
       this.view.addEventListener('show-annotation', event => this.onAnnotationClick(event.detail || {}))
       this.view.addEventListener('create-overlay', event => this.onOverlayCreated(event.detail || {}))
-      this.view.history?.addEventListener?.('index-change', () => this.postNavigationState('history-index-change'))
       readerRoot.replaceChildren(this.view)
       if (settings) this.applySettings(settings, true)
       this.applyReaderViewportLayout('view-created')
       await this.view.open(url)
       this.attachLiveTextPageCommitInvalidationListener()
-      this.postNavigationState('view-opened')
       this.attachSurfacePaperTextureScrollSync()
       this.applyReaderViewportLayout('view-opened')
       log('openPublication:view-opened', describeUrl(url))
@@ -719,21 +717,6 @@ class NavicReaderRuntime {
     post({
       type: 'overlayCreated',
       index: Number.isFinite(index) ? Math.floor(index) : undefined,
-    })
-  }
-
-  postNavigationState(source = 'unknown') {
-    const history = this.view?.history
-    if (!history) return
-    post({
-      type: 'pushState',
-      canGoBack: history.canGoBack === true,
-      canGoForward: history.canGoForward === true,
-    })
-    readerTrace('navigation-state', {
-      source,
-      canGoBack: history.canGoBack === true,
-      canGoForward: history.canGoForward === true,
     })
   }
 
