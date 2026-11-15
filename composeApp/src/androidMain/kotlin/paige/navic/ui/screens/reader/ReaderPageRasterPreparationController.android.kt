@@ -203,6 +203,7 @@ internal class ReaderPageRasterPreparationController(
 	private val closeRendererAndAdapter: suspend () -> Unit = {},
 	private val closeBundleOwners: suspend () -> Unit = bundleSource::closeAndJoin,
 	private val onRequestPrewarm: () -> Unit = {},
+	private val onPreparedWindowCurrent: () -> Unit = {},
 	private val canStartPreparation: () -> Boolean = { true },
 	private val shouldPreserveCurrentPresentation: () -> Boolean = { false },
 	private val onAwaitHostEvent: (
@@ -977,6 +978,8 @@ internal class ReaderPageRasterPreparationController(
 			onComplete(immediateFailure)
 			return
 		}
+		// The loader proved this page is neither decoded nor stored; its durability claim is stale.
+		durableRasterPageIndices -= pageIndex
 		resumePrewarmAfterRasterRepairs = true
 		val callbacks = rasterRepairCallbacks.getOrPut(pageIndex) { mutableListOf() }
 		callbacks += onComplete
@@ -1062,10 +1065,11 @@ internal class ReaderPageRasterPreparationController(
 			?.takeIf { it.isAvailable }
 		if (passiveRasterPreparationPort == null) {
 			reference.release()
-			finishRasterRepair(
-				pageIndex,
-				ReaderPageRasterRepairResult.Failed("passive-raster-unavailable"),
-				"passive-raster-unavailable"
+			deferRasterRepair(
+				pageIndex = pageIndex,
+				reason = ReaderPageRasterDeferralReason.PassiveHostUnavailable,
+				retryAttempt = retryAttempt,
+				detail = "passive-raster-unavailable"
 			)
 			return
 		}
@@ -1137,10 +1141,11 @@ internal class ReaderPageRasterPreparationController(
 			}
 		)
 		if (!started && activeRasterRepairSessionId == retryAttempt.sessionId) {
-			finishRasterRepair(
-				pageIndex,
-				ReaderPageRasterRepairResult.Failed("passive-raster-unavailable"),
-				"passive-raster-unavailable"
+			deferRasterRepair(
+				pageIndex = pageIndex,
+				reason = ReaderPageRasterDeferralReason.PassiveHostUnavailable,
+				retryAttempt = retryAttempt,
+				detail = "passive-raster-unavailable"
 			)
 		}
 	}
@@ -1330,6 +1335,7 @@ internal class ReaderPageRasterPreparationController(
 				event = "prepared-window-current",
 				detail = "page=$currentVisualPageIndex generation=${bundleSource.currentGeneration()}"
 			)
+			onPreparedWindowCurrent()
 			return true
 		}
 		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()

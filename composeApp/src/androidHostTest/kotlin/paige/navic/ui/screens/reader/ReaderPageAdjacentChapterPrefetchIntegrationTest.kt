@@ -200,6 +200,42 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 	}
 
 	@Test
+	fun repairDuringPassiveHostDrainWaitsForTheHostInsteadOfFailing() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val fixture = ReaderPageRasterPreparationControllerFixture.create(testScheduler)
+		try {
+			fixture.startCurrentChapterPreparation()
+			fixture.completeCalibrationDurably()
+			fixture.completeBlockingWindowDurably()
+			fixture.deliverMatchingActiveDeckPrepared()
+			fixture.drainMainLooper()
+			fixture.background.active?.let { active ->
+				fixture.background.publishDurable(active.targets.first())
+			}
+			// A cancelled capture still draining keeps the passive host unavailable for a moment.
+			fixture.passiveOwner.currentPort.setAvailable(false)
+
+			var repairResult: ReaderPageRasterRepairResult? = null
+			fixture.controller.repairRasterPage(20) { repairResult = it }
+
+			assertEquals(null, repairResult)
+			assertEquals(null, fixture.prewarm.active)
+
+			fixture.passiveOwner.currentPort.setAvailable(true)
+			fixture.controller.onPassiveRasterPreparationAvailable()
+
+			val passiveRepair = assertNotNull(fixture.prewarm.active)
+			assertEquals(listOf(20), passiveRepair.targets.map { target -> target.pageIndex })
+			assertEquals(ReaderPageRasterAcquisitionTrigger.Repair, passiveRepair.trigger)
+			fixture.prewarm.completeReady(durably = true)
+			assertIs<ReaderPageRasterRepairResult.Repaired>(repairResult)
+		} finally {
+			fixture.close()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun exactSettlementCancelsPendingRepairWithoutRestoringForegroundProgress() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val fixture = ReaderPageRasterPreparationControllerFixture.create(

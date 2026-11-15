@@ -190,6 +190,32 @@ class ReaderPageRasterProductionEventSourceTest {
 		assertContains(source, "ReaderPagePreparationPresentation.Hidden")
 		assertContains(source, "ReaderPagePreparationPresentation.Cover")
 	}
+
+	@Test
+	fun rendererLossRebuildRebindsPreparationToTheReplacementEngineWebView() {
+		val host = deferredRetrySource("KomikkuReaderNativeFrameHost.android.kt")
+		val foliate = deferredRetrySource("ReaderPlayLikeCurlFoliateController.android.kt")
+		val bundle = deferredRetrySource("ReaderPageTurnBundleSource.android.kt")
+		val observe = host.substringAfter("private fun observeEngineWebView(webView: WebView?) {")
+			.substringBefore("private fun onPreparedActiveDeckChanged(")
+
+		// A swapped WebView reports a detach edge, drops the old runtime's location authority and
+		// rebinds persistence; the attach edge follows for the live WebView.
+		assertContains(observe, "if (webView !== previous) {")
+		assertContains(observe, "pageRasterHostEventController.webViewAttachmentChanged(false)")
+		assertContains(observe, "playLikeCurlController.onEngineWebViewReplaced()")
+		assertContains(observe, "webView?.let(pageTurnBundleSource::bindForegroundWebView)")
+		assertContains(observe, "webViewAttachmentChanged(webView?.isAttachedToWindow == true)")
+		assertEquals(3, host.split("observeEngineWebView(webView)").size)
+		assertContains(
+			foliate.substringAfter("fun onEngineWebViewReplaced() {").substringBefore("}"),
+			"authoritativeLocationReady = false"
+		)
+		assertContains(
+			bundle.substringAfter("fun bindForegroundWebView(webView: WebView) {").substringBefore("}"),
+			"activeWebView = WeakReference(webView)"
+		)
+	}
 }
 
 private fun deferredRetrySource(

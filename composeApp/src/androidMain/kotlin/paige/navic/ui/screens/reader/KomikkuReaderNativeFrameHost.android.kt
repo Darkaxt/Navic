@@ -1151,6 +1151,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var pageTurnPrewarmLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
 	private var pageTurnPrewarmLayoutSignature: ReaderPageLayoutSignature? = null
 	private var pageTurnPrewarmStableFrameCount: Int = 0
+	private var observedEngineWebView = java.lang.ref.WeakReference<WebView?>(null)
 	private var rasterProfileEpoch: Long? = null
 	private var rasterPaginationReady = false
 	private var latestRasterPreparationState = ReaderPagePreparationState()
@@ -1371,6 +1372,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			playLikeCurlController.destroyAndJoin()
 		},
 		onRequestPrewarm = ::requestPageTurnPrewarmWhenReady,
+		onPreparedWindowCurrent = playLikeCurlController::onPreparedWindowCurrent,
 		canStartPreparation = { coldOwnershipAdmitted && rasterPaginationReady },
 		shouldPreserveCurrentPresentation = {
 			shellCoverVisible ||
@@ -1996,6 +1998,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pagePreparationRetryKey = retryKey
 		if (!shouldRetry) return
 		val webView = viewerContentContainer.findDescendantWebView()
+		observeEngineWebView(webView)
 		if (passiveRasterPreparationAdapter?.isAvailable != true && webView != null) {
 			closePassiveRasterPreparationAdapter()
 			replacePassiveRasterPreparationAdapter(webView)
@@ -2003,6 +2006,21 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val preparationGeneration =
 			pageRasterPreparationController.retryPreparation() ?: return
 		playLikeCurlController.retryPreparation(preparationGeneration)
+	}
+
+	// A replaced engine WebView (renderer loss rebuild) is reported as detach + attach so preparation
+	// waits for the new runtime's location, and persistence is rebound to the live WebView.
+	private fun observeEngineWebView(webView: WebView?) {
+		val previous = observedEngineWebView.get()
+		if (webView !== previous) {
+			if (previous != null) {
+				pageRasterHostEventController.webViewAttachmentChanged(false)
+				playLikeCurlController.onEngineWebViewReplaced()
+			}
+			observedEngineWebView = java.lang.ref.WeakReference(webView)
+			webView?.let(pageTurnBundleSource::bindForegroundWebView)
+		}
+		pageRasterHostEventController.webViewAttachmentChanged(webView?.isAttachedToWindow == true)
 	}
 
 	private fun onPreparedActiveDeckChanged(deck: ReaderPagePreparedActiveDeck?) {
@@ -2156,9 +2174,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				return@OnPreDrawListener true
 			}
 			val webView = viewerContentContainer.findDescendantWebView()
-			pageRasterHostEventController.webViewAttachmentChanged(
-				webView?.isAttachedToWindow == true
-			)
+			observeEngineWebView(webView)
 			if (
 				webView == null ||
 				!webView.isAttachedToWindow ||

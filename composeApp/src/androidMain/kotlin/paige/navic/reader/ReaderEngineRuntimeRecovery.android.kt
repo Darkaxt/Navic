@@ -10,9 +10,18 @@ internal class ReaderEngineRuntimeStartGate {
 	}
 }
 
+internal const val ReaderRendererLossLimit = 3
+
 internal class ReaderEngineRuntimeRecovery {
 	private var runtimeLoadPending = false
 	private var retryWhenVisible = false
+	private var rendererLossesSinceReady = 0
+
+	/** Returns true when renderer losses repeat without a ready runtime, i.e. in-place recovery failed. */
+	fun onRendererLost(): Boolean {
+		rendererLossesSinceReady += 1
+		return rendererLossesSinceReady >= ReaderRendererLossLimit
+	}
 
 	fun onRuntimeLoadStarted() {
 		runtimeLoadPending = true
@@ -22,6 +31,7 @@ internal class ReaderEngineRuntimeRecovery {
 	fun onRuntimeReady() {
 		runtimeLoadPending = false
 		retryWhenVisible = false
+		rendererLossesSinceReady = 0
 	}
 
 	fun onWindowVisibilityChanged(visible: Boolean): Boolean {

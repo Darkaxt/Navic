@@ -89,6 +89,30 @@ class ReaderEngineRuntimeRecoveryTest {
 	}
 
 	@Test
+	fun rendererLossRecoversInPlaceUntilItRepeatsWithoutAReadyRuntime() {
+		val recovery = ReaderEngineRuntimeRecovery()
+
+		assertFalse(recovery.onRendererLost())
+		recovery.reset()
+		recovery.onRuntimeReady()
+		assertFalse(recovery.onRendererLost())
+		assertFalse(recovery.onRendererLost())
+		recovery.reset()
+		assertTrue(recovery.onRendererLost())
+	}
+
+	@Test
+	fun androidHostReportsRendererLossOnlyForACrashLoop() {
+		val rendererLoss = readerEngineWebViewHostSource()
+			.substringAfter("override fun onRenderProcessGone(")
+			.substringBefore("post { startReaderRuntimeIfVisible() }")
+
+		assertContains(rendererLoss, "val crashLoop = runtimeRecovery.onRendererLost()")
+		assertTrue(rendererLoss.indexOf("if (crashLoop) {") < rendererLoss.indexOf("ReaderBridgeEvent.Error("))
+		assertContains(rendererLoss, "webViewGeneration += 1")
+	}
+
+	@Test
 	fun visibilityChangesBeforeRuntimeLoadDoNotScheduleRetry() {
 		val recovery = ReaderEngineRuntimeRecovery()
 

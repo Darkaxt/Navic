@@ -1270,6 +1270,11 @@ internal class ReaderPageTurnBundleSource(
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
 	private var activeWebView = WeakReference<WebView>(null)
+
+	/** Rebinds persistence to the live engine WebView after it is replaced (renderer loss). */
+	fun bindForegroundWebView(webView: WebView) {
+		activeWebView = WeakReference(webView)
+	}
 	private var closed = false
 	private var closeInvalidationFailure: Throwable? = null
 	private var disposedRasterCacheMetrics: ReaderPageRasterCacheMetrics? = null

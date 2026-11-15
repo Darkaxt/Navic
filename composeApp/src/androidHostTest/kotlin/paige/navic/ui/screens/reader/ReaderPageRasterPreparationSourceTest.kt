@@ -553,6 +553,12 @@ class ReaderPageRasterPreparationSourceTest {
 		)
 		assertContains(prewarm, "if (preparedWindowIsDurable()) {")
 		assertContains(prewarm, "\"prepared-window-current\"")
+		assertContains(prewarm, "onPreparedWindowCurrent()")
+		// A repair request proves the page missed the store, so its durability claim is revoked.
+		assertContains(
+			source,
+			"durableRasterPageIndices -= pageIndex\n\t\tresumePrewarmAfterRasterRepairs = true"
+		)
 		assertFalse(prewarm.contains("beginBlockingBackgroundPrefetchSession()"))
 		val followUp = requiredReaderSourceSlice(
 			source = source,
@@ -955,6 +961,9 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(prewarm, "ReaderPagePreparationPhase.Failed")
 		assertContains(prewarm, "retryable = true")
 		assertContains(repair, "passive-raster-unavailable")
+		// A draining passive host is transient: the repair waits for PassiveHostAvailable.
+		assertContains(repair, "reason = ReaderPageRasterDeferralReason.PassiveHostUnavailable")
+		assertFalse(repair.contains("ReaderPageRasterRepairResult.Failed(\"passive-raster-unavailable\")"))
 		assertContains(repair, "ReaderPageRasterRepairResult.Failed")
 		assertContains(background, "deferredBackgroundPrefetchStart")
 		listOf(prewarm, repair, background).forEach { passivePath ->

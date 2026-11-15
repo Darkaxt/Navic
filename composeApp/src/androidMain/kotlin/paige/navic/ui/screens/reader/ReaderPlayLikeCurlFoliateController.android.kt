@@ -1638,6 +1638,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		if (activeGestureId != null || queuedDeferredSwipes.isEmpty()) return
+		// A Failed interaction is not terminal here: deck recovery passes through it briefly and a
+		// queued swipe must replay once the deck is ready again.
 		val hardBlocked = !enabled || !attached || failedLivePresentationGeneration != null
 		if (!hardBlocked && (isTurnStillSettling() || !isAvailable)) return
 		val deferred = queuedDeferredSwipes.removeFirst()
@@ -1962,6 +1964,21 @@ internal class ReaderPlayLikeCurlFoliateController(
 		refreshPreparedDeck()
 		dispatchNextRelocation()
 		retryRelocationVisualHandoffAttached()
+	}
+
+	// The old runtime's location does not describe the rebuilt WebView; the new session's first
+	// location re-arms deck refresh.
+	// A prewarm that found the window already stored produces no preparation state; the refill
+	// parked for it must run now or a queued swipe would wait forever.
+	fun onPreparedWindowCurrent() {
+		if (!enabled || destroyed) return
+		val center = deferredDecodedRefillCenterOrdinal?.takeIf { it == currentOrdinal } ?: return
+		deferredDecodedRefillCenterOrdinal = null
+		refillDecodedWorkingSet(center, "prepared-window-current")
+	}
+
+	fun onEngineWebViewReplaced() {
+		authoritativeLocationReady = false
 	}
 
 	fun onWebViewAttachmentChanged(webViewAttached: Boolean) {

@@ -651,16 +651,21 @@ actual fun ReaderEngineWebViewHost(
 									"priorityAtExit=${detail.rendererPriorityAtExit()} " +
 									"publication=${currentPublicationKey.hashCode()}"
 							)
+							// The rebuilt generation reopens at the last known locator, so a loss recovers
+							// in place. Reporting it would unmount the engine before it can recover.
+							val crashLoop = runtimeRecovery.onRendererLost()
 							runtimeRecovery.reset()
 							readerRuntimeReady = false
-							currentOnEvent(
-								ReaderEngineHostEvent.FoliateBridge(
-									ReaderBridgeEvent.Error(
-										message = "Reader WebView renderer stopped.",
-										code = "webview_render_process_gone"
+							if (crashLoop) {
+								currentOnEvent(
+									ReaderEngineHostEvent.FoliateBridge(
+										ReaderBridgeEvent.Error(
+											message = "Reader WebView renderer stopped.",
+											code = "webview_render_process_gone"
+										)
 									)
 								)
-							)
+							}
 							if (retireGeneration() && generation == webViewGeneration) {
 								webViewGeneration += 1
 							}

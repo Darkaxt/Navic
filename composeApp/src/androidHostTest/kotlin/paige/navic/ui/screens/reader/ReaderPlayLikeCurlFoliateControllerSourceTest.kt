@@ -1975,7 +1975,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		// The queue waits only while the presentation rebuilds; hard blockers end the wait.
 		assertContains(replay, "val hardBlocked = !enabled || !attached || failedLivePresentationGeneration != null")
+		assertFalse(replay.contains("readinessState.interaction == ReaderPageInteractionState.Failed"))
 		assertContains(replay, "if (!hardBlocked && (isTurnStillSettling() || !isAvailable)) return")
+		// A no-op prewarm still releases a refill parked for it.
+		val windowCurrent = source.substringAfter("fun onPreparedWindowCurrent() {")
+			.substringBefore("fun onEngineWebViewReplaced() {")
+		assertContains(windowCurrent, "deferredDecodedRefillCenterOrdinal?.takeIf { it == currentOrdinal }")
+		assertContains(windowCurrent, "refillDecodedWorkingSet(center, \"prepared-window-current\")")
 		assertContains(replay, "queuedDeferredSwipes.removeFirst()")
 		val policy = source
 			.substringAfter("fun setPageOperationPolicy(")
