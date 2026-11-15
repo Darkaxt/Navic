@@ -2397,3 +2397,58 @@ test('superseded live token publishes no stale settlement or location', async ()
   assert.equal(fixture.runtime.retiredExactPageTurnSettlements.has('live-stale'), true)
   assert.equal(fixture.locationPosts.length, 1)
 })
+
+const pageTurnPositionRuntime = ({ pendingExact = null, target = null } = {}) => {
+  const runtime = {
+    pageTurnTargetPageIndex: target,
+    committedRelocateDetail: { index: 4, href: 'chapter-1.xhtml' },
+    currentPagePosition: { pageIndex: 21, pageCount: 224, pageCountSource: 'pagination-profile' },
+    activeExactPageTurnSettlement: () => pendingExact,
+  }
+  Object.assign(runtime, {
+    detailSectionKey: NavicReaderPaginationMethods.detailSectionKey,
+    committedPageTurnPosition: NavicReaderPaginationMethods.committedPageTurnPosition,
+  })
+  return runtime
+}
+
+const provisionalRestoredPosition = Object.freeze({
+  pageIndex: 21,
+  pageCount: 224,
+  pageCountSource: 'location',
+  spineIndex: 4,
+  chapterPageIndex: 5,
+  chapterPageCount: 12,
+})
+
+test('a cleared page-turn target never rewrites an exact relocation to visual page 0', () => {
+  const runtime = pageTurnPositionRuntime({ target: null })
+  const detail = { index: 4, href: 'chapter-1.xhtml' }
+  for (const reason of ['page-turn:exact', 'page-turn:exact-synchronous']) {
+    const position = runtime.committedPageTurnPosition(provisionalRestoredPosition, detail, reason)
+    assert.equal(position.pageIndex, 21, reason)
+  }
+})
+
+test('an exact relocation after a relayout keeps the rendered position when the pending settlement no longer matches', () => {
+  const runtime = pageTurnPositionRuntime({
+    target: null,
+    pendingExact: { pageIndex: 21, spineIndex: 4, chapterPageIndex: 3 },
+  })
+  const position = runtime.committedPageTurnPosition(
+    provisionalRestoredPosition,
+    { index: 4, href: 'chapter-1.xhtml' },
+    'page-turn:exact'
+  )
+  assert.equal(position.pageIndex, 21)
+})
+
+test('an explicit integer page-turn target still clamps a stale same-section relocation', () => {
+  const runtime = pageTurnPositionRuntime({ target: 22 })
+  const position = runtime.committedPageTurnPosition(
+    { ...provisionalRestoredPosition, pageIndex: 21 },
+    { index: 4, href: 'chapter-1.xhtml' },
+    'page-turn:next'
+  )
+  assert.equal(position.pageIndex, 22)
+})

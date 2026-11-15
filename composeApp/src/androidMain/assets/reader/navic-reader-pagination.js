@@ -1182,7 +1182,10 @@ function committedPageTurnPosition(pagePosition, detail, reason) {
   const currentSectionKey = this.detailSectionKey(this.committedRelocateDetail)
   const candidateSectionKey = this.detailSectionKey(detail)
   const sameSection = Boolean(currentSectionKey && currentSectionKey === candidateSectionKey)
-  const explicitTargetPageIndex = Number(this.pageTurnTargetPageIndex)
+  // A cleared target is null, and Number(null) is 0: only an integer is an explicit target.
+  const explicitTargetPageIndex = Number.isInteger(this.pageTurnTargetPageIndex)
+    ? this.pageTurnTargetPageIndex
+    : NaN
   const explicitTargetPageCount = readerPageNumberPageCount(pagePosition, this.currentPagePosition?.pageCount)
   if (
     sameSection &&
@@ -1201,6 +1204,9 @@ function committedPageTurnPosition(pagePosition, detail, reason) {
       pageCountSource: pagePosition.pageCountSource || 'page-turn',
     }
   }
+  // An exact turn names its destination; without a matching pending settlement the rendered
+  // position is the truth, never a next/previous inference from the current page.
+  if (String(reason).startsWith('page-turn:exact')) return pagePosition
   const chapterPageCount = Number(pagePosition.chapterPageCount)
   const chapterPageIndex = Number(pagePosition.chapterPageIndex)
   if (

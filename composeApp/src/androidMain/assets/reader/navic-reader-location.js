@@ -647,7 +647,9 @@ function pageTurnRelocationDetailIsStale(detail, reason) {
   const candidateSectionKey = this.detailSectionKey(detail)
   if (!currentSectionKey || currentSectionKey !== candidateSectionKey) return false
   const currentPageIndex = Number(this.currentPagePosition?.pageIndex)
-  const targetPageIndex = Number(this.pageTurnTargetPageIndex)
+  const targetPageIndex = Number.isInteger(this.pageTurnTargetPageIndex)
+    ? this.pageTurnTargetPageIndex
+    : NaN
   if (!Number.isFinite(currentPageIndex) || !Number.isFinite(targetPageIndex)) return false
   const direction = String(reason || '').includes(':previous') ? 'previous' : 'next'
   if (direction === 'next' && targetPageIndex <= currentPageIndex) return false
