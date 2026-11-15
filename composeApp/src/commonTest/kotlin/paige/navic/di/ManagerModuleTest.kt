@@ -32,6 +32,7 @@ class ManagerModuleTest {
 			modules(
 				module {
 					single<ArtworkColorDao> { FakeArtworkColorDao() }
+					single<Settings> { MapSettings() }
 				},
 				managerModule
 			)
@@ -61,6 +62,7 @@ class ManagerModuleTest {
 			modules(
 				module {
 					single<ArtistPhotoCacheDao> { FakeArtistPhotoCacheDao() }
+					single<Settings> { MapSettings() }
 				},
 				managerModule
 			)
