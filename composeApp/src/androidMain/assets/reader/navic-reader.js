@@ -527,7 +527,7 @@ class NavicReaderRuntime {
     if (!url) {
       logError('openPublication:missing-url')
       post({ type: 'error', code: 'missing_url', message: 'Reader publication URL is required.' })
-      return
+      throw new Error('missing_url')
     }
     this.pendingUserNavigationCausalSequence = null
     this.pendingExplicitCueSelectionCausalSequence = null
@@ -538,7 +538,7 @@ class NavicReaderRuntime {
     if (!normalizedFoliateSessionId) {
       logError('openPublication:missing-session')
       post({ type: 'error', code: 'missing_session', message: 'Reader runtime session is required.' })
-      return
+      throw new Error('missing_session')
     }
     this.mediaOverlayEnabled = Boolean(mediaOverlayEnabled)
     log('openPublication:start', describeUrl(url), `overlay=${this.mediaOverlayEnabled}`)
@@ -632,6 +632,8 @@ class NavicReaderRuntime {
       this.scheduleInitialLocationLiveness(navigateToStart, navigateToFallback)
     } catch (error) {
       reportError(error, 'open_failed')
+      // A failed open is reported to the bridge as commandFailed, never as a success ACK.
+      throw error
     }
   }
   onInternalLink(event) {

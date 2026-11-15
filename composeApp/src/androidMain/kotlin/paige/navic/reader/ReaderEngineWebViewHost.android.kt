@@ -452,6 +452,13 @@ actual fun ReaderEngineWebViewHost(
 			is ReaderBridgeEvent.CommandFailed -> {
 				val failed = commandDispatchState.acknowledgedCommand(event.commandId)
 					?: return
+				if (failed is ReaderBridgeCommand.OpenPublication) {
+					// A failed open (missing input, unreadable or unreachable EPUB) was already
+					// surfaced as a reader error and would fail again in a rebuilt WebView, so it
+					// is retired as terminal instead of restarting the runtime.
+					commandDispatchState = commandDispatchState.acknowledge(event.commandId)
+					return
+				}
 				if (failed is ReaderBridgeCommand.ApplySettings) {
 					val active = activeSettingsMutation.get()
 						?.takeIf { it.commandId == event.commandId }

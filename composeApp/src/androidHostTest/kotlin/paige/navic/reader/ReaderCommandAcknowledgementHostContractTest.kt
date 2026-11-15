@@ -78,6 +78,42 @@ class ReaderCommandAcknowledgementHostContractTest {
 	}
 
 	@Test
+	fun failedOpenIsReportedAsCommandFailureAndRetiredWithoutRuntimeRestart() {
+		val runtimeText = readerRuntimeImplementationText()
+		val openPublication = runtimeText
+			.substringAfter("async openPublication({")
+			.substringBefore("\n  onInternalLink(")
+		for (code in listOf("missing_url", "missing_session")) {
+			val missing = openPublication.substringAfter("code: '$code'")
+			assertTrue(
+				missing.indexOf("throw new Error('$code')") in 0 until missing.indexOf("\n    }"),
+				"A missing $code open must reject so the bridge posts commandFailed, not commandAck (#8)."
+			)
+		}
+		val openCatch = openPublication.substringAfterLast("} catch (error) {")
+		assertTrue(
+			openCatch.indexOf("reportError(error, 'open_failed')") in 0 until openCatch.indexOf("throw error"),
+			"A rejected open must report open_failed and then reject (#8)."
+		)
+
+		val eventBlock = readerEngineWebViewHostFile().readText()
+			.substringAfter("fun handleReaderBridgeEvent")
+			.substringBefore("val bridge = remember")
+		val failedBlock = eventBlock.substringAfter("is ReaderBridgeEvent.CommandFailed ->")
+		val openBranch = failedBlock
+			.substringAfter("if (failed is ReaderBridgeCommand.OpenPublication) {")
+			.substringBefore("\n\t\t\t\t}")
+		assertTrue(
+			failedBlock.indexOf("if (failed is ReaderBridgeCommand.OpenPublication)") in 0 until
+				failedBlock.indexOf("webViewGeneration += 1"),
+			"A failed open must be handled before the runtime-restart path."
+		)
+		assertContains(openBranch, "commandDispatchState.acknowledge(event.commandId)")
+		assertContains(openBranch, "return")
+		assertFalse(openBranch.contains("webViewGeneration"), "A deterministic open failure must not rebuild the WebView.")
+	}
+
+	@Test
 	fun settingsAckWaitsForCurrentWebViewVisualStateBeforePublishingRasterKey() {
 		val hostText = readerEngineWebViewHostFile().readText()
 		val eventBlock = hostText
