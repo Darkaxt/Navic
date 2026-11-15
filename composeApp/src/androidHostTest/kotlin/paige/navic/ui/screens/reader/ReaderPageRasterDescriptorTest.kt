@@ -55,14 +55,26 @@ class ReaderPageRasterDescriptorTest {
 		)
 	}
 
-	private fun descriptorJson(decoration: String) = """{
+	@Test
+	fun pageCountChangeCannotReuseRasterIdentity() {
+		// Rasters carry their "n / total" page labels, so a new total must not reuse them (#31).
+		val base = readerPageRasterDescriptorOrThrow(descriptorJson("decoration-a"))
+		val recounted = readerPageRasterDescriptorOrThrow(descriptorJson("decoration-a", pageCount = 111))
+
+		assertNotEquals(
+			base.key(ReaderPageBitmapQuality.Balanced).digest,
+			recounted.key(ReaderPageBitmapQuality.Balanced).digest
+		)
+	}
+
+	private fun descriptorJson(decoration: String, pageCount: Int = 110) = """{
 		"publicationUrl":"file:///books/alcatraz.epub",
 		"paginationFingerprint":"pagination-a",
 		"layoutFingerprint":"layout-a",
 		"decorationFingerprint":"$decoration",
 		"viewportWidth":1440,
 		"viewportHeight":900,
-		"pageCount":110,
+		"pageCount":$pageCount,
 		"spineIndex":6,
 		"href":"OEBPS/Text/authorsforeword.xhtml",
 		"chapterPageIndex":2,

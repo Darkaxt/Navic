@@ -116,6 +116,7 @@ import {
   ensureReaderSurfaceTextureLayer,
   ensureReaderSurfaceBorderOverlayLayer,
   ensureReaderPageNumberLayer,
+  applyReaderPageNumberLayer,
   ensureReaderShellCoverLayer,
   ensureReaderShellCoverImage,
   ensureTapZoneOverlayLayer,
@@ -1371,26 +1372,42 @@ function readerPageNumberSpreadLabels(pagePosition) {
     }))
 }
 
-function updateReaderPageNumberSpreadSlots(layer, pageNumberPosition) {
-  const labels = this.readerPageNumberSpreadLabels(pageNumberPosition)
-  layer.replaceChildren()
-  for (const label of labels) {
-    const slot = document.createElement('span')
-    slot.setAttribute('data-navic-page-number-slot', label.slot)
-    slot.setAttribute('aria-hidden', 'true')
-    slot.textContent = label.text
-    setStylesImportant(slot, {
-      position: 'absolute',
-      left: label.slot === 'left' ? '25%' : '75%',
-      bottom: '0',
-      transform: 'translateX(-50%)',
-      background: 'transparent',
-      border: '0',
-      padding: '0',
-      margin: '0',
-      'white-space': 'nowrap',
-    })
-    layer.append(slot)
+function readerPageNumberPresentation(pageNumberPosition, label, fontFamily = this.readerPageNumberFontFamily()) {
+  const spreadSlots = this.readerPageNumberUsesSpreadSlots(pageNumberPosition)
+  return {
+    spreadSlots,
+    labels: spreadSlots ? this.readerPageNumberSpreadLabels(pageNumberPosition) : [{ slot: 'center', text: label }],
+    pageCount: pageNumberPosition.pageCount,
+    fontFamily,
+    fontWeight: readerFontWeightValue(this.readerSettings),
+    letterSpacing: readerLetterSpacingValue(this.readerSettings),
+    wordSpacing: readerWordSpacingValue(this.readerSettings),
+    blendMode: readerPageNumberBlendMode(this.readerSettings),
+    color: 'color-mix(in srgb, var(--reader-foreground) 58%, transparent)',
+    fontSize: '0.82rem',
+    bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
+  }
+}
+
+// The labels a passive raster of `visualPageOrdinal` must carry, with root-relative values
+// resolved here because the passive document has no reader root variables or safe area.
+function readerPageNumberRasterPresentation(visualPageOrdinal, pageCount) {
+  const position = readerPageNumberPositionWithPageCount(
+    { pageIndex: visualPageOrdinal, pageCount, pageCountSource: 'pagination-profile' },
+    pageCount
+  )
+  const label = readerPageNumberLabel(position)
+  if (!label) return null
+  const rootStyle = getComputedStyle(document.documentElement)
+  const foreground = rootStyle.getPropertyValue('--reader-foreground').trim() ||
+    readerThemePalette(this.readerSettings?.theme).foreground
+  const liveLayer = this.pageNumberLayer && readerRoot.contains(this.pageNumberLayer) ? this.pageNumberLayer : null
+  const liveBottom = liveLayer ? parseFloat(getComputedStyle(liveLayer).bottom) : NaN
+  return {
+    ...this.readerPageNumberPresentation(position, label),
+    color: `color-mix(in srgb, ${foreground} 58%, transparent)`,
+    fontSize: `${(parseFloat(rootStyle.fontSize) || 16) * 0.82}px`,
+    bottom: `${Number.isFinite(liveBottom) ? liveBottom : 18}px`,
   }
 }
 
@@ -1416,43 +1433,8 @@ function updateReaderPageNumberLayer(pagePosition = this.currentPagePosition) {
     ? this.pageNumberLayer
     : ensureReaderPageNumberLayer()
   const fontFamily = this.readerPageNumberFontFamily()
-  const fontWeight = readerFontWeightValue(this.readerSettings)
-  const letterSpacing = readerLetterSpacingValue(this.readerSettings)
-  const wordSpacing = readerWordSpacingValue(this.readerSettings)
   document.documentElement.style.setProperty('--reader-page-number-font-family', fontFamily)
-  const usesSpreadSlots = this.readerPageNumberUsesSpreadSlots(pageNumberPosition)
-  if (usesSpreadSlots) {
-    this.updateReaderPageNumberSpreadSlots(this.pageNumberLayer, pageNumberPosition)
-  } else {
-    this.pageNumberLayer.textContent = label
-  }
-  this.pageNumberLayer.dataset.navicPageNumberTotal = String(pageNumberPosition.pageCount || '')
-  setStylesImportant(this.pageNumberLayer, {
-    position: 'fixed',
-    left: usesSpreadSlots ? '0' : '50%',
-    right: usesSpreadSlots ? '0' : 'auto',
-    bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
-    transform: usesSpreadSlots ? 'none' : 'translateX(-50%)',
-    'z-index': '2147483644',
-    'pointer-events': 'none',
-    'user-select': 'none',
-    color: 'color-mix(in srgb, var(--reader-foreground) 58%, transparent)',
-    opacity: '0.82',
-    'mix-blend-mode': readerPageNumberBlendMode(this.readerSettings),
-    'font-family': fontFamily,
-    'font-size': '0.82rem',
-    'font-style': 'normal',
-    'font-weight': String(fontWeight),
-    'font-variant-numeric': 'normal',
-    'line-height': '1',
-    'letter-spacing': `${letterSpacing}px`,
-    'word-spacing': `${wordSpacing}px`,
-    height: usesSpreadSlots ? '1rem' : 'auto',
-    background: 'transparent',
-    border: '0',
-    padding: '0',
-    margin: '0',
-  })
+  applyReaderPageNumberLayer(this.pageNumberLayer, this.readerPageNumberPresentation(pageNumberPosition, label, fontFamily))
 }
 
 function tryUpdateReaderPageNumberLayer(detail = this.lastRelocateDetail, fallback = this.currentPagePosition, reason = '') {
@@ -1538,7 +1520,8 @@ export const NavicReaderPaginationMethods = {
   readerPageNumberFontFamily,
   readerPageNumberUsesSpreadSlots,
   readerPageNumberSpreadLabels,
-  updateReaderPageNumberSpreadSlots,
+  readerPageNumberPresentation,
+  readerPageNumberRasterPresentation,
   updateReaderPageNumberLayer,
   tryUpdateReaderPageNumberLayer,
   scheduleReaderPageNumberRefresh

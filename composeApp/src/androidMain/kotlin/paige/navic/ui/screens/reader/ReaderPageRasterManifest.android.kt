@@ -21,7 +21,8 @@ import kotlinx.serialization.json.put
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 
-internal const val ReaderPageRasterSchemaVersion = 6
+// 7: rasters carry their page-number labels, so the total page count is part of the key (#31).
+internal const val ReaderPageRasterSchemaVersion = 7
 internal const val ReaderPageRasterManifestFileName = "manifest.json"
 
 internal data class ReaderPageRasterProfile(
@@ -62,6 +63,7 @@ internal data class ReaderPageRasterKey(
 	val layoutHash: String,
 	val decorationHash: String,
 	val quality: ReaderPageBitmapQuality,
+	val pageCount: Int = 0,
 	val schemaVersion: Int = ReaderPageRasterSchemaVersion
 ) {
 	val profile: ReaderPageRasterProfile
@@ -194,6 +196,7 @@ private fun ReaderPageRasterKey.toJson(): JsonObject = buildJsonObject {
 	put("layoutHash", layoutHash)
 	put("decorationHash", decorationHash)
 	put("quality", quality.persistedValue)
+	put("pageCount", pageCount)
 	put("schemaVersion", schemaVersion)
 }
 
@@ -239,6 +242,7 @@ private fun JsonObject.toManifestEntry(): ReaderPageRasterManifestEntry {
 			layoutHash = keyJson.string("layoutHash"),
 			decorationHash = keyJson.string("decorationHash"),
 			quality = normalizeReaderPageBitmapQuality(keyJson.string("quality")),
+			pageCount = keyJson.int("pageCount"),
 			schemaVersion = keyJson.int("schemaVersion")
 		),
 		rasterFileName = string("rasterFileName"),

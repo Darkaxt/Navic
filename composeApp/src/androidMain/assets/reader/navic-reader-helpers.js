@@ -806,6 +806,74 @@ export const readerPageNumberLabel = pagePosition => {
   return `${currentPage} / ${pageCount}`
 }
 
+// Renders a page-number presentation into a layer. Shared by the live reader and the passive
+// raster document, so page rasters carry the same labels as the live page (#31).
+export const applyReaderPageNumberLayer = (layer, presentation) => {
+  const {
+    spreadSlots,
+    labels,
+    pageCount,
+    fontFamily,
+    fontWeight,
+    letterSpacing,
+    wordSpacing,
+    blendMode,
+    color,
+    fontSize,
+    bottom,
+  } = presentation
+  if (spreadSlots) {
+    layer.replaceChildren()
+    for (const label of labels) {
+      const slot = document.createElement('span')
+      slot.setAttribute('data-navic-page-number-slot', label.slot)
+      slot.setAttribute('aria-hidden', 'true')
+      slot.textContent = label.text
+      setStylesImportant(slot, {
+        position: 'absolute',
+        left: label.slot === 'left' ? '25%' : '75%',
+        bottom: '0',
+        transform: 'translateX(-50%)',
+        background: 'transparent',
+        border: '0',
+        padding: '0',
+        margin: '0',
+        'white-space': 'nowrap',
+      })
+      layer.append(slot)
+    }
+  } else {
+    layer.textContent = labels[0]?.text || ''
+  }
+  layer.dataset.navicPageNumberTotal = String(pageCount || '')
+  setStylesImportant(layer, {
+    position: 'fixed',
+    left: spreadSlots ? '0' : '50%',
+    right: spreadSlots ? '0' : 'auto',
+    bottom,
+    transform: spreadSlots ? 'none' : 'translateX(-50%)',
+    'z-index': '2147483644',
+    'pointer-events': 'none',
+    'user-select': 'none',
+    color,
+    opacity: '0.82',
+    'mix-blend-mode': blendMode,
+    'font-family': fontFamily,
+    'font-size': fontSize,
+    'font-style': 'normal',
+    'font-weight': String(fontWeight),
+    'font-variant-numeric': 'normal',
+    'line-height': '1',
+    'letter-spacing': `${letterSpacing}px`,
+    'word-spacing': `${wordSpacing}px`,
+    height: spreadSlots ? '1rem' : 'auto',
+    background: 'transparent',
+    border: '0',
+    padding: '0',
+    margin: '0',
+  })
+}
+
 export const readerPageNumberBlendMode = settings => {
   if (readerThemeUsesWarmPaperTreatment(settings?.theme)) return 'multiply'
   switch (readerThemeKey(settings?.theme)) {

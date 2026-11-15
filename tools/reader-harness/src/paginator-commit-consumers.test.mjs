@@ -1661,6 +1661,7 @@ test('passive manifest requests cannot bootstrap or mutate live authority', asyn
     publicationSessionGeneration: 9,
     publicationUrl: 'publication-passive-manifest',
     readerSettings: Object.freeze({ theme: 'day' }),
+    readerPageNumberRasterPresentation: (ordinal, pageCount) => ({ labels: [{ slot: 'center', text: `${ordinal + 1} / ${pageCount}` }] }),
     pageTurnCaptureGeometry: () => Object.freeze({
       mode: 'single',
       pages: [],

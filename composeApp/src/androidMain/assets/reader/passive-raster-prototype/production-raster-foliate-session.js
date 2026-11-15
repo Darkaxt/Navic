@@ -1,5 +1,8 @@
 import '../vendor/foliate-js/view.js'
+import { readerFontFaceCss } from '../navic-reader-typography.js'
 import {
+  applyReaderPageNumberLayer,
+  ensureReaderPageNumberLayer,
   ensureReaderMovingPageBorderOverlayLayer,
   ensureReaderMovingPageStainOverlayLayer,
   ensureReaderMovingPageTextureLayer,
@@ -197,6 +200,33 @@ const renderPassiveDecorations = (view, target) => {
   }
 }
 
+const PassiveRootFontFaceStyleId = 'navic-passive-root-font-face'
+
+// The destination labels, drawn exactly as the live reader draws them, so the curl and the
+// resting raster after a turn show page numbers (#31).
+const renderPassivePageNumbers = async (target, settings) => {
+  const presentation = target.pageNumber
+  if (!presentation || !Array.isArray(presentation.labels) || presentation.labels.length === 0) {
+    removePassiveDecorationLayer('data-navic-page-number-layer')
+    return
+  }
+  const css = readerFontFaceCss(settings).trim()
+  let style = document.getElementById(PassiveRootFontFaceStyleId)
+  if (css) {
+    if (!style) {
+      style = document.createElement('style')
+      style.id = PassiveRootFontFaceStyleId
+      ;(document.head || document.documentElement).append(style)
+    }
+    style.textContent = css
+  } else {
+    style?.remove?.()
+  }
+  applyReaderPageNumberLayer(ensureReaderPageNumberLayer(), presentation)
+  const sample = presentation.labels.map(label => label.text).join(' ')
+  await document.fonts?.load?.(`${presentation.fontSize} ${presentation.fontFamily}`, sample)
+}
+
 const applyPassiveProfile = async (view, target) => {
   const renderer = view.renderer
   if (!renderer) throw new Error('passive-renderer-unavailable')
@@ -233,6 +263,7 @@ const applyPassiveProfile = async (view, target) => {
   }
   renderer.render?.()
   renderPassiveDecorations(view, target)
+  await renderPassivePageNumbers(target, settings)
   if (!await waitForReaderRasterAssets(document)) {
     throw new Error('passive-raster-assets-unavailable')
   }

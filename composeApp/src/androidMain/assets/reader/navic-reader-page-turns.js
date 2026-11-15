@@ -607,6 +607,7 @@ function pageTurnPassiveRasterManifestInputs(
     readerSettings: this.readerSettings || {},
     layoutMode: captureGeometry?.mode || 'single',
     layoutPages: captureGeometry?.pages || [],
+    pageNumber: this.readerPageNumberRasterPresentation(ordinal, descriptor.pageCount),
     viewportWidth,
     viewportHeight,
   })

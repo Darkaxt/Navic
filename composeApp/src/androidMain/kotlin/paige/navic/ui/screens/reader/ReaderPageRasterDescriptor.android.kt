@@ -34,7 +34,8 @@ internal data class ReaderPageRasterDescriptor(
 		viewportHeight = viewportHeight,
 		layoutHash = layoutFingerprint,
 		decorationHash = decorationFingerprint,
-		quality = quality
+		quality = quality,
+		pageCount = pageCount
 	)
 }
 
