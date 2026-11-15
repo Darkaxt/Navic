@@ -1568,6 +1568,8 @@ class ReaderControllerTest {
 			"navigation rail" to current.copy(navBarType = ReaderNavBarTypeBottom),
 			"tap-zone inversion" to current.copy(tapZoneInvertMode = ReaderTapZoneInvertBoth),
 			"bitmap quality" to current.copy(pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue),
+			"page cache scope" to current.copy(pageCacheScope = ReaderPageCacheScope.FullBook.persistedValue),
+			"page cache layouts" to current.copy(pageCacheLayouts = ReaderPageCacheLayouts.Both.persistedValue),
 			"fullscreen" to current.copy(fullscreen = false),
 			"keep screen on" to current.copy(keepScreenOn = true),
 			"readaloud sync" to current.copy(readaloudSyncEnabled = false),

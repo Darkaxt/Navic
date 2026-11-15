@@ -8,7 +8,8 @@ import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.IdentityHashMap
 
-internal const val ReaderPageRasterDiskMaxBytes = 384L * 1024L * 1024L
+/** No implicit ceiling: production passes the Cache manager limit, which defaults to "No limit" (#57). */
+internal const val ReaderPageRasterDiskMaxBytes = Long.MAX_VALUE
 internal const val ReaderPageRasterDecodedMaxEntries = 5
 
 internal interface ReaderPageRasterCodec<T : Any> {
@@ -638,6 +639,47 @@ internal class ReaderPageRasterCache<T : Any>(
 			assertDiskBoundLocked()
 		}
 		releaseDecodedOwners(scheduled)
+	}
+
+	/**
+	 * Chapter retention (#57): drops [publicationHash]'s rasters two or more spine sections behind
+	 * [currentSpineIndex] across every pagination, layout and quality, keeping the previous chapter.
+	 * The pinned encoded window, the protected chapter and protected decoded pages always survive.
+	 */
+	fun discardChaptersBehind(publicationHash: String, currentSpineIndex: Int): Int {
+		if (!storageAvailable) return 0
+		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
+		val removed = synchronized(this) {
+			val protection = encodedWindowProtection
+			val discarded = entries.values.filter { entry ->
+				val key = entry.key
+				key.publicationHash == publicationHash &&
+					key.spineIndex < currentSpineIndex - 1 &&
+					key.chapter != protectedChapter &&
+					!(decoded.containsKey(key.digest) &&
+						key.visualPageOrdinal in protectedDecodedPageIndices) &&
+					!(protection != null &&
+						key.profile.sameRetentionScope(protection.profile) &&
+						key.visualPageOrdinal in protection.pinnedPageOrdinals)
+			}
+			if (discarded.isEmpty()) return@synchronized 0
+			val discardedIds = discarded.mapTo(mutableSetOf()) { entry -> entry.key.digest }
+			val retained = entries.values.filterNot { entry -> entry.key.digest in discardedIds }
+			if (!manifest.write(retained)) return@synchronized 0
+			discarded.forEach { entry ->
+				detachDecodedEntryLocked(entry.key.digest, scheduled)
+				if (retained.none { it.rasterFileName == entry.rasterFileName }) {
+					deleteEntryFile(entry)
+				}
+			}
+			entries.clear()
+			entries.putAll(retained.associateBy { entry -> entry.key.digest })
+			entryRevisions.keys.retainAll(entries.keys)
+			assertDiskBoundLocked()
+			discarded.size
+		}
+		releaseDecodedOwners(scheduled)
+		return removed
 	}
 
 	fun protectDecodedPageIndices(pageIndices: Set<Int>) {

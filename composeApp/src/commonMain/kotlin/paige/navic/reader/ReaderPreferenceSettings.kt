@@ -41,6 +41,14 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 	if (readerPageBitmapQuality != pageBitmapQuality) {
 		readerPageBitmapQuality = pageBitmapQuality
 	}
+	val pageCacheScope = normalizeReaderPageCacheScope(readerPageCacheScope).persistedValue
+	if (readerPageCacheScope != pageCacheScope) {
+		readerPageCacheScope = pageCacheScope
+	}
+	val pageCacheLayouts = normalizeReaderPageCacheLayouts(readerPageCacheLayouts).persistedValue
+	if (readerPageCacheLayouts != pageCacheLayouts) {
+		readerPageCacheLayouts = pageCacheLayouts
+	}
 
 	return normalizedReaderSettings(
 		fontFamily = readerFontFamily,
@@ -77,6 +85,8 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 		navBarType = readerNavBarType,
 		dragAnimationMode = dragAnimationMode,
 		pageBitmapQuality = pageBitmapQuality,
+		pageCacheScope = pageCacheScope,
+		pageCacheLayouts = pageCacheLayouts,
 		flowMode = readerFlowMode,
 		paged = readerPaged,
 		tapZone = readerTapZone,
@@ -134,6 +144,8 @@ fun PreferenceManager.setReaderDefaultSettings(settings: ReaderSettings) {
 	readerNavBarType = normalized.navBarType ?: ReaderNavBarTypeVerticalRight
 	readerDragAnimationMode = normalized.dragAnimationMode ?: ReaderDragAnimationNone
 	readerPageBitmapQuality = normalizeReaderPageBitmapQuality(normalized.pageBitmapQuality).persistedValue
+	readerPageCacheScope = normalizeReaderPageCacheScope(normalized.pageCacheScope).persistedValue
+	readerPageCacheLayouts = normalizeReaderPageCacheLayouts(normalized.pageCacheLayouts).persistedValue
 	readerFlowMode = normalized.flowMode ?: ReaderFlowPaged
 	readerPaged = normalized.paged ?: true
 	readerTapZone = normalized.tapZone ?: ReaderTapZoneDefault
@@ -229,6 +241,8 @@ private fun ReaderSettings.withReaderSettingsOverride(override: ReaderSettings):
 		navBarType = override.navBarType ?: navBarType,
 		dragAnimationMode = override.dragAnimationMode ?: dragAnimationMode,
 		pageBitmapQuality = override.pageBitmapQuality ?: pageBitmapQuality,
+		pageCacheScope = override.pageCacheScope ?: pageCacheScope,
+		pageCacheLayouts = override.pageCacheLayouts ?: pageCacheLayouts,
 		flowMode = override.flowMode ?: flowMode,
 		paged = override.paged ?: paged,
 		tapZone = override.tapZone ?: tapZone,
@@ -286,6 +300,8 @@ private fun ReaderSettings.normalizedReaderOverrideSettings(): ReaderSettings {
 		navBarType = if (navBarType != null) normalized.navBarType else null,
 		dragAnimationMode = if (dragAnimationMode != null) normalized.dragAnimationMode else null,
 		pageBitmapQuality = if (pageBitmapQuality != null) normalized.pageBitmapQuality else null,
+		pageCacheScope = if (pageCacheScope != null) normalized.pageCacheScope else null,
+		pageCacheLayouts = if (pageCacheLayouts != null) normalized.pageCacheLayouts else null,
 		flowMode = if (flowMode != null) normalized.flowMode else null,
 		paged = if (paged != null) normalized.paged else null,
 		tapZone = if (tapZone != null) normalized.tapZone else null,
@@ -382,6 +398,8 @@ private fun JsonObject.toReaderSettings(): ReaderSettings =
 		navBarType = stringValue("navBarType"),
 		dragAnimationMode = stringValue("dragAnimationMode"),
 		pageBitmapQuality = stringValue("pageBitmapQuality"),
+		pageCacheScope = stringValue("pageCacheScope"),
+		pageCacheLayouts = stringValue("pageCacheLayouts"),
 		flowMode = stringValue("flowMode"),
 		paged = booleanValue("paged"),
 		tapZone = stringValue("tapZone"),
@@ -436,6 +454,8 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 	navBarType?.let { put("navBarType", it) }
 	dragAnimationMode?.let { put("dragAnimationMode", it) }
 	pageBitmapQuality?.let { put("pageBitmapQuality", it) }
+	pageCacheScope?.let { put("pageCacheScope", it) }
+	pageCacheLayouts?.let { put("pageCacheLayouts", it) }
 	flowMode?.let { put("flowMode", it) }
 		paged?.let { put("paged", it) }
 		tapZone?.let { put("tapZone", it) }

@@ -69,6 +69,22 @@ internal fun KomikkuReadingSettingsPage(
 			onSelect = { mode -> onSettingsChange(settings.copy(dragAnimationMode = mode)) }
 		)
 		SettingsSelectableChipRow(
+			title = "Page cache scope",
+			options = ReaderPageCacheScope.entries.map { scope ->
+				scope.persistedValue to readerPageCacheScopeShortLabel(scope.persistedValue)
+			},
+			selectedValue = normalizeReaderPageCacheScope(settings.pageCacheScope).persistedValue,
+			onSelect = { scope -> onSettingsChange(settings.copy(pageCacheScope = scope)) }
+		)
+		SettingsSelectableChipRow(
+			title = "Page cache layouts",
+			options = ReaderPageCacheLayouts.entries.map { layouts ->
+				layouts.persistedValue to readerPageCacheLayoutsShortLabel(layouts.persistedValue)
+			},
+			selectedValue = normalizeReaderPageCacheLayouts(settings.pageCacheLayouts).persistedValue,
+			onSelect = { layouts -> onSettingsChange(settings.copy(pageCacheLayouts = layouts)) }
+		)
+		SettingsSelectableChipRow(
 			title = "Tap zones",
 			options = KomikkuTapZoneOptions,
 			selectedValue = normalizedReaderTapZone(settings.tapZone),

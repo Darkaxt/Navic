@@ -55,6 +55,7 @@ import paige.navic.domain.models.ImageCacheSizeOptionsMb
 import paige.navic.domain.models.LidaClipsVideoCacheSizeOptionsMb
 import paige.navic.domain.models.MusicBrainzCacheMaxSongsOptions
 import paige.navic.domain.models.PagePreviewCacheSizeOptionsMb
+import paige.navic.domain.models.pagePreviewCacheSizeLimitLabel
 import paige.navic.domain.models.StreamedSongCacheSizeOptionsMb
 import paige.navic.domain.models.cacheSizeLimitLabel
 import paige.navic.domain.models.cacheSizeMbToBytes
@@ -214,7 +215,7 @@ fun SettingsCacheManagerScreen() {
 					SettingSelectionRow(
 						title = { Text(stringResource(Res.string.option_cache_size_limit)) },
 						items = PagePreviewCacheSizeOptionsMb.toImmutableList(),
-						label = { cacheSizeLimitLabel(it) },
+						label = { pagePreviewCacheSizeLimitLabel(it) },
 						description = stringResource(Res.string.subtitle_page_preview_cache_size_limit),
 						selection = preferenceManager.pagePreviewCacheSizeMb,
 						onSelect = { preferenceManager.pagePreviewCacheSizeMb = it }

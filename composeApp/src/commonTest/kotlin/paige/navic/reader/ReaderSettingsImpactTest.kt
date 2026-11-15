@@ -18,6 +18,8 @@ class ReaderSettingsImpactTest {
 			current.copy(navBarType = ReaderNavBarTypeBottom),
 			current.copy(tapZoneInvertMode = ReaderTapZoneInvertBoth),
 			current.copy(pageBitmapQuality = ReaderPageBitmapQuality.High.persistedValue),
+			current.copy(pageCacheScope = ReaderPageCacheScope.FullBook.persistedValue),
+			current.copy(pageCacheLayouts = ReaderPageCacheLayouts.Both.persistedValue),
 			current.copy(fullscreen = false),
 			current.copy(keepScreenOn = true),
 			current.copy(readaloudSyncEnabled = false),

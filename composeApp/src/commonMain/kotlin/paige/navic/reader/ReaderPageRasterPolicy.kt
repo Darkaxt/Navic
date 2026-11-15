@@ -54,3 +54,37 @@ fun normalizeReaderPageBitmapQuality(value: String?): ReaderPageBitmapQuality =
 	ReaderPageBitmapQuality.entries.firstOrNull { quality ->
 		quality.persistedValue == value?.trim()
 	} ?: ReaderPageBitmapQuality.Balanced
+
+/** How far ahead page rasters are prepared in the background while a book is open (#57). */
+enum class ReaderPageCacheScope(val persistedValue: String) {
+	PerChapter(persistedValue = "per-chapter"),
+	FullBook(persistedValue = "full-book")
+}
+
+/** Which page layouts (single page / spread) get prepared rasters (#57). */
+enum class ReaderPageCacheLayouts(val persistedValue: String) {
+	Current(persistedValue = "current"),
+	Both(persistedValue = "both")
+}
+
+fun normalizeReaderPageCacheScope(value: String?): ReaderPageCacheScope =
+	ReaderPageCacheScope.entries.firstOrNull { scope ->
+		scope.persistedValue == value?.trim()
+	} ?: ReaderPageCacheScope.PerChapter
+
+fun normalizeReaderPageCacheLayouts(value: String?): ReaderPageCacheLayouts =
+	ReaderPageCacheLayouts.entries.firstOrNull { layouts ->
+		layouts.persistedValue == value?.trim()
+	} ?: ReaderPageCacheLayouts.Current
+
+fun readerPageCacheScopeShortLabel(value: String?): String =
+	when (normalizeReaderPageCacheScope(value)) {
+		ReaderPageCacheScope.PerChapter -> "This + next chapter"
+		ReaderPageCacheScope.FullBook -> "Whole book"
+	}
+
+fun readerPageCacheLayoutsShortLabel(value: String?): String =
+	when (normalizeReaderPageCacheLayouts(value)) {
+		ReaderPageCacheLayouts.Current -> "Current layout"
+		ReaderPageCacheLayouts.Both -> "Both layouts"
+	}

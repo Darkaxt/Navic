@@ -334,6 +334,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
+	pageCacheScope: String?,
+	pageCacheLayouts: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnContentReadyKey: String?,
 	pageTurnPaginationStatus: String?,
@@ -471,6 +473,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setViewerLayerPaint(grayscaleEnabled, invertedColors)
 					setVerticalPageDragPreview(verticalPageDragPreview)
 					setPageTurnBitmapQuality(pageTurnBitmapQuality)
+					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
 					setPageTurnSnapshotKey(pageTurnSnapshotKey)
@@ -520,6 +523,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				root.setVerticalPageDragPreview(verticalPageDragPreview)
 				root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
+				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
 				root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
@@ -770,6 +774,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnBitmapQuality(value: String?) {
 		viewerContainer.setPageTurnBitmapQuality(value)
+	}
+
+	fun setPageCacheOptions(scope: String?, layouts: String?) {
+		viewerContainer.setPageCacheOptions(scope, layouts)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
@@ -1823,6 +1831,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageTurnBitmapQuality = normalized
 		playLikeCurlController.updateBitmapQuality(normalized.persistedValue)
 		pageRasterPreparationController.updateBitmapQuality(normalized.persistedValue)
+	}
+
+	/** Background-preparation options (#57); host-only, so they never regenerate the layout. */
+	fun setPageCacheOptions(scope: String?, layouts: String?) {
+		pageRasterPreparationController.updatePageCacheOptions(scope, layouts)
 	}
 
 	override fun acquireSettingsMutation(

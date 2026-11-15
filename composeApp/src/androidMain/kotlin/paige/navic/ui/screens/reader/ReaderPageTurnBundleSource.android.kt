@@ -1132,6 +1132,13 @@ private data class ReaderPageRasterDescriptorIdentity(
 	val exactRasterIdentity: String? = null
 )
 
+/** The displayed chapter of a generation, taken from the visual centre page's raster descriptor. */
+private data class ReaderPageRasterRetentionChapter(
+	val generation: Long,
+	val publicationHash: String,
+	val spineIndex: Int
+)
+
 private class ReaderPageRasterDescriptorRequest(
 	val token: Long,
 	val identity: ReaderPageRasterDescriptorIdentity,
@@ -1272,6 +1279,8 @@ internal class ReaderPageTurnBundleSource(
 	private var protectedEncodedCenterPageIndex: Int? = null
 	private var protectedEncodedPageIndices = emptySet<Int>()
 	private var protectedEncodedProfile: ReaderPageRasterProfile? = null
+	private var currentRetentionChapter: ReaderPageRasterRetentionChapter? = null
+	private var retiredRetentionChapter: ReaderPageRasterRetentionChapter? = null
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
@@ -1728,6 +1737,12 @@ internal class ReaderPageTurnBundleSource(
 
 	fun protectEncodedWindow(centerPageIndex: Int, step: Int, pageCount: Int) {
 		protectedEncodedCenterPageIndex = centerPageIndex
+		currentRetentionChapter = rasterDescriptors.entries
+			.lastOrNull { (identity, descriptor) ->
+				identity.generation == activeGeneration &&
+					descriptor.visualPageOrdinal == centerPageIndex
+			}
+			?.let { (identity, descriptor) -> retentionChapter(identity, descriptor) }
 		protectedEncodedPageIndices = readerPageRasterBlockingWindow(
 			centerPageIndex = centerPageIndex,
 			step = step,
@@ -2102,6 +2117,51 @@ internal class ReaderPageTurnBundleSource(
 		while (rasterDescriptors.size > MaxCachedRasterDescriptors) {
 			rasterDescriptors.remove(rasterDescriptors.keys.first())
 		}
+		if (descriptor.visualPageOrdinal == protectedEncodedCenterPageIndex) {
+			currentRetentionChapter = retentionChapter(identity, descriptor)
+		}
+	}
+
+	private fun retentionChapter(
+		identity: ReaderPageRasterDescriptorIdentity,
+		descriptor: ReaderPageRasterDescriptor
+	): ReaderPageRasterRetentionChapter {
+		val key = descriptor.key(identity.quality)
+		return ReaderPageRasterRetentionChapter(
+			generation = identity.generation,
+			publicationHash = key.publicationHash,
+			spineIndex = key.spineIndex
+		)
+	}
+
+	/**
+	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's rasters
+	 * two or more chapters behind it in every pagination, layout and quality. The cache itself keeps
+	 * the pinned encoded window, so the displayed pages are never removed.
+	 */
+	fun retireRasterChaptersBehindCurrent() {
+		if (closed) return
+		val chapter = currentRetentionChapter
+			?.takeIf { candidate -> candidate.generation == activeGeneration }
+			?: return
+		if (chapter == retiredRetentionChapter) return
+		val scheduler = rasterScheduler ?: return
+		retiredRetentionChapter = chapter
+		val job = rasterScope.launch {
+			if (closed) return@launch
+			val removed = scheduler.discardChaptersBehind(
+				publicationHash = chapter.publicationHash,
+				currentSpineIndex = chapter.spineIndex
+			)
+			if (removed > 0) {
+				Logger.i(
+					ReaderPageTurnBundleSourceTag,
+					"Page raster chapters retired behind spine=${chapter.spineIndex} " +
+						"rasters=$removed generation=${chapter.generation}"
+				)
+			}
+		}
+		trackRasterPersistenceJob(job)
 	}
 
 	private fun dispatchRasterDescriptor(

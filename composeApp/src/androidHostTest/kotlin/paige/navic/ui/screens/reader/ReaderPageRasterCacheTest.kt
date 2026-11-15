@@ -1389,6 +1389,126 @@ class ReaderPageRasterCacheTest {
 		assertEquals(realized, reopened.aliasedKey("planned-a", "install-1"))
 	}
 
+	@Test
+	fun chapterRetentionKeepsCurrentAndPreviousChapterAcrossEveryProfileOfTheBook() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		val profiles = listOf(
+			Triple("pagination-1", "layout-single", ReaderPageBitmapQuality.Balanced),
+			Triple("pagination-2", "layout-spread", ReaderPageBitmapQuality.Balanced),
+			Triple("pagination-1", "layout-single", ReaderPageBitmapQuality.High)
+		)
+		val book = (3..6).flatMap { spine ->
+			profiles.map { (pagination, layout, quality) ->
+				chapterKey(spine, pagination = pagination, layout = layout, quality = quality)
+			}
+		}
+		val otherBook = (0..6).map { spine -> chapterKey(spine, publication = "publication-2") }
+		(book + otherBook).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+		}
+		val dropped = book.filter { rasterKey -> rasterKey.spineIndex <= 4 }
+		val droppedPaths = dropped.map(fixture.cache::pathFor)
+		droppedPaths.forEach { path -> assertTrue(path.isFile) }
+
+		assertEquals(dropped.size, fixture.cache.discardChaptersBehind("publication-1", 6))
+
+		dropped.forEach { rasterKey -> assertFalse(fixture.cache.contains(rasterKey)) }
+		droppedPaths.forEach { path -> assertFalse(path.exists()) }
+		book.filter { rasterKey -> rasterKey.spineIndex >= 5 }
+			.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		otherBook.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		val manifest = fixture.cache.manifestPath().readText()
+		dropped.forEach { rasterKey -> assertFalse(manifest.contains(rasterKey.digest)) }
+		val reopened = reopenedCache(fixture, maxDiskBytes = Long.MAX_VALUE)
+		dropped.forEach { rasterKey -> assertFalse(reopened.contains(rasterKey)) }
+		book.filter { rasterKey -> rasterKey.spineIndex >= 5 }
+			.forEach { rasterKey -> assertTrue(reopened.contains(rasterKey)) }
+		otherBook.forEach { rasterKey -> assertTrue(reopened.contains(rasterKey)) }
+		assertEquals(0, fixture.cache.discardChaptersBehind("publication-1", 6))
+	}
+
+	@Test
+	fun chapterRetentionNeverDiscardsThePinnedEncodedWindow() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		val pinnedBehind = chapterKey(spineIndex = 1, visualPageOrdinal = 9)
+		val unpinnedBehind = chapterKey(spineIndex = 1, visualPageOrdinal = 2)
+		val current = chapterKey(spineIndex = 4, visualPageOrdinal = 10)
+		listOf(pinnedBehind, unpinnedBehind, current).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+		}
+		fixture.cache.protectEncodedWindow(
+			profile = current.profile,
+			centerPageOrdinal = 10,
+			pinnedPageOrdinals = setOf(9, 10, 11)
+		)
+
+		assertEquals(1, fixture.cache.discardChaptersBehind("publication-1", 4))
+
+		assertTrue(fixture.cache.contains(pinnedBehind))
+		assertTrue(fixture.cache.contains(current))
+		assertFalse(fixture.cache.contains(unpinnedBehind))
+	}
+
+	@Test
+	fun unlimitedDiskLimitNeverReportsCapacityWhileAnExplicitCapStillEvicts() {
+		val unlimited = fixture(maxDiskBytes = ReaderPageRasterDiskMaxBytes, maxDecodedEntries = 0)
+		assertEquals(Long.MAX_VALUE, unlimited.cache.metrics().diskByteLimit)
+		unlimited.cache.protectEncodedWindow(
+			profile = ownedKey(0).profile,
+			centerPageOrdinal = 0,
+			pinnedPageOrdinals = setOf(0, 1, 2)
+		)
+		(0 until 64).forEach { page ->
+			val result = unlimited.cache.write(ownedKey(page), metadata(), ByteArray(4_096) { 1 })
+			assertTrue(result.persisted)
+			assertNull(result.failureReason)
+		}
+		assertEquals(64, unlimited.cache.metrics().diskEntries)
+
+		val capped = fixture(maxDiskBytes = 3L, maxDecodedEntries = 0)
+		capped.cache.protectEncodedWindow(
+			profile = ownedKey(0).profile,
+			centerPageOrdinal = 0,
+			pinnedPageOrdinals = setOf(0, 1, 2)
+		)
+		(0..2).forEach { page ->
+			assertTrue(capped.cache.write(ownedKey(page), metadata(), byteArrayOf(1)))
+		}
+		assertEquals(
+			ReaderPageRasterWriteFailureReason.DiskCapacity,
+			capped.cache.write(ownedKey(3), metadata(), byteArrayOf(1)).failureReason
+		)
+		assertEquals(3, capped.cache.metrics().diskEntries)
+	}
+
+	private fun chapterKey(
+		spineIndex: Int,
+		publication: String = "publication-1",
+		pagination: String = "pagination-1",
+		layout: String = "layout-1",
+		quality: ReaderPageBitmapQuality = ReaderPageBitmapQuality.Balanced,
+		visualPageOrdinal: Int = spineIndex * 10
+	): ReaderPageRasterKey = key(chapterPageIndex = 0).copy(
+		publicationHash = publication,
+		paginationHash = pagination,
+		spineIndex = spineIndex,
+		hrefHash = "href-$spineIndex",
+		visualPageOrdinal = visualPageOrdinal,
+		layoutHash = layout,
+		quality = quality
+	)
+
+	private fun reopenedCache(
+		fixture: CacheFixture,
+		maxDiskBytes: Long
+	): ReaderPageRasterCache<ByteArray> =
+		ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = maxDiskBytes,
+			maxDecodedEntries = 0
+		)
+
 	private fun reopenedCache(fixture: CacheFixture): ReaderPageRasterCache<ByteArray> =
 		ReaderPageRasterCache(
 			root = fixture.root,

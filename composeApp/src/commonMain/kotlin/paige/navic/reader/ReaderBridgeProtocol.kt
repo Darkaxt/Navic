@@ -246,6 +246,8 @@ data class ReaderSettings(
 	val flowMode: String? = null,
 	val dragAnimationMode: String? = null,
 	val pageBitmapQuality: String? = null,
+	val pageCacheScope: String? = null,
+	val pageCacheLayouts: String? = null,
 	val paged: Boolean? = null,
 	val tapZone: String? = null,
 	val tapZoneInvertMode: String? = null,

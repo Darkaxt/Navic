@@ -408,6 +408,71 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun readerDefaultSettingsRoundTripPageCacheScopeAndLayouts() {
+		val storage = MapSettings()
+		val preferences = PreferenceManager(storage)
+
+		assertEquals(
+			ReaderPageCacheScope.PerChapter.persistedValue,
+			preferences.readerDefaultSettings().pageCacheScope
+		)
+		assertEquals(
+			ReaderPageCacheLayouts.Current.persistedValue,
+			preferences.readerDefaultSettings().pageCacheLayouts
+		)
+		assertEquals(ReaderPageCacheScope.PerChapter.persistedValue, defaultReaderSettings().pageCacheScope)
+		assertEquals(ReaderPageCacheLayouts.Current.persistedValue, defaultReaderSettings().pageCacheLayouts)
+
+		preferences.setReaderDefaultSettings(
+			preferences.readerDefaultSettings().copy(
+				pageCacheScope = ReaderPageCacheScope.FullBook.persistedValue,
+				pageCacheLayouts = ReaderPageCacheLayouts.Both.persistedValue
+			)
+		)
+		assertEquals(ReaderPageCacheScope.FullBook.persistedValue, preferences.readerPageCacheScope)
+		assertEquals(ReaderPageCacheLayouts.Both.persistedValue, preferences.readerPageCacheLayouts)
+		val reloaded = PreferenceManager(storage).readerDefaultSettings()
+		assertEquals(ReaderPageCacheScope.FullBook.persistedValue, reloaded.pageCacheScope)
+		assertEquals(ReaderPageCacheLayouts.Both.persistedValue, reloaded.pageCacheLayouts)
+
+		preferences.readerPageCacheScope = "invalid"
+		preferences.readerPageCacheLayouts = "invalid"
+		assertEquals(
+			ReaderPageCacheScope.PerChapter.persistedValue,
+			preferences.readerDefaultSettings().pageCacheScope
+		)
+		assertEquals(
+			ReaderPageCacheLayouts.Current.persistedValue,
+			preferences.readerDefaultSettings().pageCacheLayouts
+		)
+		assertEquals(ReaderPageCacheScope.PerChapter.persistedValue, preferences.readerPageCacheScope)
+		assertEquals(ReaderPageCacheLayouts.Current.persistedValue, preferences.readerPageCacheLayouts)
+	}
+
+	@Test
+	fun readerBookSettingsRoundTripPageCacheOptions() {
+		val preferences = PreferenceManager(MapSettings())
+
+		preferences.setReaderBookSettings(
+			bookId = "book-1",
+			settings = ReaderSettings(
+				pageCacheScope = ReaderPageCacheScope.FullBook.persistedValue,
+				pageCacheLayouts = ReaderPageCacheLayouts.Both.persistedValue
+			)
+		)
+
+		val bookSettings = preferences.readerSettingsForBook("book-1")
+		assertEquals(ReaderPageCacheScope.FullBook.persistedValue, bookSettings.pageCacheScope)
+		assertEquals(ReaderPageCacheLayouts.Both.persistedValue, bookSettings.pageCacheLayouts)
+		assertEquals(
+			ReaderPageCacheScope.PerChapter.persistedValue,
+			preferences.readerSettingsForBook("book-2").pageCacheScope
+		)
+		assertEquals(true, preferences.readerBookSettingsJson.contains("\"pageCacheScope\":\"full-book\""))
+		assertEquals(true, preferences.readerBookSettingsJson.contains("\"pageCacheLayouts\":\"both\""))
+	}
+
+	@Test
 	fun readerBookSettingsMigratesAndPersistsLegacyDragAnimationModes() {
 		val preferences = PreferenceManager(MapSettings())
 		preferences.readerBookSettingsJson =

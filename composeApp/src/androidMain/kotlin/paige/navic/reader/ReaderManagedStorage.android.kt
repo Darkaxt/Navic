@@ -4,7 +4,7 @@ import android.content.Context
 import org.koin.mp.KoinPlatform
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.models.DefaultPagePreviewCacheSizeMb
-import paige.navic.domain.models.cacheSizeMbToBytes
+import paige.navic.domain.models.pagePreviewCacheSizeMbToBytes
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -43,10 +43,16 @@ internal fun readerPageRasterStorageRoot(context: Context): File =
 		.resolve(ReaderPageRasterStorageVersion)
 		.also(File::mkdirs)
 
-/** Disk limit for page previews, from the Cache manager; a lowered limit trims when a book next opens. */
-internal fun readerPageRasterDiskMaxBytes(): Long = cacheSizeMbToBytes(
+/**
+ * Disk limit for page previews, from the Cache manager; a lowered limit trims when a book next opens.
+ * "No limit" (the default) is [Long.MAX_VALUE]: chapter retention bounds the cache instead (#57).
+ */
+internal fun readerPageRasterDiskMaxBytes(): Long = readerPageRasterDiskMaxBytes(
 	readerPreferenceManager()?.pagePreviewCacheSizeMb ?: DefaultPagePreviewCacheSizeMb
 )
+
+internal fun readerPageRasterDiskMaxBytes(pagePreviewCacheSizeMb: Int): Long =
+	pagePreviewCacheSizeMbToBytes(pagePreviewCacheSizeMb)
 
 internal fun readerPageRasterStorageSizeBytes(context: Context): Long =
 	readerManagedStorageRoot(context).resolve(ReaderPageRasterStorageDirectoryName)

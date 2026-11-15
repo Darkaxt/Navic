@@ -348,6 +348,8 @@ class PreferenceManager(
 	var readerFlowMode by preference("paged")
 	var readerDragAnimationMode by preference("none")
 	var readerPageBitmapQuality by preference("50")
+	var readerPageCacheScope by preference("per-chapter")
+	var readerPageCacheLayouts by preference("current")
 	var readerPaged by preference(true)
 	var readerTapZone by preference("default")
 	var readerTapZoneInvertMode by preference("none")

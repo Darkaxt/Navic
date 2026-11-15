@@ -29,6 +29,8 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
+	pageCacheScope: String?,
+	pageCacheLayouts: String?,
 	pageTurnSnapshotKey: Int,
 	pageTurnContentReadyKey: String?,
 	pageTurnPaginationStatus: String?,

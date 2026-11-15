@@ -178,6 +178,8 @@ internal fun KomikkuReaderRoot(
 					ReaderDragAnimationCanvas,
 			pageTurnReadingDirection = controllerState.chrome.settings.direction,
 			pageTurnBitmapQuality = controllerState.chrome.settings.pageBitmapQuality,
+			pageCacheScope = controllerState.chrome.settings.pageCacheScope,
+			pageCacheLayouts = controllerState.chrome.settings.pageCacheLayouts,
 			pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey
 				?: controllerState.chrome.settings.readerPageRasterSnapshotKey(),
 			pageTurnContentReadyKey = readerPageTurnContentReadyKey(

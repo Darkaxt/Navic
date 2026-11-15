@@ -1,5 +1,7 @@
 package paige.navic.reader
 
+import paige.navic.domain.models.DefaultPagePreviewCacheSizeMb
+import paige.navic.domain.models.PagePreviewCacheUnlimitedMb
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -46,6 +48,15 @@ class ReaderManagedStorageTest {
 
 		assertFalse(managedRoot.resolve("reader-page-rasters").exists())
 		assertEquals("FONT", managedRoot.resolve("fonts/imported.ttf").readText())
+	}
+
+	@Test
+	fun pagePreviewNoLimitIsUnboundedAndExplicitCapsStayBytes() {
+		assertEquals(Long.MAX_VALUE, readerPageRasterDiskMaxBytes(PagePreviewCacheUnlimitedMb))
+		assertEquals(Long.MAX_VALUE, readerPageRasterDiskMaxBytes(DefaultPagePreviewCacheSizeMb))
+		assertTrue(readerPageRasterDiskMaxBytes(PagePreviewCacheUnlimitedMb) > 0L)
+		assertEquals(128L * 1024L * 1024L, readerPageRasterDiskMaxBytes(128))
+		assertEquals(384L * 1024L * 1024L, readerPageRasterDiskMaxBytes(384))
 	}
 
 	@Test

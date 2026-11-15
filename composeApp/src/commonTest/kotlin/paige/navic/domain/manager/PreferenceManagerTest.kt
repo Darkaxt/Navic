@@ -5,6 +5,11 @@ import paige.navic.domain.models.IntegrationService
 import paige.navic.domain.models.settings.AudioReverbPreset
 import paige.navic.domain.models.settings.AutoFillQueueSource
 import paige.navic.domain.models.DefaultLidaClipsVideoCacheSizeMb
+import paige.navic.domain.models.DefaultPagePreviewCacheSizeMb
+import paige.navic.domain.models.PagePreviewCacheSizeOptionsMb
+import paige.navic.domain.models.PagePreviewCacheUnlimitedMb
+import paige.navic.domain.models.pagePreviewCacheSizeLimitLabel
+import paige.navic.domain.models.pagePreviewCacheSizeMbToBytes
 import paige.navic.domain.models.settings.BottomBarProfile
 import paige.navic.domain.models.settings.LidaClipsBackgroundVideoMode
 import paige.navic.domain.models.settings.LidaClipsVideoFitMode
@@ -30,6 +35,25 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PreferenceManagerTest {
+	@Test
+	fun pagePreviewCacheDefaultsToNoLimitAndKeepsExplicitCaps() {
+		val settings = MapSettings()
+		val manager = PreferenceManager(settings)
+
+		assertEquals(PagePreviewCacheUnlimitedMb, DefaultPagePreviewCacheSizeMb)
+		assertEquals(PagePreviewCacheUnlimitedMb, manager.pagePreviewCacheSizeMb)
+		assertEquals(PagePreviewCacheUnlimitedMb, PagePreviewCacheSizeOptionsMb.first())
+		assertTrue(384 in PagePreviewCacheSizeOptionsMb)
+		assertEquals(Long.MAX_VALUE, pagePreviewCacheSizeMbToBytes(manager.pagePreviewCacheSizeMb))
+		assertEquals("No limit", pagePreviewCacheSizeLimitLabel(PagePreviewCacheUnlimitedMb))
+		assertEquals("384 MB", pagePreviewCacheSizeLimitLabel(384))
+
+		// A limit the user chose explicitly, including the old 384 MB default, stays a cap.
+		manager.pagePreviewCacheSizeMb = 384
+		assertEquals(384, PreferenceManager(settings).pagePreviewCacheSizeMb)
+		assertEquals(384L * 1024L * 1024L, pagePreviewCacheSizeMbToBytes(384))
+	}
+
 	@Test
 	fun offlineModeIsObservableAndPersisted() {
 		val settings = MapSettings()

@@ -102,6 +102,7 @@ internal interface ReaderPageRasterStore<T : Any> {
 		pinnedPageOrdinals: Set<Int>
 	) = Unit
 	fun protectChapter(chapter: ReaderPageRasterChapterKey?)
+	fun discardChaptersBehind(publicationHash: String, currentSpineIndex: Int): Int = 0
 	fun encodedBytes(key: ReaderPageRasterKey): Long
 }
 
@@ -230,6 +231,9 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	override fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
 		withOpen(Unit) { cache.protectChapter(chapter) }
 	}
+
+	override fun discardChaptersBehind(publicationHash: String, currentSpineIndex: Int): Int =
+		withOpen(0) { cache.discardChaptersBehind(publicationHash, currentSpineIndex) }
 
 	override fun encodedBytes(key: ReaderPageRasterKey): Long =
 		withOpen(0L) {
@@ -397,6 +401,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	suspend fun protectChapter(chapter: ReaderPageRasterChapterKey?) {
 		withContext(ioDispatcher) { store.protectChapter(chapter) }
 	}
+
+	suspend fun discardChaptersBehind(publicationHash: String, currentSpineIndex: Int): Int =
+		withContext(ioDispatcher) { store.discardChaptersBehind(publicationHash, currentSpineIndex) }
 
 	private suspend fun drain() {
 		while (true) {

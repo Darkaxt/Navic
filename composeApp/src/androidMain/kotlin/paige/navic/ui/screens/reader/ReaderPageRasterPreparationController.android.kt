@@ -17,6 +17,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import paige.navic.reader.ReaderChapterRasterGenerationState
+import paige.navic.reader.ReaderPageCacheLayouts
+import paige.navic.reader.ReaderPageCacheScope
 import paige.navic.reader.ReaderDecodedWorkingSetState
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPagePreparationPhase
@@ -26,6 +28,8 @@ import paige.navic.reader.ReaderPageReadinessState
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
+import paige.navic.reader.normalizeReaderPageCacheLayouts
+import paige.navic.reader.normalizeReaderPageCacheScope
 import paige.navic.reader.readerPagePreparationState
 import paige.navic.util.core.Logger
 
@@ -546,6 +550,19 @@ internal class ReaderPageRasterPreparationController(
 		durableRasterPageIndices.clear()
 		publishPreparationState(ReaderPagePreparationPhase.Idle)
 		onRequestPrewarm()
+	}
+
+	/** Reader "page cache scope" setting (#57); background preparation consumes it in a later stage. */
+	var pageCacheScope: ReaderPageCacheScope = ReaderPageCacheScope.PerChapter
+		private set
+
+	/** Reader "layouts" setting (#57); background preparation consumes it in a later stage. */
+	var pageCacheLayouts: ReaderPageCacheLayouts = ReaderPageCacheLayouts.Current
+		private set
+
+	fun updatePageCacheOptions(scope: String?, layouts: String?) {
+		pageCacheScope = normalizeReaderPageCacheScope(scope)
+		pageCacheLayouts = normalizeReaderPageCacheLayouts(layouts)
 	}
 
 	private fun failCurrentPreparationGeneration(error: String) {
@@ -1336,6 +1353,7 @@ internal class ReaderPageRasterPreparationController(
 				detail = "page=$currentVisualPageIndex generation=${bundleSource.currentGeneration()}"
 			)
 			onPreparedWindowCurrent()
+			bundleSource.retireRasterChaptersBehindCurrent()
 			return true
 		}
 		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
@@ -1935,6 +1953,7 @@ internal class ReaderPageRasterPreparationController(
 				rasterProofPreparationGeneration = preparationGeneration
 				pendingReadyBackgroundPrefetch = backgroundPrefetch
 				publishReadyPreparationIfProven()
+				bundleSource.retireRasterChaptersBehindCurrent()
 			}
 			ReaderPageRasterBatchOutcome.Cancelled -> {
 				preparationDiagnostic?.let { operation ->
