@@ -77,6 +77,29 @@ const uncollapse = range => {
     return range
 }
 
+// Client rect used to scroll to an anchor (element or range). Returns undefined
+// when the anchor is not a range/element (fraction anchors), null when it has no
+// rect. An element-bounded range such as an image-only section's
+// (wrapper,0)-(img,0) fully contains no node, so Range.getClientRects() is empty;
+// its boundary elements were fully visible on the recorded page, so use them.
+export const anchorClientRect = anchor => {
+    const target = uncollapse(anchor)
+    const rects = target?.getClientRects?.()
+    if (!rects) return undefined
+    const visible = r => r.width > 0 && r.height > 0
+    // when the start of the range is immediately after a hyphen in the
+    // previous column, there is an extra zero width rect in that column
+    const rect = Array.from(rects).find(visible) || rects[0]
+    if (rect) return rect
+    if (!target.startContainer) return null
+    for (const node of [target.startContainer, target.endContainer]) {
+        const element = node?.nodeType === 1 ? node : node?.parentElement
+        const boundaryRect = Array.from(element?.getClientRects?.() ?? []).find(visible)
+        if (boundaryRect) return boundaryRect
+    }
+    return null
+}
+
 const makeRange = (doc, node, start, end = start) => {
     const range = doc.createRange()
     range.setStart(node, start)
@@ -1406,13 +1429,9 @@ export class Paginator extends HTMLElement {
             await this.#scrollToPage(exactTextPageIndex + 1, reason)
             return
         }
-        const rects = uncollapse(anchor)?.getClientRects?.()
+        const rect = anchorClientRect(anchor)
         // if anchor is an element or a range
-        if (rects) {
-            // when the start of the range is immediately after a hyphen in the
-            // previous column, there is an extra zero width rect in that column
-            const rect = Array.from(rects)
-                .find(r => r.width > 0 && r.height > 0) || rects[0]
+        if (rect !== undefined) {
             if (!rect) return
             await this.#scrollToRect(rect, reason)
             return

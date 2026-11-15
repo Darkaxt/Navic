@@ -607,7 +607,11 @@ class NavicReaderRuntime {
         }
       }
       const navigateToFallback = async () => {
-        if (startBranch !== 'progress' && Number.isFinite(progress)) await this.goToProgress(progress)
+        // progress is the end of the recorded spread (it resolves one page later, into
+        // the next section on a section's last spread), so a failed CFI restore first
+        // falls back to the start of the locator's own section.
+        if (startBranch === 'locator-cfi' && startLocator?.href) await this.view.goTo(startLocator.href)
+        else if (startBranch !== 'progress' && Number.isFinite(progress)) await this.goToProgress(progress)
         else await this.goToFirstReadableContent()
       }
       log(`location-start:${startBranch}`)

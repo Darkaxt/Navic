@@ -1134,6 +1134,14 @@ class ReaderRuntimeShellProgressTest {
 		)
 		assertContains(openPublication, "log(`location-start:${'$'}{startBranch}`)")
 		assertContains(snapshot, "this.lastRelocateDetail || this.view?.lastLocation")
+		val fallback = openPublication
+			.substringAfter("const navigateToFallback = async () => {")
+			.substringBefore("\n      }\n")
+		assertTrue(
+			fallback.indexOf("startBranch === 'locator-cfi' && startLocator?.href") in 0 until
+				fallback.indexOf("await this.goToProgress(progress)"),
+			"A failed CFI restore must fall back to its own section before the end-of-spread progress (#49)."
+		)
 	}
 
 	@Test
