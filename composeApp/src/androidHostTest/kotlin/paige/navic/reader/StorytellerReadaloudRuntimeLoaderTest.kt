@@ -99,10 +99,10 @@ class StorytellerReadaloudRuntimeLoaderTest {
 			openStep.commands.map { it.command }
 		)
 		assertEquals(1, cacheRoot.walkTopDown().count { file -> file.isFile && file.extension == "epub" })
-		assertEquals(2, runtime.sessionLease.release())
-		assertTrue(!cacheRoot.resolve("reader-publications/${runtime.cacheKey}").exists())
+		assertEquals(1, runtime.sessionLease.release())
+		assertTrue(cacheRoot.resolve("reader-publications/${runtime.cacheKey}").exists())
 		assertTrue(!cacheRoot.resolve("storyteller-readaloud/${runtime.cacheKey}").exists())
-		assertEquals(0, cacheRoot.walkTopDown().count { file -> file.isFile && file.extension == "epub" })
+		assertEquals(1, cacheRoot.walkTopDown().count { file -> file.isFile && file.extension == "epub" })
 	}
 
 	@Test

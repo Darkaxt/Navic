@@ -3255,6 +3255,7 @@ internal class ReaderPageTurnBundleSource(
 							onPersisted(failedCompletion)
 							return@launch
 						}
+						logRasterScopeChange(key.profile)
 						scheduler.activateProfile(key.profile)
 						stageEncodedWindowProtection(key.profile)
 						val protectedCenter = protectedEncodedCenterPageIndex
@@ -3572,6 +3573,23 @@ internal class ReaderPageTurnBundleSource(
 				rasterPersistenceJobs -= job
 			}
 		}
+	}
+
+	@Volatile
+	private var lastActivatedRasterProfile: ReaderPageRasterProfile? = null
+
+	private fun logRasterScopeChange(profile: ReaderPageRasterProfile) {
+		val previous = lastActivatedRasterProfile
+		lastActivatedRasterProfile = profile
+		if (previous == null || previous.sameRetentionScope(profile)) return
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page raster scope changed " +
+				"publication=${previous.publicationHash == profile.publicationHash} " +
+				"pagination=${previous.paginationHash == profile.paginationHash} " +
+				"quality=${previous.quality}->${profile.quality} " +
+				"schema=${previous.schemaVersion == profile.schemaVersion}"
+		)
 	}
 
 	private suspend fun rasterScheduler(webView: WebView): ReaderPageRasterScheduler<Bitmap> =

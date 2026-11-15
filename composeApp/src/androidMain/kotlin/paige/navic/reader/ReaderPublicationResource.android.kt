@@ -70,8 +70,7 @@ class BinderyReaderPublicationResolver(
 			} else {
 				fetchResourceBytes(resourceHref)
 			}
-			publicationFile.parentFile?.mkdirs()
-			publicationFile.writeBytes(bytes)
+			publicationFile.writeBytesAtomically(bytes)
 			request.resolvedPublicationResource(
 				publicationFile = publicationFile,
 				resourceHref = resourceHref,
@@ -113,6 +112,20 @@ private suspend fun ReaderPublicationResourceRequest.fetchReaderDevSourceBytes()
 	withContext(Dispatchers.IO) {
 		URL(sourceUrl).openStream().use(InputStream::readBytes)
 	}
+
+/** Publications persist across runs; a torn write must never become the cached book. */
+private fun File.writeBytesAtomically(bytes: ByteArray) {
+	parentFile?.mkdirs()
+	val staging = File(parentFile, "$name.tmp")
+	staging.outputStream().use { output ->
+		output.write(bytes)
+		output.fd.sync()
+	}
+	if (!staging.renameTo(this)) {
+		delete()
+		check(staging.renameTo(this)) { "Reader publication could not be stored" }
+	}
+}
 
 internal fun readerPublicationCacheRoot(context: Context): File =
 	readerManagedStorageRoot(context)
@@ -193,8 +206,7 @@ private suspend fun ReaderResolvedPublicationResource.withExternalShellCover(
 		val coverBytes = fetchResourceBytes(shellCoverHref)
 		if (coverBytes.isEmpty()) return@runCatching this
 		val coverFile = publicationDirectory.resolveExternalShellCoverFile(shellCoverHref, coverBytes)
-		coverFile.parentFile?.mkdirs()
-		coverFile.writeBytes(coverBytes)
+		coverFile.writeBytesAtomically(coverBytes)
 		copy(shellCoverUrl = coverFile.toReaderShellCoverAssetUrl(cacheKey))
 	}.getOrElse { this }
 }

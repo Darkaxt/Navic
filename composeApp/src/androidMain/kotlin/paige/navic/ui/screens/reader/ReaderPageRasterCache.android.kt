@@ -511,35 +511,6 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 	}
 
-	fun retainProfile(profile: ReaderPageRasterProfile): Int {
-		if (!storageAvailable) return 0
-		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
-		val removed = synchronized(this) {
-			val obsolete = entries.values.filter { entry ->
-				entry.key.publicationHash == profile.publicationHash &&
-					!entry.key.profile.sameRetentionScope(profile)
-			}
-			if (obsolete.isEmpty()) return@synchronized 0
-			val obsoleteIds = obsolete.mapTo(mutableSetOf()) { entry ->
-				entry.key.digest
-			}
-			val retained = entries.values.filterNot { entry ->
-				entry.key.digest in obsoleteIds
-			}
-			if (!manifest.write(retained)) return@synchronized 0
-			obsolete.forEach { entry ->
-				detachDecodedEntryLocked(entry.key.digest, scheduled)
-				deleteEntryFile(entry)
-				entries.remove(entry.key.digest)
-				entryRevisions.remove(entry.key.digest)
-			}
-			assertDiskBoundLocked()
-			obsolete.size
-		}
-		releaseDecodedOwners(scheduled)
-		return removed
-	}
-
 	private fun encodedWindowProtection(
 		profile: ReaderPageRasterProfile,
 		centerPageOrdinal: Int,

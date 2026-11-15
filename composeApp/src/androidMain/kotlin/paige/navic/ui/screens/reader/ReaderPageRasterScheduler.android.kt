@@ -96,7 +96,6 @@ internal interface ReaderPageRasterStore<T : Any> {
 	): ReaderPageRasterWriteResult
 	fun remove(key: ReaderPageRasterKey): Boolean
 	fun rollbackPublication(receipt: ReaderPageRasterWriteReceipt): Boolean
-	fun retainProfile(profile: ReaderPageRasterProfile): Int
 	fun protectEncodedWindow(
 		profile: ReaderPageRasterProfile,
 		centerPageOrdinal: Int,
@@ -207,9 +206,6 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 		cache.remove(key, expectedMetadata)
 	}
 
-	override fun retainProfile(profile: ReaderPageRasterProfile): Int =
-		withOpen(0) { cache.retainProfile(profile) }
-
 	override fun protectEncodedWindow(
 		profile: ReaderPageRasterProfile,
 		centerPageOrdinal: Int,
@@ -266,7 +262,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	private var activeProfile: ReaderPageRasterProfile? = null
 	private var activeProfileGeneration = 0L
 	private var nextSequence = 0L
-	private var profilePendingRetention: ReaderPageRasterProfile? = null
 	private var retainedWorkerFailure: Throwable? = null
 	private var closed = false
 
@@ -284,7 +279,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			if (activeProfile?.sameRetentionScope(profile) == true) return
 			activeProfile = profile
 			activeProfileGeneration += 1L
-			profilePendingRetention = profile
 			val obsolete = queue.filter { work -> !work.key.profile.sameRetentionScope(profile) }
 			queue.removeAll(obsolete.toSet())
 			obsolete.forEach { work ->
@@ -346,7 +340,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			closed = true
 			activeProfile = null
 			activeProfileGeneration += 1L
-			profilePendingRetention = null
 			queue.toList().also { queued ->
 				queue.clear()
 				queued.forEach { work ->
@@ -396,18 +389,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 
 	private suspend fun drain() {
 		while (true) {
-			val retention = synchronized(lock) {
-				profilePendingRetention.also { profilePendingRetention = null }
-			}
-			if (retention != null) {
-				try {
-					withContext(ioDispatcher) { store.retainProfile(retention) }
-				} catch (cancelled: CancellationException) {
-					throw cancelled
-				} catch (failure: Throwable) {
-					recordWorkerFailure(failure)
-				}
-			}
 			val work = synchronized(lock) { queue.poll() } ?: return
 			process(work)
 		}
@@ -535,7 +516,6 @@ internal class ReaderPageRasterScheduler<T : Any>(
 			closed = true
 			activeProfile = null
 			activeProfileGeneration += 1L
-			profilePendingRetention = null
 			pending.values.toList().also {
 				pending.clear()
 				queue.clear()

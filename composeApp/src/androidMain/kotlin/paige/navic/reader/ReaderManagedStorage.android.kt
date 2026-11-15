@@ -10,7 +10,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal const val ReaderManagedStorageDirectoryName = "reader"
 internal const val ReaderFontStorageDirectoryName = "fonts"
-internal const val ReaderPublicationSessionDirectoryName = "reader-publications"
 internal const val ReaderReadaloudSessionDirectoryName = "storyteller-readaloud"
 internal const val ReaderPageRasterStorageDirectoryName = "reader-page-rasters"
 internal const val ReaderPageRasterStorageVersion = "v1"
@@ -182,7 +181,8 @@ private fun moveReaderFontFile(source: File, target: File) {
 	}
 }
 
+// Downloaded publications (reader-publications) are deliberately absent: the owner keeps books
+// on disk permanently, so they are neither wiped at startup nor released with a reader session.
 private val ReaderSessionStorageDirectoryNames = listOf(
-	ReaderPublicationSessionDirectoryName,
 	ReaderReadaloudSessionDirectoryName
 )

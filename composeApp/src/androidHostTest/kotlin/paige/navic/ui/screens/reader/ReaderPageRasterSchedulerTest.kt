@@ -256,7 +256,7 @@ class ReaderPageRasterSchedulerTest {
 
 	@Test
 	fun newerSameKeyWriteSurvivesStaleReceiptRollback() = runBlocking {
-		val store = FakeRasterStore(retainProfiles = false)
+		val store = FakeRasterStore()
 		val oldProfile = rasterProfile("aba")
 		val scheduler = ReaderPageRasterScheduler(
 			scope,
@@ -594,8 +594,7 @@ class ReaderPageRasterSchedulerTest {
 
 	private class FakeRasterStore(
 		private val writeOwnership: ReaderPageRasterValueOwnership =
-			ReaderPageRasterValueOwnership.Store,
-		private val retainProfiles: Boolean = true
+			ReaderPageRasterValueOwnership.Store
 	) : ReaderPageRasterStore<String> {
 		private val values =
 			mutableMapOf<ReaderPageRasterKey, ReaderPageRaster<String>>()
@@ -664,19 +663,6 @@ class ReaderPageRasterSchedulerTest {
 			}
 			revisions.remove(receipt.key)
 			return values.remove(receipt.key) != null
-		}
-
-		override fun retainProfile(profile: ReaderPageRasterProfile): Int {
-			if (!retainProfiles) return 0
-			val removed = values.keys.filter { key ->
-				key.publicationHash == profile.publicationHash &&
-					key.profile != profile
-			}
-			removed.forEach { key ->
-				values.remove(key)
-				revisions.remove(key)
-			}
-			return removed.size
 		}
 
 		override fun protectChapter(

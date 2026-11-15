@@ -17,7 +17,7 @@ import java.util.zip.ZipOutputStream
 @Config(manifest = Config.NONE, sdk = [35])
 class BinderyReaderPublicationResolverTest {
 	@Test
-	fun resolvedPublicationOwnsItsSessionDirectory() = runBlocking {
+	fun resolvedPublicationPersistsAcrossSessionsAndIsReusedWithoutFetching() = runBlocking {
 		val cacheRoot = createTempDirectory("navic-reader-publication-lease").toFile()
 		val resolved = BinderyReaderPublicationResolver(
 			fetchResourceBytes = { "EPUB_BYTES".encodeToByteArray() },
@@ -33,10 +33,27 @@ class BinderyReaderPublicationResolverTest {
 			)
 		)
 
-		val sessionDirectory = resolved.publicationFile.parentFile!!
-		assertTrue(sessionDirectory.isDirectory)
-		assertEquals(1, resolved.sessionLease.release())
-		assertTrue(!sessionDirectory.exists())
+		val publicationDirectory = resolved.publicationFile.parentFile!!
+		assertTrue(publicationDirectory.isDirectory)
+		// Books are kept on disk: closing the reader releases nothing and the next open reuses it.
+		assertEquals(0, resolved.sessionLease.release())
+		assertEquals("EPUB_BYTES", resolved.publicationFile.readText())
+		assertTrue(publicationDirectory.listFiles().orEmpty().none { file -> file.name.endsWith(".tmp") })
+		val reopened = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { error("A kept publication must not be fetched again") },
+			cacheRoot = cacheRoot
+		).resolve(
+			ReaderPublicationResourceRequest(
+				bookId = "lease-book",
+				title = "Lease Book",
+				resourceHref = "/opds/books/lease-book/resources/epub",
+				sourceUrl = "https://bindery.local/lease-book.epub",
+				kind = ReaderPublicationKind.Ebook,
+				mediaOverlayEnabled = false
+			)
+		)
+		assertTrue(reopened.fromCache)
+		assertEquals(resolved.publicationUrl, reopened.publicationUrl)
 	}
 
 	@Test

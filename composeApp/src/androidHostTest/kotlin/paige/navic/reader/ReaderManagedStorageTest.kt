@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 class ReaderManagedStorageTest {
 	@Test
-	fun initializationMigratesFontsAndDropsReconstructableSessions() {
+	fun initializationMigratesFontsKeepsPublicationsAndDropsReadaloudSessions() {
 		val root = createTempDirectory("navic-reader-managed-storage").toFile()
 		val managedRoot = root.resolve("managed")
 		val legacyRoot = root.resolve("legacy")
@@ -26,9 +26,9 @@ class ReaderManagedStorageTest {
 		assertEquals("MANAGED", managedRoot.resolve("fonts/imported-existing.ttf").readText())
 		assertEquals("MIGRATED", managedRoot.resolve("fonts/imported-migrated.otf").readText())
 		assertFalse(legacyRoot.resolve("fonts/imported-migrated.otf").exists())
-		assertFalse(managedRoot.resolve("reader-publications").exists())
+		assertEquals("STALE", managedRoot.resolve("reader-publications/current/publication.epub").readText())
 		assertFalse(managedRoot.resolve("storyteller-readaloud").exists())
-		assertFalse(legacyRoot.resolve("reader-publications").exists())
+		assertEquals("LEGACY_STALE", legacyRoot.resolve("reader-publications/legacy/publication.epub").readText())
 		assertFalse(legacyRoot.resolve("storyteller-readaloud").exists())
 		assertTrue(managedRoot.resolve("fonts").isDirectory)
 		assertEquals("DURABLE_RASTER", managedRoot.resolve("reader-page-rasters/v1/keep.png").readText())
@@ -60,9 +60,9 @@ class ReaderManagedStorageTest {
 
 		val lease = ReaderSessionLease.of(publication, readaloud, unrelated)
 
-		assertEquals(2, lease.release())
+		assertEquals(1, lease.release())
 		assertEquals(0, lease.release())
-		assertFalse(publication.exists())
+		assertEquals("EPUB", publication.resolve("publication.epub").readText())
 		assertFalse(readaloud.exists())
 		assertEquals("KEEP", unrelated.resolve("keep.txt").readText())
 	}
@@ -80,12 +80,13 @@ class ReaderManagedStorageTest {
 		legacyRoot.resolve("other/keep.txt").writeFixture("KEEP")
 
 		assertEquals(
-			"EPUB".length + "AUDIO".length + "OLD".length + "OLD_AUDIO".length.toLong(),
+			"AUDIO".length + "OLD_AUDIO".length.toLong(),
 			readerSessionStorageSizeBytes(managedRoot, legacyRoot)
 		)
 
-		assertEquals(4, clearReaderSessionStorage(managedRoot, legacyRoot))
+		assertEquals(2, clearReaderSessionStorage(managedRoot, legacyRoot))
 		assertEquals(0L, readerSessionStorageSizeBytes(managedRoot, legacyRoot))
+		assertEquals("EPUB", managedRoot.resolve("reader-publications/book/publication.epub").readText())
 		assertEquals("DURABLE_FONT", managedRoot.resolve("fonts/user.ttf").readText())
 		assertEquals("KEEP", legacyRoot.resolve("other/keep.txt").readText())
 	}

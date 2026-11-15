@@ -388,28 +388,28 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
-	fun activatingProfileRemovesOnlyObsoletePublicationRasters() {
+	fun rastersOfEveryScopeSurviveWritesAndReopen() {
 		val fixture = fixture(maxDecodedEntries = 0)
-		val active = key(chapterPageIndex = 1)
-		val obsoleteQuality = active.copy(chapterPageIndex = 2, quality = ReaderPageBitmapQuality.Native)
-		val obsoletePagination = active.copy(chapterPageIndex = 3, paginationHash = "old-pagination")
-		val otherPublication = active.copy(publicationHash = "other", chapterPageIndex = 4)
-		// Layout/decoration fingerprints are observed per spine section: another section's raster of
-		// the same publication, pagination and quality stays live (curl decks span sections).
-		val otherSection = active.copy(chapterPageIndex = 5, spineIndex = 9, layoutHash = "section-9-layout",
-			decorationHash = "section-9-decoration")
-		listOf(active, obsoleteQuality, obsoletePagination, otherPublication, otherSection).forEach { rasterKey ->
+		val live = key(chapterPageIndex = 1)
+		// The live and passive preparation WebViews may publish under different retention scopes;
+		// neither set may delete the other, and both must be readable by the next process.
+		val passive = live.copy(chapterPageIndex = 2, paginationHash = "passive-pagination")
+		val otherQuality = live.copy(chapterPageIndex = 3, quality = ReaderPageBitmapQuality.Native)
+		listOf(live, passive, otherQuality, live.copy(chapterPageIndex = 4)).forEach { rasterKey ->
 			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest.take(1))))
 		}
 
-		val removed = fixture.cache.retainProfile(active.profile)
+		val reopened = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = 1_024L,
+			maxDecodedEntries = 0
+		)
 
-		assertEquals(2, removed)
-		assertTrue(fixture.cache.pathFor(active).isFile)
-		assertFalse(fixture.cache.pathFor(obsoleteQuality).exists())
-		assertFalse(fixture.cache.pathFor(obsoletePagination).exists())
-		assertTrue(fixture.cache.pathFor(otherPublication).isFile)
-		assertTrue(fixture.cache.pathFor(otherSection).isFile)
+		assertTrue(reopened.contains(live))
+		assertTrue(reopened.contains(passive))
+		assertTrue(reopened.contains(otherQuality))
+		assertEquals(4, reopened.metrics().diskEntries)
 	}
 
 	@Test
@@ -957,20 +957,6 @@ class ReaderPageRasterCacheTest {
 		assertEquals(5, fixture.cache.metrics().uniqueDecodedBitmaps)
 		assertEquals(1, codec.decodeCalls)
 		assertEquals(1, codec.releaseCalls)
-	}
-
-	@Test
-	fun profileRetentionReleasesSharedIdentityOnlyOnLastDetach() {
-		val attempts = mutableListOf<Any>()
-		val shared = Any()
-		val cache = rasterCache<Any>(release = attempts::add)
-		assertTrue(cache.write(ownedKey(1), metadata(), shared).persisted)
-		assertTrue(cache.write(ownedKey(2), metadata(), shared).persisted)
-
-		cache.retainProfile(ownedKey(1).profile.copy(paginationHash = "replacement"))
-
-		assertEquals(listOf(shared), attempts)
-		assertEquals(0, cache.metrics().uniqueDecodedBitmaps)
 	}
 
 	@Test
