@@ -69,12 +69,18 @@ internal object ReaderEngineLogProjector {
 		Regex("^wordsync-progress-degraded:progress-(outside-visible-page|paint-rejected)(,-?[0-9]{1,12}){6}$")
 	private val approvedWordSyncRelayoutAnchor = Regex("^wordsync-relayout-anchor:[01](,[01]){3}$")
 	private val approvedRelayoutReadingAnchor = Regex("^relayout-reading-anchor:[01],[01]$")
+	private val approvedProvenanceTiming = Regex("^provenance-timing:[0-9]{1,9}(,[0-9]{1,7}){6}$")
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =
 		"Dispatching reader engine command: ${dispatch.command.type}"
 
 	fun event(event: ReaderBridgeEvent): String =
-		"Reader bridge event: ${event.diagnosticName()}"
+		"Reader bridge event: ${event.diagnosticName()}" +
+			if (event is ReaderBridgeEvent.RawTextProvenanceStatusChanged) {
+				" status=${event.status} reason=${event.reason}"
+			} else {
+				""
+			}
 
 	@Suppress("UNUSED_PARAMETER")
 	fun console(level: String, message: String?, sourceId: String?): String {
@@ -90,7 +96,8 @@ internal object ReaderEngineLogProjector {
 					approvedWordSyncSegment.matches(it) ||
 					approvedWordSyncProgressDegraded.matches(it) ||
 					approvedWordSyncRelayoutAnchor.matches(it) ||
-					approvedRelayoutReadingAnchor.matches(it)
+					approvedRelayoutReadingAnchor.matches(it) ||
+					approvedProvenanceTiming.matches(it)
 			}
 			?: RedactedConsoleDiagnostic
 		return "Reader console ${level.diagnosticName()}: $diagnostic"

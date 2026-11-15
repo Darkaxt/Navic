@@ -58,7 +58,6 @@ export const describeUrl = url => {
 export const post = message => {
   try {
     const json = JSON.stringify(message)
-    log('post', message?.type || '', message?.code || '')
     const bridge = window.NavicAndroidBridge
     if (typeof bridge?.postMessage !== 'function') {
       log('bridge-unavailable', message?.type || '')

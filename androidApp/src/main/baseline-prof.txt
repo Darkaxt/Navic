@@ -1,0 +1,6 @@
+# Navic reader startup rules: AOT-compile and preload the reader, Whispersync and raster
+# preparation code so a sideloaded release does not run them interpreted on first open.
+HSPLpaige/navic/reader/**;->**(**)**
+HSPLpaige/navic/ui/screens/reader/**;->**(**)**
+Lpaige/navic/reader/**;
+Lpaige/navic/ui/screens/reader/**;

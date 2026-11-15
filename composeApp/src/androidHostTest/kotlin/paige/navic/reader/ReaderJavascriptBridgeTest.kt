@@ -211,6 +211,24 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console DEBUG: relayout-reading-anchor:1,1"
 			),
 			ProjectionCase(
+				description = "provenance timing numeric trace",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] provenance-timing:51234,12,3,40,900,2100,300 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: provenance-timing:51234,12,3,40,900,2100,300"
+			),
+			ProjectionCase(
+				description = "provenance timing carrying text is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] provenance-timing:sand,1,2,3,4,5,6",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
+			),
+			ProjectionCase(
 				description = "word sync degraded progress carrying text is redacted",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",

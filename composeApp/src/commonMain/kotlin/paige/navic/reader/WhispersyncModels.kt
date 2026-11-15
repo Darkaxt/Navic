@@ -106,7 +106,12 @@ data class WhispersyncSidecar(
 	val droppedSegmentCount: Int = 0,
 	val droppedSegmentReasons: List<String> = emptyList(),
 	@Transient val revisionDigest: String = ""
-)
+) {
+	// Immutable sidecar: scanning every timeline segment on each provenance event was a main-thread hotspot.
+	internal val referencedRawTextProvenanceDescriptorList: List<ReaderRawTextProvenanceDescriptor> by lazy {
+		computeReferencedRawTextProvenanceDescriptors()
+	}
+}
 
 @Serializable
 data class WhispersyncTimeline(
@@ -472,7 +477,10 @@ fun decodeWhispersyncSidecar(json: String): WhispersyncSidecar {
 	)
 }
 
-internal fun WhispersyncSidecar.referencedRawTextProvenanceDescriptors(): List<ReaderRawTextProvenanceDescriptor> {
+internal fun WhispersyncSidecar.referencedRawTextProvenanceDescriptors(): List<ReaderRawTextProvenanceDescriptor> =
+	referencedRawTextProvenanceDescriptorList
+
+private fun WhispersyncSidecar.computeReferencedRawTextProvenanceDescriptors(): List<ReaderRawTextProvenanceDescriptor> {
 	val basis = coordinateBasis ?: return emptyList()
 	val referencedIds = timeline.segments.mapNotNull(WhispersyncSegment::rawProvenanceId).toSet()
 	return basis.spines

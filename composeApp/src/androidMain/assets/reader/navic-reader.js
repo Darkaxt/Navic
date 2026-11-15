@@ -358,7 +358,6 @@ class NavicReaderRuntime {
   }
 
   dispatch(command) {
-    log('dispatch', command?.type || 'invalid')
     readerTrace('dispatch', { type: command?.type || 'invalid' })
     if (!command || typeof command !== 'object') return
     const causalSequence = Number(command.causalSequence)

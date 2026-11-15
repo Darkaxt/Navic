@@ -1075,6 +1075,8 @@ export class ReaderWordSyncProvenanceStore {
       return false
     }
     this.postPending(descriptor.id)
+    const timing = [performance.now()]
+    const mark = () => timing.push(performance.now())
     let bytes
     try {
       const blob = await book.loadBlob(descriptor.href)
@@ -1093,7 +1095,9 @@ export class ReaderWordSyncProvenanceStore {
       this.postRejectedIfCurrent(descriptor, attempt, 'source-too-large')
       return false
     }
+    mark()
     const sourceHash = await sha256(bytes)
+    mark()
     if (!this.isCurrentAttempt(descriptor, attempt)) return false
     if (sourceHash !== descriptor.sourceHash) {
       this.postRejectedIfCurrent(descriptor, attempt, 'source-hash-mismatch')
@@ -1118,13 +1122,16 @@ export class ReaderWordSyncProvenanceStore {
       this.postRejectedIfCurrent(descriptor, attempt, 'extracted-length-mismatch')
       return false
     }
+    mark()
     const sourceTokenization = tokenizeExtractedText(extracted)
+    mark()
     if (sourceTokenization.byteLength !== descriptor.byteLength ||
       sourceTokenization.tokens.length !== descriptor.tokenCount) {
       this.postRejectedIfCurrent(descriptor, attempt, 'token-count-mismatch')
       return false
     }
     const projection = exactDomProjection(content.doc, extracted)
+    mark()
     if (!projection || projection.byteLength !== descriptor.byteLength) {
       this.postRejectedIfCurrent(descriptor, attempt, 'token-sequence-mismatch')
       return false
@@ -1179,6 +1186,8 @@ export class ReaderWordSyncProvenanceStore {
       })
     }
     this.readyById.set(descriptor.id, ready)
+    mark()
+    log(`provenance-timing:${bytes.byteLength},${timing.slice(1).map((t, i) => Math.round(t - timing[i])).join(',')}`)
     this.postReady(descriptor.id)
     return true
   }

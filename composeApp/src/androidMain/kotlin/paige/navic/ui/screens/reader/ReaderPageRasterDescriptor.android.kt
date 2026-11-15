@@ -74,6 +74,15 @@ private fun JsonObject.requiredPositiveInt(name: String): Int =
 private fun JsonObject.requiredNonNegativeInt(name: String): Int =
 	getValue(name).jsonPrimitive.intOrNull?.takeIf { value -> value >= 0 } ?: error("$name must be non-negative")
 
-private fun String.readerPageRasterHash(): String = MessageDigest.getInstance("SHA-256")
-	.digest(encodeToByteArray())
-	.joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+private const val ReaderPageRasterHexDigits = "0123456789abcdef"
+
+private fun String.readerPageRasterHash(): String {
+	val digest = MessageDigest.getInstance("SHA-256").digest(encodeToByteArray())
+	return buildString(digest.size * 2) {
+		digest.forEach { byte ->
+			val value = byte.toInt() and 0xff
+			append(ReaderPageRasterHexDigits[value ushr 4])
+			append(ReaderPageRasterHexDigits[value and 0x0f])
+		}
+	}
+}

@@ -1459,8 +1459,13 @@ internal class ReaderPageRasterPreparationController(
 		session: Long
 	) {
 		val initializationJob = teardownScope.launch {
+			val cacheStartedAt = android.os.SystemClock.elapsedRealtime()
 			try {
 				initializeRasterCache(webView)
+				logPrewarmBoundary(
+					"cache-initialized",
+					"session=$session elapsedMs=${android.os.SystemClock.elapsedRealtime() - cacheStartedAt}"
+				)
 			} catch (failure: CancellationException) {
 				throw failure
 			} catch (failure: Throwable) {
@@ -1539,7 +1544,12 @@ internal class ReaderPageRasterPreparationController(
 
 	private fun queryRasterPreparationPlan(webView: WebView, session: Long) {
 		if (!isPrewarmActive(webView, session)) return
+		val queryStartedAt = android.os.SystemClock.elapsedRealtime()
 		rasterPlanPort.query(webView, currentVisualPageIndex) plan@{ plan ->
+			logPrewarmBoundary(
+				"plan-returned",
+				"session=$session elapsedMs=${android.os.SystemClock.elapsedRealtime() - queryStartedAt}"
+			)
 			if (!isPrewarmActive(webView, session)) return@plan
 			if (plan == null) {
 				logPrewarmBoundary("plan-unavailable", "session=$session")
