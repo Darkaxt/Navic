@@ -130,10 +130,17 @@ private fun ReadaloudPlaybackPlan.trackIndexForWhispersyncAudioResource(
 ): Int? {
 	seekTarget.audioTrackIndex?.let { trackIndex ->
 		val mediaItem = mediaItems.getOrNull(trackIndex) ?: return null
-		return trackIndex.takeIf {
-			mediaItem.resourceKey == seekTarget.audioResource || mediaItems.size == 1
-		}
+		if (mediaItem.resourceKey == seekTarget.audioResource || mediaItems.size == 1) return trackIndex
+		// Bindery resource keys need not equal sidecar audio hrefs; agreement with the sidecar's own
+		// track resolution is the same identity. Disagreement fails closed.
+		return trackIndex.takeIf { sidecarTrackIndexForWhispersyncAudioResource(seekTarget) == it }
 	}
+	return sidecarTrackIndexForWhispersyncAudioResource(seekTarget)
+}
+
+private fun ReadaloudPlaybackPlan.sidecarTrackIndexForWhispersyncAudioResource(
+	seekTarget: WhispersyncAudioSeekTarget
+): Int? {
 	seekTarget.segment.audioTrackIndex
 		?.takeIf { trackIndex -> trackIndex in mediaItems.indices }
 		?.let { return it }

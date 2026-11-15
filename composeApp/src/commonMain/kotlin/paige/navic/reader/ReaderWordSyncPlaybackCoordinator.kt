@@ -114,12 +114,26 @@ data class ReaderWordSyncPlaybackCoordinator(
 		readerEvent = true
 	)
 
+	internal fun coordinateVisibleRangeEvent(
+		controllerStep: ReaderControllerStep,
+		rawPoint: ReaderWordSyncRawPoint?
+	): ReaderWordSyncDecision = coordinate(
+		controllerStep = controllerStep,
+		playback = null,
+		rawPoint = rawPoint,
+		readerEvent = true,
+		visibleRangeEvent = true
+	)
+
 	private fun coordinate(
 		controllerStep: ReaderControllerStep,
 		playback: ReaderWordSyncPlaybackIdentity?,
 		rawPoint: ReaderWordSyncRawPoint?,
-		readerEvent: Boolean
+		readerEvent: Boolean,
+		visibleRangeEvent: Boolean = false
 	): ReaderWordSyncDecision {
+		// A visible-range event that resumes after a page turn is a reader-prepared start too.
+		val preparedStartEvent = !readerEvent || visibleRangeEvent
 		val cueCommand = controllerStep.engineCommands.singleOrNull().asCueOverlayCommand()
 		val clearsOverlay = controllerStep.engineCommands.singleOrNull() == ReaderEngineCommand.ClearMediaOverlay
 		val readerPreparedStart = controllerStep.controller.state.whispersync.playbackStartPending
@@ -161,7 +175,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 		// A reader-prepared Play starts at the first word of the visible page. The prepared
 		// Whispersync segment may begin on the previous page, and its first word would be off-page.
 		val preparedVisibleRange = controllerStep.controller.state
-			.takeIf { readerPreparedStart && playback == null && !readerEvent }
+			.takeIf { readerPreparedStart && playback == null && preparedStartEvent }
 			?.let { state ->
 				state.whispersync.visibleTextRange
 					?.takeIf { range -> range.destinationCommitIdentity == state.destinationCommitIdentity }
@@ -182,7 +196,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 				readerEvent = readerEvent
 			)
 		val requestId = cueFragment.overlayRequestId
-		if (readerPreparedStart && !readerEvent) {
+		if (readerPreparedStart && preparedStartEvent) {
 			Logger.i(
 				WhispersyncSyncLogTag,
 				"WordSync prepared start visibleRaw=${preparedVisibleRange?.rawByteStart}..${preparedVisibleRange?.rawByteEnd} " +
@@ -240,13 +254,19 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val cueFragment = lastCueCommand.asCueOverlayCommand()
 			?.overlayFragmentOrNull()
 			?: return false
-		return rawCandidate(
-			controller = controller,
-			cueFragment = cueFragment,
-			playback = playback,
-			rawPoint = null,
-			readerEvent = false
-		) != null
+		// Word-exact owns the presentation from the latest started word until the chapter's narration
+		// ends: inter-word gaps keep the last word mark instead of re-presenting the coarse cue.
+		val position = playback.positionMs
+		val latestStarted = verifiedTracksForPlayback(playback)
+			.filter { verifiedTrack -> verifiedTrack.track.words.any { it.audioEndMs > position } }
+			.flatMap { verifiedTrack ->
+				verifiedTrack.track.words
+					.filter { word -> word.status in 1..4 && word.audioStartMs <= position }
+					.map { word -> ReaderWordSyncCandidate(verifiedTrack.verified, word) }
+			}
+			.maxByOrNull { candidate -> candidate.word.audioStartMs }
+			?: return false
+		return admittedCandidate(controller, cueFragment, latestStarted) != null
 	}
 
 	internal fun boundaryInputDiagnostic(
@@ -384,6 +404,22 @@ data class ReaderWordSyncPlaybackCoordinator(
 		}
 		val requestId = cueFragment.overlayRequestId
 			?: return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		// The first word past the visible page ends it: pause on that word's boundary, where the
+		// resume after the turn starts again.
+		val visibleRange = controller.state.whispersync.visibleTextRange
+		val visibleEnd = visibleRange?.rawByteEnd
+		if (
+			controller.state.whispersync.transportPhase == ReaderWhispersyncTransportPhase.Playing &&
+			visibleRange?.rawProvenanceId == verified.descriptor.id &&
+			visibleEnd != null && word.ebookStart >= visibleEnd
+		) {
+			val ended = controller.pauseAtWhispersyncVisiblePageEnd(
+				playbackState = controller.state.chrome.readaloudPlayback.copy(positionMs = playback.positionMs),
+				sync = controller.state.whispersync.sync,
+				detail = cueFragment.label
+			)
+			return remembered.coordinate(ended, playback)
+		}
 		val candidate = ReaderWordSyncCandidate(verified, word)
 		val rawFragment = candidate.toOverlayFragment(
 			cueFragment = cueFragment,
@@ -572,8 +608,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 			else -> null
 		}
 		return when (event) {
-			is ReaderEngineEvent.TextPoint,
-			is ReaderEngineEvent.VisibleTextRange -> coordinateReaderEvent(reduced, rawPoint)
+			is ReaderEngineEvent.TextPoint -> coordinateReaderEvent(reduced, rawPoint)
+			is ReaderEngineEvent.VisibleTextRange -> coordinateVisibleRangeEvent(reduced, rawPoint)
 			else -> coordinate(reduced)
 		}
 	}

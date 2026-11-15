@@ -267,6 +267,30 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
+	fun exactWordSyncTrackAgreeingWithSidecarTrackSeeksMultiTrackPlan() {
+		// The runtime WordSync resource is the sidecar href, not the Bindery resource key.
+		val command = readerWhispersyncPlaybackCommandForSeekTarget(
+			playbackPlan = whispersyncPlaybackPlan(),
+			seekTarget = WhispersyncAudioSeekTarget(
+				audioResource = "Part 02.mp3",
+				positionMs = 51_000L,
+				segment = WhispersyncSegment(
+					audioTrackIndex = 1,
+					audioResource = "Part 02.mp3",
+					startMs = 50_000L,
+					endMs = 53_000L,
+					textHref = "Text/chapter2.xhtml"
+				),
+				audioTrackIndex = 1
+			)
+		)
+
+		val seekCommand = assertIs<ReaderReadaloudPlaybackCommand.SeekToTrack>(command)
+		assertEquals(1, seekCommand.trackIndex)
+		assertEquals(51_000L, seekCommand.positionMs)
+	}
+
+	@Test
 	fun exactWordSyncTrackIdentityFailsClosedOnResourceMismatch() {
 		val command = readerWhispersyncPlaybackCommandForSeekTarget(
 			playbackPlan = whispersyncPlaybackPlan(),

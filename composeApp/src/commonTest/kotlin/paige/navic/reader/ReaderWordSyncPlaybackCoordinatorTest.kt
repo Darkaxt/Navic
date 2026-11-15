@@ -428,7 +428,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
-	fun currentWordGapDoesNotSuppressCueLevelProgressFallback() {
+	fun wordGapKeepsExactPresentationInsteadOfCueFallback() {
 		val (ready, controller) = readyCoordinatorAndController()
 		val currentPlayback = playbackIdentity(positionMs = 1_050)
 		val current = ready.coordinate(
@@ -442,7 +442,11 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		val cueProgress = ReaderEngineCommand.UpdateMediaOverlayProgress(cueCommand().fragment)
 
 		assertTrue(current.hasExactBoundaryPresentation(controller, currentPlayback))
-		assertFalse(current.hasExactBoundaryPresentation(controller, gapPlayback))
+		// The gap between two words keeps the last word mark: no coarse cue flip-flop.
+		assertTrue(current.hasExactBoundaryPresentation(controller, gapPlayback))
+		// Before the first word and after the chapter's narration the cue fallback still applies.
+		assertFalse(current.hasExactBoundaryPresentation(controller, playbackIdentity(positionMs = 950)))
+		assertFalse(current.hasExactBoundaryPresentation(controller, playbackIdentity(positionMs = 60_000)))
 		val fallback = current.coordinate(
 			controllerStep = ReaderControllerStep(
 				controller,
@@ -451,6 +455,53 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			playback = gapPlayback
 		)
 		assertEquals(listOf(cueProgress), fallback.controllerStep.engineCommands)
+	}
+
+	@Test
+	fun boundaryOfFirstWordPastVisiblePageEndPausesThere() {
+		val (ready, base) = readyCoordinatorAndController()
+		val controller = base.copy(
+			state = base.state.copy(
+				whispersync = base.state.whispersync.copy(
+					transportPhase = ReaderWhispersyncTransportPhase.Playing,
+					visibleTextRange = ReaderWhispersyncVisibleTextRange(
+						textHref = "Text/chapter.xhtml",
+						visibleStart = 10,
+						visibleEnd = 20,
+						rawProvenanceId = descriptor().id,
+						rawSpineIndex = 2,
+						rawByteStart = 100,
+						rawByteEnd = 103
+					)
+				)
+			)
+		)
+		val playback = playbackIdentity(positionMs = 1_050)
+		val current = ready.coordinate(
+			controllerStep = ReaderControllerStep(controller, engineCommands = listOf(cueCommand())),
+			playback = playback
+		)
+		val boundaries = current.coordinator.boundariesForPlayback(playback)
+
+		val onPage = current.coordinator.coordinateBoundary(
+			controller = current.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_000),
+			boundary = boundaries.single { it.audioStartMs == 1_000L }
+		)
+		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(onPage.controllerStep.engineCommands.single())
+		assertNull(onPage.controllerStep.readaloudPlaybackCommand)
+
+		val pastPage = current.coordinator.coordinateBoundary(
+			controller = current.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_300),
+			boundary = boundaries.single { it.audioStartMs == 1_300L }
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, pastPage.controllerStep.readaloudPlaybackCommand)
+		assertEquals(listOf(ReaderEngineCommand.ClearMediaOverlay), pastPage.controllerStep.engineCommands)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.BoundaryPaused,
+			pastPage.controllerStep.controller.state.whispersync.transportPhase
+		)
 	}
 
 	@Test
@@ -737,6 +788,53 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 
 		val exact = ready.first.coordinate(
 			ReaderControllerStep(controller = controller, engineCommands = listOf(cueCommand()))
+		)
+
+		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(
+			exact.controllerStep.engineCommands.single()
+		).fragment
+		assertEquals(103, fragment.rawByteStart)
+		assertEquals(104, fragment.rawByteEnd)
+		assertEquals(1_300L, exact.controllerStep.controller.state.whispersync.pendingAudioSeek?.target?.positionMs)
+	}
+
+	@Test
+	fun visibleRangeResumeStartsAtFirstVisibleWordWhenPageStartsBetweenWords() {
+		val ready = readyCoordinatorAndController()
+		val commitIdentity = ReaderDestinationCommitIdentity("session-a", 4L)
+		val segmentTarget = WhispersyncAudioSeekTarget(
+			audioResource = "audio-a",
+			positionMs = 1_000L,
+			segment = cueSegment().copy(audioResourceId = "audio-a", audioTrackIndex = 0),
+			audioTrackIndex = 0
+		)
+		val controller = ready.second.copy(
+			state = ready.second.state.copy(
+				destinationCommitIdentity = commitIdentity,
+				whispersync = ready.second.state.whispersync.copy(
+					visibleTextRange = ReaderWhispersyncVisibleTextRange(
+						textHref = "Text/chapter.xhtml",
+						visibleStart = 20,
+						visibleEnd = 30,
+						rawProvenanceId = descriptor().id,
+						rawSpineIndex = 2,
+						rawByteStart = 102,
+						rawByteEnd = 109,
+						destinationCommitIdentity = commitIdentity
+					),
+					pendingAudioSeek = ReaderWhispersyncPendingAudioSeek(
+						overlayRequestId = 41L,
+						target = segmentTarget
+					),
+					playbackStartPending = true
+				)
+			)
+		)
+
+		// The page turn's visible range starts on the whitespace after word 0 (raw 100..102).
+		val exact = ready.first.coordinateVisibleRangeEvent(
+			ReaderControllerStep(controller = controller, engineCommands = listOf(cueCommand())),
+			rawPoint = ReaderWordSyncRawPoint(descriptor().id, byteOffset = 102)
 		)
 
 		val fragment = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(

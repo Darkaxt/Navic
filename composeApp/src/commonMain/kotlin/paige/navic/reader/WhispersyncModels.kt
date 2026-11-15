@@ -199,7 +199,8 @@ data class WhispersyncTimeline(
 					?.let { score -> segment to score }
 			}
 			.sortedWith(
-				compareBy<Pair<WhispersyncSegment, WhispersyncRangeScore>> { (_, score) -> score.anchorDistance }
+				compareByDescending<Pair<WhispersyncSegment, WhispersyncRangeScore>> { (_, score) -> score.containsVisibleStart }
+					.thenBy { (_, score) -> score.anchorDistance }
 					.thenBy { (_, score) -> score.centerDistance }
 					.thenByDescending { (_, score) -> score.overlap }
 			)
@@ -563,6 +564,7 @@ private data class WhispersyncSegmentParseResult(
 }
 
 private data class WhispersyncRangeScore(
+	val containsVisibleStart: Boolean,
 	val anchorDistance: Int,
 	val overlap: Int,
 	val centerDistance: Double
@@ -626,6 +628,7 @@ private fun WhispersyncSegment.overlapScore(
 		else -> visibleStart - end
 	}
 	return WhispersyncRangeScore(
+		containsVisibleStart = visibleStart in start until end,
 		anchorDistance = anchorDistance,
 		overlap = overlap,
 		centerDistance = abs(center - visibleCenter)

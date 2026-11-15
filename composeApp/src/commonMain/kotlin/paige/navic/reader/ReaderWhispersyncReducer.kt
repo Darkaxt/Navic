@@ -413,38 +413,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		overlayFragment != null &&
 		overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)
 	) {
-		Logger.i(
-			WhispersyncSyncLogTag,
-			"Whispersync playback state=page-ended matched=false active=false " +
-				"reason=outside-visible-range command=pause"
-		)
-		return ReaderControllerStep(
-			controller = copy(
-				state = state.copy(
-					chrome = state.chrome.onReadaloudPlaybackState(playbackState.copy(isPlaying = false)),
-					whispersync = currentWhispersync.copy(
-						sync = syncState.rejectOverlay(null),
-						pendingAudioSeek = null,
-						playbackIntent = ReaderWhispersyncPlaybackIntent.Enabled,
-						transportPhase = ReaderWhispersyncTransportPhase.BoundaryPaused,
-						playbackStartPending = false,
-						lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress,
-						status = ReaderWhispersyncStatus(
-							kind = ReaderWhispersyncStatusKind.NoActiveCue,
-							message = ReaderWhispersyncStatusMessage.VisiblePageEnded,
-							detail = overlayFragment.label,
-							audioResource = playbackState.audioResource,
-							positionMs = playbackState.positionMs
-						)
-					),
-					activeMediaOverlay = null,
-					activeMediaOverlayAnchorReceipt = null,
-					audioMetadataLabel = null
-				)
-			),
-			engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay),
-			readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
-		)
+		return pauseAtWhispersyncVisiblePageEnd(playbackState, syncState, overlayFragment.label)
 	}
 
 	val publishedCommand = command.takeIf {
@@ -2138,3 +2107,42 @@ private fun ReaderEngineCommand?.confirmedOverlayLabelOrPrevious(
 		ReaderEngineCommand.ClearMediaOverlay -> null
 		else -> previous
 	}
+
+internal fun ReaderController.pauseAtWhispersyncVisiblePageEnd(
+	playbackState: ReaderReadaloudPlaybackUiState,
+	sync: ReaderWhispersyncSyncState,
+	detail: String?
+): ReaderControllerStep {
+	Logger.i(
+		WhispersyncSyncLogTag,
+		"Whispersync playback state=page-ended matched=false active=false " +
+			"reason=outside-visible-range command=pause"
+	)
+	return ReaderControllerStep(
+		controller = copy(
+			state = state.copy(
+				chrome = state.chrome.onReadaloudPlaybackState(playbackState.copy(isPlaying = false)),
+				whispersync = state.whispersync.copy(
+					sync = sync.rejectOverlay(null),
+					pendingAudioSeek = null,
+					playbackIntent = ReaderWhispersyncPlaybackIntent.Enabled,
+					transportPhase = ReaderWhispersyncTransportPhase.BoundaryPaused,
+					playbackStartPending = false,
+					lastEventProvenance = ReaderWhispersyncEventProvenance.AudioProgress,
+					status = ReaderWhispersyncStatus(
+						kind = ReaderWhispersyncStatusKind.NoActiveCue,
+						message = ReaderWhispersyncStatusMessage.VisiblePageEnded,
+						detail = detail,
+						audioResource = playbackState.audioResource,
+						positionMs = playbackState.positionMs
+					)
+				),
+				activeMediaOverlay = null,
+				activeMediaOverlayAnchorReceipt = null,
+				audioMetadataLabel = null
+			)
+		),
+		engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay),
+		readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
+	)
+}

@@ -288,6 +288,43 @@ class WhispersyncTimelineParserTest {
 	}
 
 	@Test
+	fun visibleRangePrefersSegmentContainingVisibleStartOverCloserNextStart() {
+		val timeline = WhispersyncTimeline(
+			segments = listOf(
+				WhispersyncSegment(
+					id = "containing",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 0,
+					endMs = 10_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 0,
+					textEnd = 300
+				),
+				WhispersyncSegment(
+					id = "next",
+					audioResource = "Audio/chapter01.m4b",
+					startMs = 10_000,
+					endMs = 20_000,
+					textHref = "Text/chapter1.xhtml",
+					textStart = 320,
+					textEnd = 500
+				)
+			)
+		)
+
+		// The visible page starts 200 chars into the first segment and 120 before the next one.
+		val target = timeline.seekTargetForVisibleTextRange(
+			textHref = "Text/chapter1.xhtml",
+			visibleStart = 200,
+			visibleEnd = 600
+		)
+
+		assertNotNull(target)
+		assertEquals(0, target.positionMs)
+		assertEquals("containing", target.segment.id)
+	}
+
+	@Test
 	fun activeSegmentSnapsTinyAudioBoundaryGapToNearestCue() {
 		val timeline = WhispersyncTimeline(
 			segments = listOf(
