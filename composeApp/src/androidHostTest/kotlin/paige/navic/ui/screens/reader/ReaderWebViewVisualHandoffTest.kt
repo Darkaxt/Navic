@@ -893,6 +893,28 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun recoveredDeckDefersOnlyWhileInFlightHeadOwnsPreparedActiveDeck() {
+		val queue = ReaderPageRelocationQueue()
+		fun defers(active: Long?, prepared: Boolean = true) =
+			readerRecoveredDeckDefersForInFlightRelocation(
+				relocationQueue = queue,
+				activeDeckGenerationId = active,
+				hasPreparedActiveDeck = prepared
+			)
+
+		assertFalse(defers(20L))
+		val request = enqueueVisualRequest(queue, gestureId = 1L, textureGeneration = 20L)
+		acknowledgeForVisualHandoff(queue, request)
+
+		assertTrue(defers(20L))
+		// A head bound to a superseded or unprepared deck needs the replacement: never deadlock.
+		assertFalse(defers(19L))
+		assertFalse(defers(20L, prepared = false))
+		assertTrue(queue.completeHandoff(request.token.value))
+		assertFalse(defers(20L))
+	}
+
+	@Test
 	fun acceptedContentWaitsForCommittedWebViewExposure() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 1L)

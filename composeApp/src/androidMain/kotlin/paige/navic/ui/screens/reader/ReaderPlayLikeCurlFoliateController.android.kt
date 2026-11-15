@@ -127,6 +127,21 @@ internal fun readerPlayLikeCurlTurnAdmissionAvailable(
 ): Boolean = otherwiseAvailable && !relocationQueue.hasInFlightHead()
 
 /**
+ * A recovered Active deck replaces activeDeckGenerationId, which the in-flight head's visual
+ * handoff is fenced on; replacing it mid-handoff invalidated the turn and reset the reader to the
+ * preparation cover mid-chapter. While the head is bound to the current prepared active deck it
+ * can complete on it, so recovery waits for the handoff to drain. A head bound to a lost or
+ * unprepared deck still needs the replacement to rebind, so it never defers.
+ */
+internal fun readerRecoveredDeckDefersForInFlightRelocation(
+	relocationQueue: ReaderPageRelocationQueue,
+	activeDeckGenerationId: Long?,
+	hasPreparedActiveDeck: Boolean
+): Boolean = hasPreparedActiveDeck &&
+	relocationQueue.hasInFlightHead() &&
+	relocationQueue.head()?.textureGeneration == activeDeckGenerationId
+
+/**
  * A swipe that begins while the previous relocation is still in flight is not
  * dropped: its logical direction is resolved on release and the turn replays
  * once the in-flight head settles (#44).
@@ -749,7 +764,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private data class BuiltRecoveredDeck(
 		val pages: PreparedPages,
 		val ordinal: Int,
-		val deck: PageDeck<Bitmap>
+		val deck: PageDeck<Bitmap>,
+		val preparationGeneration: Long
 	)
 
 	private data class RetainedInlineHandoffSnapshot(
@@ -904,6 +920,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			if (queuedDeferredSwipes.isNotEmpty()) {
 				mainHandler.post { replayDeferredSwipeIfReady() }
 			}
+			scheduleRecoveredDeckSubmissionRetry()
 		}
 	)
 
@@ -3157,6 +3174,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private fun isAwaitingAuthoritativeRelocation(): Boolean =
 		relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal
 
+	private fun recoveredDeckWouldSupersedeInFlightRelocation(): Boolean =
+		readerRecoveredDeckDefersForInFlightRelocation(
+			relocationQueue = relocationQueue,
+			activeDeckGenerationId = activeDeckGenerationId,
+			hasPreparedActiveDeck = hasPreparedActiveDeckOwnership()
+		)
+
 	private fun refreshPreparedDeck(planRetryAttempt: Int = 0) {
 		val gate = when {
 			!enabled -> "disabled"
@@ -4222,6 +4246,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val logicalCenter = currentOrdinal
 		val logicalWindow = profile.preparedPageIndices(logicalCenter)
 		val expectedRequestGeneration = requestGeneration
+		val buildPreparationGeneration = preparationGeneration
 		val publicationFence = rasterPublicationFence(
 			profile = profile,
 			centerOrdinal = logicalCenter,
@@ -4299,7 +4324,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 				builtRecoveredDecks[generationId] = BuiltRecoveredDeck(
 					pages = pages,
 					ordinal = logicalCenter,
-					deck = libraryDeck
+					deck = libraryDeck,
+					preparationGeneration = buildPreparationGeneration
 				)
 				resolveOwnership()
 				onBuilt(ReaderPageRecoveredDeckBuildResult.Built(generationId))
@@ -4375,7 +4401,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		check(!built.pages.obsolete && generationOwners[generationId] === built.pages) {
 			"Recovered deck generation is obsolete"
 		}
-		if (settlementMutationFence.blocksExternalDeckMutation(activeGestureId)) {
+		if (
+			settlementMutationFence.blocksExternalDeckMutation(activeGestureId) ||
+			recoveredDeckWouldSupersedeInFlightRelocation()
+		) {
 			return ReaderPageRecoveredDeckSubmissionResult.AwaitingRendererCapacity
 		}
 		val repairDiagnostic =
@@ -4447,6 +4476,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	) {
 		val accepted = checkNotNull(builtRecoveredDecks.remove(generationId))
 		generationRoles[generationId] = role
+		// onDeckPrepared ignores generations without a preparation generation; without this a
+		// recovered deck never reported Prepared and the reader stayed BlockingProfileRegeneration.
+		generationPreparationGenerations[generationId] = accepted.preparationGeneration
 		recoveredDeckGenerations += generationId
 		if (
 			generationOwners[generationId] !== accepted.pages ||
@@ -4614,6 +4646,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			is ReaderPageDeckRecoveryState.WaitingForSubmissionCapacity -> {
 				if (hasPreparedActiveDeckOwnership()) {
 					updateReadiness(
+						textureDeck = ReaderTextureDeckState.Ready,
 						pendingTextureDeck = ReaderTextureDeckState.Preparing,
 						interaction = preparedInteractionState(),
 						reason = "deck-recovery-waiting-capacity:${state.generationId}"
@@ -6783,6 +6816,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				!destroyed &&
 				enabled &&
 				!settlementMutationFence.blocksExternalDeckMutation(activeGestureId) &&
+				!recoveredDeckWouldSupersedeInFlightRelocation() &&
 				!surfaceView.isSettlementRunning
 			) {
 				deckRecoveryCoordinator.onDeckSubmissionCapacityAvailable()

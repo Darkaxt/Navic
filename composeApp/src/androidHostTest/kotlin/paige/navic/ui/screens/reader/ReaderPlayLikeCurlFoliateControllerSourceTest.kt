@@ -2315,6 +2315,13 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(submission, "surfaceView.submitDeckWithResult(built.deck) {")
 		assertContains(submission, "ownershipTransferred = true")
 		assertContains(submission, "acceptRecoveredDeckOwnership(generationId, role)")
+		val recoveredAcceptance = controller
+			.substringAfter("private fun acceptRecoveredDeckOwnership(")
+			.substringBefore("override fun releaseUnsubmittedRecoveredDeck(")
+		assertContains(
+			recoveredAcceptance,
+			"generationPreparationGenerations[generationId] = accepted.preparationGeneration"
+		)
 		assertContains(submission, "if (ownershipTransferred)")
 		assertContains(submission, "PageSurfaceDeckSubmissionResult.Status.REJECTED")
 		assertContains(submission, "DeckRejectionReason.RESOURCE_CAPACITY")
