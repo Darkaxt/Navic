@@ -320,14 +320,23 @@ data class ReaderWordSyncPlaybackCoordinator(
 			clearedThroughBoundaryByRequestId[requestId] ?: -1L,
 			boundarySequence
 		)
+		val fenced = copy(
+			lastPlayback = playback,
+			activeBoundaryRequestId = null,
+			activeBoundarySequence = null,
+			clearedThroughBoundaryByRequestId =
+				clearedThroughBoundaryByRequestId + (requestId to clearedThrough)
+		)
+		// Persistent played text keeps the page highlight through the silence between words and
+		// cues (#38): only the late-word fence is recorded, the presentation stays.
+		if (
+			normalizedReaderWhispersyncHighlightLoading(controller.state.chrome.settings.whispersyncHighlightLoading) ==
+			ReaderWhispersyncHighlightLoading.PersistentPlayedText
+		) {
+			return ReaderWordSyncDecision(fenced, ReaderControllerStep(controller))
+		}
 		return ReaderWordSyncDecision(
-			coordinator = copy(
-				lastPlayback = playback,
-				activeBoundaryRequestId = null,
-				activeBoundarySequence = null,
-				clearedThroughBoundaryByRequestId =
-					clearedThroughBoundaryByRequestId + (requestId to clearedThrough)
-			),
+			coordinator = fenced,
 			controllerStep = ReaderControllerStep(
 				controller = controller.copy(
 					state = controller.state.copy(

@@ -508,8 +508,38 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 	}
 
 	@Test
-	fun wordEndClearDoesNotRetireTheCueSessionNeededByTheNextWord() {
+	fun persistentPlayedTextKeepsThePresentationThroughTheSilenceBetweenWords() {
 		val ready = readyCoordinatorAndController()
+		val active = ready.first.coordinate(
+			controllerStep = ReaderControllerStep(
+				ready.second,
+				engineCommands = listOf(cueCommand())
+			),
+			playback = playbackIdentity(positionMs = 1_050)
+		).coordinator
+
+		// #38: the default Persistent played text keeps the page highlight through silence.
+		val cleared = active.coordinateClear(
+			controller = ready.second,
+			playback = playbackIdentity(positionMs = 1_200)
+		)
+
+		assertTrue(cleared.controllerStep.engineCommands.isEmpty())
+		assertEquals(ready.second, cleared.controllerStep.controller)
+		val nextBoundary = cleared.coordinator.boundariesForPlayback(
+			playbackIdentity(positionMs = 1_350)
+		).single { it.audioStartMs == 1_300L }
+		val next = cleared.coordinator.coordinateBoundary(
+			controller = ready.second,
+			playback = playbackIdentity(positionMs = 1_350),
+			boundary = nextBoundary
+		)
+		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(next.controllerStep.engineCommands.single())
+	}
+
+	@Test
+	fun wordEndClearDoesNotRetireTheCueSessionNeededByTheNextWord() {
+		val ready = readyCoordinatorAndController().let { it.first to it.second.currentCueHighlight() }
 		val active = ready.first.coordinate(
 			controllerStep = ReaderControllerStep(
 				ready.second,
@@ -543,7 +573,7 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 
 	@Test
 	fun endedExactBoundaryCannotRestoreFromALateActivation() {
-		val ready = readyCoordinatorAndController()
+		val ready = readyCoordinatorAndController().let { it.first to it.second.currentCueHighlight() }
 		val controller = ready.second.copy(
 			state = ready.second.state.copy(
 				whispersync = ready.second.state.whispersync.copy(
@@ -998,6 +1028,16 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		)
 		assertNull(active.controllerStep.controller.state.whispersync.pendingAudioSeek)
 	}
+
+	private fun ReaderController.currentCueHighlight() = copy(
+		state = state.copy(
+			chrome = state.chrome.copy(
+				settings = state.chrome.settings.copy(
+					whispersyncHighlightLoading = ReaderWhispersyncHighlightLoading.CurrentCue.value
+				)
+			)
+		)
+	)
 
 	private fun readyCoordinatorAndController(): Pair<ReaderWordSyncPlaybackCoordinator, ReaderController> {
 		val baseController = ReaderController().installRawTextProvenance(descriptor()).controller
