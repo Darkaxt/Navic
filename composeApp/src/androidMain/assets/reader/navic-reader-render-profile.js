@@ -18,6 +18,9 @@ import {
 } from './navic-reader-typography.js'
 import { stableHash } from './navic-reader-identity.js'
 
+// Bump when the content render changes pixels for the same settings, so cached rasters retire.
+// Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
+export const ReaderContentRenderRevision = 1
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -34,6 +37,74 @@ const setStylesImportant = (element, styles) => {
   for (const [property, value] of Object.entries(styles)) {
     element.style.setProperty(property, value, 'important')
   }
+}
+
+const ReaderContrastLiftedAttribute = 'data-navic-contrast-lifted'
+const ReaderMinimumTextContrast = 2
+
+const readerRelativeLuminance = ([red, green, blue]) => {
+  const linear = value => {
+    const channel = value / 255
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+}
+
+export const readerParseCssColor = value => {
+  const text = String(value || '').trim()
+  const hex = /^#([0-9a-f]{6})$/i.exec(text)
+  if (hex) {
+    const packed = parseInt(hex[1], 16)
+    return [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255, 1]
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i.exec(text)
+  if (!rgb) return null
+  const alpha = rgb[4] === undefined ? 1 : parseFloat(rgb[4]) / (rgb[5] ? 100 : 1)
+  return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha]
+}
+
+export const readerTextContrastRatio = (foreground, background) => {
+  const first = readerRelativeLuminance(foreground)
+  const second = readerRelativeLuminance(background)
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+}
+
+const hasDirectText = element =>
+  Array.from(element.childNodes).some(node => node.nodeType === 3 && node.nodeValue.trim())
+
+// Book text colours are kept unless they are unreadable on the theme paper: the theme strips
+// every book background, so dark-on-light or light-on-dark book text can vanish (title pages in
+// Dark, white-on-box text in Light). Only those elements take the theme foreground; readable
+// greys and link colours stay. The original inline colour is restored on every re-apply.
+const liftUnreadableTextColours = (doc, palette) => {
+  for (const element of doc.querySelectorAll(`[${ReaderContrastLiftedAttribute}]`)) {
+    const saved = element.getAttribute(ReaderContrastLiftedAttribute) || ''
+    const split = saved.indexOf(':')
+    const original = split < 0 ? '' : saved.slice(split + 1)
+    if (original) element.style.setProperty('color', original, saved.slice(0, split))
+    else element.style.removeProperty('color')
+    element.removeAttribute(ReaderContrastLiftedAttribute)
+  }
+  const view = doc.defaultView
+  const background = readerParseCssColor(palette.background)
+  if (!view?.getComputedStyle || !background || !doc.body) return 0
+  // Read every colour before writing any, so the pass costs a single style recalculation.
+  const unreadable = []
+  for (const element of doc.body.querySelectorAll('*')) {
+    if (isThemeBackgroundMediaElement(element) || element.closest('svg, math')) continue
+    if (!hasDirectText(element)) continue
+    const colour = readerParseCssColor(view.getComputedStyle(element).color)
+    if (!colour || colour[3] === 0) continue
+    if (readerTextContrastRatio(colour, background) < ReaderMinimumTextContrast) unreadable.push(element)
+  }
+  for (const element of unreadable) {
+    element.setAttribute(
+      ReaderContrastLiftedAttribute,
+      `${element.style.getPropertyPriority('color')}:${element.style.getPropertyValue('color')}`
+    )
+    element.style.setProperty('color', 'var(--reader-foreground)', 'important')
+  }
+  return unreadable.length
 }
 
 const normalizedDirection = value =>
@@ -126,6 +197,7 @@ export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {
   for (const element of doc.querySelectorAll('canvas, svg')) {
     setStylesImportant(element, { 'background-color': 'transparent' })
   }
+  liftUnreadableTextColours(doc, palette)
   return true
 }
 
@@ -295,6 +367,7 @@ export const readerLiveIssuedRasterPlan = target => {
     pageEdgesEnabled: settings.pageEdgesEnabled !== false,
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+    contentRenderRevision: ReaderContentRenderRevision,
   }))
   const rasterProfileKey = stableHash(JSON.stringify({
     publicationUrl,

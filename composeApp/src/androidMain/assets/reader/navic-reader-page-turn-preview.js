@@ -508,6 +508,8 @@ function pageTurnRasterDescriptor(pageIndex) {
     pageEdgesEnabled: settings.pageEdgesEnabled !== false,
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+    // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
+    contentRenderRevision: 1,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),
