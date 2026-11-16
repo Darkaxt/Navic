@@ -66,6 +66,7 @@ private fun readerPassiveRasterSnapshot(
 	val sourceTop = reference.surfaceRectInWindow.top - captureGeometry.captureTop
 	val sourceRight = sourceLeft + surfaceWidth
 	val sourceBottom = sourceTop + surfaceHeight
+	val paperReference = ReaderPagePaperRegistry.referenceFor(bitmap)
 	val expectedBitmapWidth = readerPageTurnAnimationBitmapDimension(
 		surfaceWidth,
 		bitmapQuality
@@ -128,6 +129,9 @@ private fun readerPassiveRasterSnapshot(
 			}
 		}
 	} ?: return null
+	if (paperReference != null) {
+		readerPaperSplitCarry(paperReference, qualityBitmap, sourceLeft, sourceTop, surfaceWidth, surfaceHeight)
+	}
 	return ReaderPageSlideSnapshot(
 		key = ReaderPageSlideSnapshotKey(
 			visualPageIndex = pageIndex,
@@ -3402,7 +3406,11 @@ internal class ReaderPageTurnBundleSource(
 				val key = persistentDescriptor.key(snapshot.key.bitmapQuality)
 				val persistentBitmap = runCatching {
 					snapshot.bitmap.copy(Bitmap.Config.ARGB_8888, false)
-				}.getOrNull()
+				}.getOrNull()?.also { copy ->
+					ReaderPagePaperRegistry.referenceFor(snapshot.bitmap)?.let {
+						ReaderPagePaperRegistry.attach(copy, it)
+					}
+				}
 				if (persistentBitmap == null) {
 					rasterPersistenceSkipped(
 						pageIndex,
@@ -3783,7 +3791,9 @@ internal class ReaderPageTurnBundleSource(
 				withContext(Dispatchers.IO) {
 					ReaderPageRasterCache(
 						root = readerPageRasterStorageRoot(webView.context.applicationContext),
-						codec = ReaderAndroidPageRasterCodec,
+						codec = ReaderSplitPageRasterCodec(
+							ReaderPagePaperStore.of(webView.context.applicationContext)
+						),
 						maxDiskBytes = readerPageRasterDiskMaxBytes(),
 						onDiagnostic = { diagnostic ->
 							Logger.w(ReaderPageTurnBundleSourceTag, "Page raster cache $diagnostic")

@@ -456,13 +456,17 @@ export const readerPaperTexturePageLocator = detail => {
   return href ? `href:${href}` : 'section'
 }
 
+// #58: pages draw their paper from a small shared pool, so a cached page can be stored as text
+// coverage over one of a few shared paper captures. The page locator still selects the pool slot.
+export const ReaderPaperPoolSize = 8
+
 export const readerPaperTextureVariantKey = (publicationUrl, section, index, detail = {}) =>
-  [
+  `paper-pool:${stableHash([
     publicationUrl || 'publication',
     Number.isFinite(index) ? index : 'unknown',
     section?.href || section?.id || section?.label || '',
     readerPaperTexturePageLocator(detail),
-  ].join('|')
+  ].join('|')) % ReaderPaperPoolSize}`
 
 export const readerSurfaceTextureVariantForPage = (key, assets, variantCount) => {
   const variant = stableHash(key) % variantCount

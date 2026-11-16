@@ -548,15 +548,10 @@ internal class ReaderPassiveRasterWebViewHost(
 			return
 		}
 		val generation = callbackGeneration
-		val deliver: (Bitmap?) -> Unit = if (readerPaperProbeEnabled(activity)) {
-			{ bitmap ->
-				if (bitmap == null) onCaptured(null)
-				else probePaperSplit(generation, geometry, bitmap, onCaptured)
-			}
-		} else {
-			onCaptured
+		captureAfterVisualState(generation, geometry) { bitmap ->
+			if (bitmap == null) onCaptured(null)
+			else attachPaperReference(generation, geometry, bitmap, onCaptured)
 		}
-		captureAfterVisualState(generation, geometry, deliver)
 	}
 
 	private fun captureAfterVisualState(
@@ -586,25 +581,53 @@ internal class ReaderPassiveRasterWebViewHost(
 		)
 	}
 
-	// #58 stage 1, debug-only: capture the same page with its text hidden, analyse the split, then
-	// restore the text before the original capture is delivered.
-	private fun probePaperSplit(
+	// #58: identify this page's shared paper. A paper seen for the first time is captured once with
+	// the page text hidden; the text is restored before the page capture is delivered. The cache
+	// codec stores pages with a known paper as text coverage (or a PNG if the split does not fit).
+	private fun attachPaperReference(
 		generation: Long,
 		geometry: ReaderPassiveRasterGeometry,
 		composite: Bitmap,
 		onCaptured: (Bitmap?) -> Unit
 	) {
-		val probe = "window.NavicPassiveRasterPrototype?.paperProbe?.("
-		webView.evaluateJavascript("JSON.stringify(${probe}true) ?? null)") { encoded ->
-			val colors = readerPaperProbeColors(encoded)
-			if (colors == null || !callbackIsCurrent(generation)) {
-				webView.evaluateJavascript("${probe}false)") { onCaptured(composite) }
+		val api = "window.NavicPassiveRasterPrototype"
+		webView.evaluateJavascript("JSON.stringify($api?.paperSplitDescribe?.() ?? null)") { encoded ->
+			val description = readerPaperSplitDescription(encoded)
+			val key = description?.let {
+				readerPaperSplitKey(
+					it.fingerprint,
+					geometry.captureLeft,
+					geometry.captureTop,
+					composite.width,
+					composite.height
+				)
+			}
+			if (description == null || key == null || !callbackIsCurrent(generation)) {
+				onCaptured(composite)
 				return@evaluateJavascript
 			}
-			captureAfterVisualState(generation, geometry) { paper ->
-				webView.evaluateJavascript("${probe}false)") {
-					if (paper != null) readerPaperProbeRecord(activity, composite, paper, colors)
-					onCaptured(composite)
+			val reference = ReaderPagePaperReference(key, description.foreground, description.background)
+			val papers = ReaderPagePaperStore.of(activity)
+			if (papers.contains(key)) {
+				ReaderPagePaperRegistry.attach(composite, reference)
+				onCaptured(composite)
+				return@evaluateJavascript
+			}
+			webView.evaluateJavascript("$api?.paperSplitHideText?.(true) ?? 0") { hidden ->
+				if ((hidden?.toIntOrNull() ?: 0) <= 0 || !callbackIsCurrent(generation)) {
+					webView.evaluateJavascript("$api?.paperSplitHideText?.(false)") { onCaptured(composite) }
+					return@evaluateJavascript
+				}
+				captureAfterVisualState(generation, geometry) { paper ->
+					webView.evaluateJavascript("$api?.paperSplitHideText?.(false)") {
+						if (paper != null && paper.width == composite.width && paper.height == composite.height) {
+							papers.adopt(key, paper)
+							ReaderPagePaperRegistry.attach(composite, reference)
+						} else {
+							paper?.recycle()
+						}
+						onCaptured(composite)
+					}
 				}
 			}
 		}

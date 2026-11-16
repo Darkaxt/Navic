@@ -22,7 +22,7 @@ import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.normalizeReaderPageBitmapQuality
 
 // 7: rasters carry their page-number labels, so the total page count is part of the key (#31).
-internal const val ReaderPageRasterSchemaVersion = 7
+internal const val ReaderPageRasterSchemaVersion = 8
 internal const val ReaderPageRasterManifestFileName = "manifest.json"
 
 internal data class ReaderPageRasterProfile(
