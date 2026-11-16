@@ -1939,6 +1939,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun refreshPreparedDeck(planRetryAttempt: Int = 0)")
 			.substringBefore("val plan = readerPageRasterPreparationPlan(encoded)")
 		assertFalse(refresh.contains("ReaderPagePreparationPhase.Preparing"))
+		// Rasters of the previous layout never become a deck while settings re-lay out the page.
+		assertContains(refresh, "hostLayoutMutationInFlight -> \"settings-mutation-in-flight\"")
+		assertContains(refresh, "if (hostLayoutMutationInFlight) {")
 	}
 
 	@Test

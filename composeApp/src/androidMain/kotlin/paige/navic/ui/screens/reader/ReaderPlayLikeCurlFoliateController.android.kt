@@ -905,6 +905,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var activeDeckPreparationGeneration: Long? = null
 	private var retryPreparationInProgress = false
 	private var backgroundPreparationInProgress = false
+	// The host is applying a reader-settings mutation: the live page is being re-laid out, so the
+	// stored rasters belong to the previous layout and must not be built into a deck.
+	private var hostLayoutMutationInFlight = false
 	private var requestGeneration = 0L
 	private var decodedRefillGeneration = 0L
 	private var decodedRefillCenterOrdinal: Int? = null
@@ -1787,6 +1790,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		} else {
 			invalidate("disabled")
 		}
+	}
+
+	fun setHostLayoutMutationInFlight(inFlight: Boolean) {
+		hostLayoutMutationInFlight = inFlight
 	}
 
 	fun updateBitmapQuality(value: String?) {
@@ -3202,6 +3209,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			isAwaitingAuthoritativeRelocation() -> "awaiting-authoritative-relocation"
 			!capabilitiesAvailable -> "capabilities-unavailable"
 			!authoritativeLocationReady -> "authoritative-location-unavailable"
+			hostLayoutMutationInFlight -> "settings-mutation-in-flight"
 			preparationBlocksDeck() -> "preparation-in-progress"
 			else -> null
 		}
@@ -3244,6 +3252,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 			if (preparationBlocksDeck()) {
 				logActivationState("refresh-gated", "preparation-in-progress-after-plan")
+				return@evaluateJavascript
+			}
+			if (hostLayoutMutationInFlight) {
+				logActivationState("refresh-gated", "settings-mutation-in-flight-after-plan")
 				return@evaluateJavascript
 			}
 			val plan = readerPageRasterPreparationPlan(encoded)

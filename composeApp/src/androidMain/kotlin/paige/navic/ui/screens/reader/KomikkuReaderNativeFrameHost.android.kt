@@ -1703,11 +1703,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		readableBeforeSettingsMutation = !shellCoverVisible &&
 			lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden
 		if (readableBeforeSettingsMutation) regeneratingReadableLayout = true
+		playLikeCurlController.setHostLayoutMutationInFlight(true)
 		removePageTurnPrewarmLayoutListener()
 	}
 
 	private fun onSettingsMutationFinished() {
 		settingsMutationInFlight = false
+		playLikeCurlController.setHostLayoutMutationInFlight(false)
 		readableBeforeSettingsMutation = false
 		publishMergedPagePreparationState()
 		requestPageTurnPrewarmWhenReady()
@@ -1776,6 +1778,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 		settingsMutationInFlight = false
 		readableBeforeSettingsMutation = false
+		playLikeCurlController.setHostLayoutMutationInFlight(false)
 		regeneratingReadableLayout = false
 		playLikeCurlController.invalidate("viewer-replaced")
 		pageRasterPreparationController.invalidate(
