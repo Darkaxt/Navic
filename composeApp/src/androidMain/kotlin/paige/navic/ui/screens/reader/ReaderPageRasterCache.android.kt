@@ -39,6 +39,22 @@ internal data class ReaderPageRasterCacheMetrics(
 /** Superseded paginations kept per book, so reverting a setting or rotating back stays instant. */
 internal const val ReaderPageRasterRetainedPreviousPaginations = 2
 
+/** A finished book keeps its rasters this long after the last interaction, for a quick reread (#57). */
+internal const val ReaderPageRasterFinishedBookGraceMillis = 2L * 24 * 60 * 60 * 1000
+
+/** Finished books are tracked by publication hash, one per line, next to the manifest. */
+internal const val ReaderPageRasterFinishedBooksFileName = "finished-books.txt"
+
+private val ReaderPageRasterFinishedBookPattern = Regex("[A-Za-z0-9_-]{1,128}")
+
+/** Back matter (notes, acknowledgements) should not keep a book from counting as finished. */
+internal const val ReaderBookFinishedFraction = 0.97
+
+internal fun readerBookFinished(visualPageOrdinal: Int, pageCount: Int): Boolean =
+	pageCount > 0 &&
+		visualPageOrdinal >= 0 &&
+		visualPageOrdinal + 1 >= kotlin.math.ceil(pageCount * ReaderBookFinishedFraction).toInt()
+
 internal class ReaderPageRasterCache<T : Any>(
 	private val root: File,
 	private val codec: ReaderPageRasterCodec<T>,
@@ -703,6 +719,77 @@ internal class ReaderPageRasterCache<T : Any>(
 		}
 		releaseDecodedOwners(scheduled)
 		return removed
+	}
+
+	/**
+	 * Finished-book purge (#57): records whether the open book [publicationHash] is finished, then
+	 * drops every raster of the other finished books whose last interaction (their newest raster
+	 * access: an open or a page turn) is older than [ReaderPageRasterFinishedBookGraceMillis].
+	 * Only page rasters live here; EPUBs and Whispersync data are never touched.
+	 */
+	fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int {
+		if (!storageAvailable) return 0
+		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
+		val removed = synchronized(this) {
+			val finishedBooks = readFinishedBooks()
+			if (finished) finishedBooks += publicationHash else finishedBooks -= publicationHash
+			val cutoff = clock() - ReaderPageRasterFinishedBookGraceMillis
+			val lastInteraction = entries.values
+				.groupBy { entry -> entry.key.publicationHash }
+				.mapValues { (_, group) -> group.maxOf { entry -> entry.lastAccessEpochMillis } }
+			val expired = finishedBooks.filterTo(mutableSetOf()) { book ->
+				book != publicationHash && (lastInteraction[book] ?: Long.MIN_VALUE) < cutoff
+			}
+			val discarded = entries.values.filter { entry -> entry.key.publicationHash in expired }
+			if (discarded.isNotEmpty()) {
+				val discardedIds = discarded.mapTo(mutableSetOf()) { entry -> entry.key.digest }
+				val retained = entries.values.filterNot { entry -> entry.key.digest in discardedIds }
+				if (!manifest.write(retained)) return@synchronized 0
+				discarded.forEach { entry ->
+					detachDecodedEntryLocked(entry.key.digest, scheduled)
+					if (retained.none { it.rasterFileName == entry.rasterFileName }) {
+						deleteEntryFile(entry)
+					}
+				}
+				entries.clear()
+				entries.putAll(retained.associateBy { entry -> entry.key.digest })
+				entryRevisions.keys.retainAll(entries.keys)
+				assertDiskBoundLocked()
+			}
+			writeFinishedBooks(finishedBooks - expired)
+			discarded.size
+		}
+		releaseDecodedOwners(scheduled)
+		return removed
+	}
+
+	private fun finishedBooksFile(): File = root.resolve(ReaderPageRasterFinishedBooksFileName)
+
+	private fun readFinishedBooks(): MutableSet<String> {
+		val file = finishedBooksFile()
+		if (!file.isFile || Files.isSymbolicLink(file.toPath())) return mutableSetOf()
+		return runCatching { file.readLines() }.getOrDefault(emptyList())
+			.map(String::trim)
+			.filterTo(mutableSetOf()) { line -> ReaderPageRasterFinishedBookPattern.matches(line) }
+	}
+
+	private fun writeFinishedBooks(books: Set<String>) {
+		val file = finishedBooksFile()
+		if (Files.isSymbolicLink(file.toPath())) return
+		if (books.isEmpty()) {
+			file.delete()
+			return
+		}
+		root.mkdirs()
+		val temporary = root.resolve("$ReaderPageRasterFinishedBooksFileName.tmp")
+		runCatching {
+			temporary.writeText(books.sorted().joinToString(separator = "\n", postfix = "\n"))
+			if (!temporary.renameTo(file)) {
+				file.delete()
+				temporary.renameTo(file)
+			}
+		}
+		temporary.delete()
 	}
 
 	fun protectDecodedPageIndices(pageIndices: Set<Int>) {

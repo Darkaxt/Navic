@@ -1141,7 +1141,9 @@ private data class ReaderPageRasterRetentionChapter(
 	val generation: Long,
 	val publicationHash: String,
 	val paginationHash: String,
-	val spineIndex: Int
+	val spineIndex: Int,
+	/** Part of the identity, so crossing the finished threshold mid-chapter re-runs retention. */
+	val bookFinished: Boolean
 )
 
 private class ReaderPageRasterDescriptorRequest(
@@ -2136,7 +2138,8 @@ internal class ReaderPageTurnBundleSource(
 			generation = identity.generation,
 			publicationHash = key.publicationHash,
 			paginationHash = key.paginationHash,
-			spineIndex = key.spineIndex
+			spineIndex = key.spineIndex,
+			bookFinished = readerBookFinished(descriptor.visualPageOrdinal, descriptor.pageCount)
 		)
 	}
 
@@ -2166,6 +2169,17 @@ internal class ReaderPageTurnBundleSource(
 					ReaderPageTurnBundleSourceTag,
 					"Page raster chapters retired behind spine=${chapter.spineIndex} " +
 						"rasters=$removed generation=${chapter.generation}"
+				)
+			}
+			val finishedRemoved = scheduler.retireFinishedBooks(
+				publicationHash = chapter.publicationHash,
+				finished = chapter.bookFinished
+			)
+			if (finishedRemoved > 0 || chapter.bookFinished) {
+				Logger.i(
+					ReaderPageTurnBundleSourceTag,
+					"Page raster finished books bookFinished=${chapter.bookFinished} " +
+						"retiredRasters=$finishedRemoved"
 				)
 			}
 		}

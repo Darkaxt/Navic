@@ -1428,6 +1428,74 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun finishedBooksArePurgedTwoDaysAfterTheirLastInteraction() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		var now = 1_000L
+		val clocked = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = Long.MAX_VALUE,
+			maxDecodedEntries = 0,
+			clock = { now }
+		)
+		val finished = (0..2).map { spine -> chapterKey(spine, publication = "publication-1") }
+		val unfinished = (0..2).map { spine -> chapterKey(spine, publication = "publication-2") }
+		(finished + unfinished).forEach { rasterKey ->
+			assertTrue(clocked.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+		}
+		// Book 1 is finished while open; book 2 is merely left unfinished.
+		assertEquals(0, clocked.retireFinishedBooks("publication-1", finished = true))
+		assertEquals(0, clocked.retireFinishedBooks("publication-2", finished = false))
+
+		// Within the grace period (measured from the last interaction) nothing is purged.
+		now += ReaderPageRasterFinishedBookGraceMillis - 1
+		assertEquals(0, clocked.retireFinishedBooks("publication-2", finished = false))
+		finished.forEach { rasterKey -> assertTrue(clocked.contains(rasterKey)) }
+
+		// After it, opening another book purges the finished one only.
+		now += 2
+		assertEquals(finished.size, clocked.retireFinishedBooks("publication-2", finished = false))
+		finished.forEach { rasterKey ->
+			assertFalse(clocked.contains(rasterKey))
+			assertFalse(clocked.pathFor(rasterKey).exists())
+		}
+		unfinished.forEach { rasterKey -> assertTrue(clocked.contains(rasterKey)) }
+		assertFalse(fixture.root.resolve(ReaderPageRasterFinishedBooksFileName).exists())
+	}
+
+	@Test
+	fun theOpenBookAndRereadBooksAreNeverPurged() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		var now = 1_000L
+		val clocked = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = Long.MAX_VALUE,
+			maxDecodedEntries = 0,
+			clock = { now }
+		)
+		val book = chapterKey(5, publication = "publication-1")
+		assertTrue(clocked.write(book, metadata(), pngBytes(book.digest)))
+		assertEquals(0, clocked.retireFinishedBooks("publication-1", finished = true))
+		now += ReaderPageRasterFinishedBookGraceMillis * 3
+		// The finished book itself is open: it is never purged under the reader.
+		assertEquals(0, clocked.retireFinishedBooks("publication-1", finished = true))
+		assertTrue(clocked.contains(book))
+		// Reading back before the end clears the finished mark, so another book cannot purge it.
+		assertEquals(0, clocked.retireFinishedBooks("publication-1", finished = false))
+		assertEquals(0, clocked.retireFinishedBooks("publication-2", finished = false))
+		assertTrue(clocked.contains(book))
+	}
+
+	@Test
+	fun bookFinishedAtTheLastThreePercentOfPages() {
+		assertFalse(readerBookFinished(visualPageOrdinal = 400, pageCount = 470))
+		assertTrue(readerBookFinished(visualPageOrdinal = 455, pageCount = 470))
+		assertTrue(readerBookFinished(visualPageOrdinal = 469, pageCount = 470))
+		assertFalse(readerBookFinished(visualPageOrdinal = 5, pageCount = 0))
+	}
+
+	@Test
 	fun supersededPaginationsBeyondTheMostRecentTwoAreDiscarded() {
 		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
 		var now = 1_000L

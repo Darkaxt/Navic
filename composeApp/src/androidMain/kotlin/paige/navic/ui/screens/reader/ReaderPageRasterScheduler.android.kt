@@ -107,6 +107,7 @@ internal interface ReaderPageRasterStore<T : Any> {
 		currentSpineIndex: Int,
 		currentPaginationHash: String? = null
 	): Int = 0
+	fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int = 0
 	fun encodedBytes(key: ReaderPageRasterKey): Long
 }
 
@@ -243,6 +244,9 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	): Int = withOpen(0) {
 		cache.discardChaptersBehind(publicationHash, currentSpineIndex, currentPaginationHash)
 	}
+
+	override fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int =
+		withOpen(0) { cache.retireFinishedBooks(publicationHash, finished) }
 
 	override fun encodedBytes(key: ReaderPageRasterKey): Long =
 		withOpen(0L) {
@@ -418,6 +422,9 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	): Int = withContext(ioDispatcher) {
 		store.discardChaptersBehind(publicationHash, currentSpineIndex, currentPaginationHash)
 	}
+
+	suspend fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int =
+		withContext(ioDispatcher) { store.retireFinishedBooks(publicationHash, finished) }
 
 	private suspend fun drain() {
 		while (true) {
