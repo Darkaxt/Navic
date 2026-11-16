@@ -2500,13 +2500,14 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	/**
-	 * App install identity for raster aliases. CSS/JS/asset changes are in no fingerprint and debug
-	 * reinstalls keep versionCode, so the package update time retires every alias on any install.
+	 * Render-input identity for raster aliases. CSS/JS/asset changes are in no raster fingerprint,
+	 * so aliases carry the bundled reader asset digest: any asset change retires every alias, while
+	 * an app update with identical reader assets keeps the prepared pages (no cold re-render).
 	 */
 	private fun rasterAliasInstallToken(webView: WebView): String =
-		cachedRasterAliasInstallToken ?: webView.context.applicationContext.let { context ->
-			context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime.toString()
-		}.also { token -> cachedRasterAliasInstallToken = token }
+		cachedRasterAliasInstallToken
+			?: ReaderRenderAssetIdentity.token(webView.context)
+				.also { token -> cachedRasterAliasInstallToken = token }
 
 	private fun isHydrationCurrent(hydration: InFlightRasterHydration): Boolean =
 		!closed &&
