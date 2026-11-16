@@ -876,6 +876,17 @@ export const readerTypographyCss = settings => {
   h5 { font-size: calc(0.83em * ${headingFontSize}) !important; }
   h6 { font-size: calc(0.67em * ${headingFontSize}) !important; }
   `}
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    /* A heading word wider than the column ("ACKNOWLEDGEMENTS" at a large size) hyphenates
+       instead of being split at an arbitrary letter by the paginator's overflow-wrap. */
+    -webkit-hyphens: auto !important;
+    hyphens: auto !important;
+  }
   body > h1:first-child,
   body > h2:first-child,
   body > h3:first-child,

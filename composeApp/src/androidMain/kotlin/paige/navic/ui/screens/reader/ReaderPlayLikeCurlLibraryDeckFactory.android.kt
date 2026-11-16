@@ -103,6 +103,15 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 	pageCount: Int,
 	readerDirection: ReaderPlayLikeCurlReaderDirection,
 	requireCompleteMaterial: Boolean = false,
+	// The closed book before the first page: a real curl leaf that is never a Foliate ordinal.
+	// Null (or a null page) keeps the background-only boundary filler.
+	closedBook: (
+		(
+			generationId: Long,
+			physicalLeaf: ReaderPlayLikeCurlPhysicalLeaf,
+			fallbackOrdinal: Int
+		) -> PageImage<T>?
+	)? = null,
 	filler: (
 		generationId: Long,
 		deckSlotRole: ReaderPlayLikeCurlDeckSlotRole,
@@ -130,8 +139,17 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 			requireMaterial(page(generationId, ordinal.coerceIn(0, pageCount - 1)))
 		val canTurnPrevious = boundedCurrent > 0
 		val canTurnNext = boundedCurrent < pageCount - 1
+		val closedBookPrevious = if (canTurnPrevious) {
+			null
+		} else {
+			closedBook
+				?.invoke(generationId, ReaderPlayLikeCurlPhysicalLeaf.Left, boundedCurrent)
+				?.let(::requireMaterial)
+		}
 		val previous = if (canTurnPrevious) {
 			boundedPage(boundedCurrent - 1)
+		} else if (closedBookPrevious != null) {
+			closedBookPrevious
 		} else {
 			requireMaterial(
 				filler(
@@ -160,7 +178,7 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 			previous,
 			boundedPage(boundedCurrent),
 			next,
-			canTurnPrevious,
+			canTurnPrevious || closedBookPrevious != null,
 			canTurnNext
 		)
 	}
@@ -191,12 +209,33 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		}
 	}
 
-	val previousLeft = slotPage(
+	// Both closed-book leaves or neither: the turned leaf lands the cover's right half on the right.
+	// Right-to-left books keep the filler (their closed book would be mirrored).
+	val closedBookLeaves = if (
+		window.previous == null &&
+		readerDirection == ReaderPlayLikeCurlReaderDirection.Ltr &&
+		closedBook != null
+	) {
+		val left = closedBook(
+			generationId,
+			ReaderPlayLikeCurlPhysicalLeaf.Left,
+			window.current.leafOrdinal(ReaderPlayLikeCurlPhysicalLeaf.Left)
+		)
+		val right = closedBook(
+			generationId,
+			ReaderPlayLikeCurlPhysicalLeaf.Right,
+			window.current.leafOrdinal(ReaderPlayLikeCurlPhysicalLeaf.Right)
+		)
+		if (left != null && right != null) requireMaterial(left) to requireMaterial(right) else null
+	} else {
+		null
+	}
+	val previousLeft = closedBookLeaves?.first ?: slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Previous,
 		window.previous,
 		ReaderPlayLikeCurlPhysicalLeaf.Left
 	)
-	val previousRight = slotPage(
+	val previousRight = closedBookLeaves?.second ?: slotPage(
 		ReaderPlayLikeCurlDeckSlotRole.Previous,
 		window.previous,
 		ReaderPlayLikeCurlPhysicalLeaf.Right
@@ -248,9 +287,9 @@ internal fun <T : Any> readerPlayLikeCurlLibraryDeck(
 		currentRight,
 		nextLeft,
 		nextRight,
-		window.previousAvailable,
+		window.previousAvailable || closedBookLeaves != null,
 		window.nextAvailable,
-		settlementPage(
+		closedBookLeaves?.second ?: settlementPage(
 			window.previous,
 			previousLeft,
 			previousRight,

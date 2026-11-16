@@ -677,6 +677,26 @@ internal class ReaderConfirmedDecklessPassiveAuthority {
 }
 
 /**
+ * Draws the closed book (the native shell cover) for the curl endpoint before the first page:
+ * [regionInWindow] of the shell-cover presentation, scaled into a new [width]x[height] bitmap.
+ * Returns null when no cover is available, which keeps the background-only boundary filler.
+ */
+internal interface ReaderClosedBookPageRenderer {
+	/** Changes whenever the drawn cover changes, retiring previously rendered leaves. */
+	val revision: Long
+
+	fun render(regionInWindow: android.graphics.Rect, width: Int, height: Int): Bitmap?
+}
+
+internal const val ReaderPlayLikeCurlClosedBookPagePrefix = "closed-book:"
+
+// Escape hatch only: the shell cover normally replaces the closed book within a frame or two.
+internal const val ReaderClosedBookCoverHandoffTimeoutMillis = 1_500L
+
+internal fun readerPlayLikeCurlIsClosedBookPage(logicalPageId: String): Boolean =
+	logicalPageId.startsWith(ReaderPlayLikeCurlClosedBookPagePrefix)
+
+/**
  * Production bridge between Foliate's passive raster cache and the imported PlayLikeCurl surface.
  * Foliate remains the pagination authority; this controller owns only immutable raster leases,
  * deformation, and one exact visual-page settlement.
@@ -1013,6 +1033,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 	private var nextDeckGeneration = 1L
 	private var activeGestureId: Long? = null
+
+	/** Closed-book endpoint source; null keeps the background-only boundary filler. */
+	var closedBookPageRenderer: ReaderClosedBookPageRenderer? = null
+
+	// Rendered closed-book leaves keyed by cover revision and exact region. They never belong to a
+	// prepared Foliate deck, so deck release never recycles them; replaced entries are left to GC.
+	private val closedBookBitmaps = LinkedHashMap<String, Bitmap>()
 	private val settlementMutationFence = ReaderPageSettlementMutationFence()
 	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
 	private var presentedFrameRequestId: Long? = null
@@ -1262,8 +1289,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					interaction = ReaderPageInteractionState.Settling,
 					reason = "settlement-started:$gestureId"
 				)
+				// The closed book is not a Foliate page: nothing is prepared or prefetched for it.
+				val closedBookTurn = readerPlayLikeCurlIsClosedBookPage(targetLogicalPageId)
 				val pages = activePages
-				val targetOrdinal = pages?.let { prepared ->
+				val targetOrdinal = pages?.takeUnless { closedBookTurn }?.let { prepared ->
 					readerPlayLikeCurlSettlementTargetOrdinal(
 						currentOrdinal = currentOrdinal,
 						pageCount = prepared.profile.pageCount,
@@ -1300,6 +1329,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 					}
 					?: settledLeafOrdinal
 				try {
+					if (
+						pageChange == PageChange.PREVIOUS &&
+						readerPlayLikeCurlIsClosedBookPage(currentLogicalPageId)
+					) {
+						completeClosedBookSettlement(gestureId, generationId)
+						return
+					}
 					if (pageChange == PageChange.NONE) {
 						if (!finishGesture(
 								gestureId,
@@ -4922,6 +4958,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		pageCount = pages.profile.pageCount,
 		readerDirection = pages.profile.readerDirection,
 		requireCompleteMaterial = true,
+		closedBook = { pageGenerationId, leaf, fallbackOrdinal ->
+			pages.closedBookPage(pageGenerationId, leaf, fallbackOrdinal)
+		},
 		filler = { pageGenerationId, slotRole, sourcePageIndex, leaf, fallbackOrdinal ->
 			pages.filler(
 				generationId = pageGenerationId,
@@ -5237,6 +5276,92 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.bitmap,
 			material
 		)
+	}
+
+	private fun PreparedPages.closedBookPage(
+		generationId: Long,
+		leaf: ReaderPlayLikeCurlPhysicalLeaf,
+		fallbackOrdinal: Int
+	): PageImage<Bitmap>? {
+		val renderer = closedBookPageRenderer ?: return null
+		val borrowed = deck.value(fallbackOrdinal) ?: return null
+		val foliateLeaf = readerPlayLikeCurlFillerFoliateLeaf(profile.orientation, leaf)
+		val displayRect = borrowed.layout.displayRectInHost(foliateLeaf)
+		val location = IntArray(2)
+		host.getLocationInWindow(location)
+		val region = android.graphics.Rect(
+			displayRect.leftPx + location[0],
+			displayRect.topPx + location[1],
+			displayRect.rightPx + location[0],
+			displayRect.bottomPx + location[1]
+		)
+		val width = borrowed.bitmap.width
+		val height = borrowed.bitmap.height
+		val key = "${renderer.revision}:${region.flattenToString()}:${width}x$height"
+		val bitmap = closedBookBitmaps[key]?.takeUnless(Bitmap::isRecycled)
+			?: renderer.render(region, width, height)?.also { rendered ->
+				closedBookBitmaps[key] = rendered
+				while (closedBookBitmaps.size > 2) {
+					closedBookBitmaps.remove(closedBookBitmaps.keys.first())
+				}
+			}
+			?: return null
+		val material = PageMaterial(
+			generationId,
+			borrowed.material.frontPaperColorArgb,
+			borrowed.material.reversePaperColorArgb,
+			borrowed.material.fixedBorderColorArgb,
+			borrowed.material.uncoveredBackgroundColorArgb,
+			foliateLeaf.pageLeafRole(),
+			displayRect,
+			borrowed.layout.clippingRectInHost(),
+			borrowed.layout.pageBackingRectInHost(foliateLeaf),
+			1
+		)
+		return PageImage(
+			generationId,
+			"$ReaderPlayLikeCurlClosedBookPagePrefix${profile.sourceIdentity}:" +
+				foliateLeaf.name.lowercase(),
+			fallbackOrdinal,
+			bitmap.width,
+			bitmap.height,
+			displayRect,
+			bitmap,
+			material
+		)
+	}
+
+	/**
+	 * The curl landed on the closed book before the first page. As with a boundary rejection nothing
+	 * navigates: the native shell cover takes over. The surface keeps presenting the closed book
+	 * (drawn from the shell cover's own pixels) until the cover's invalidation hides it, so page 1
+	 * never flashes in between. If the cover does not appear, the escape hatch hides the surface and
+	 * re-prepares the current page instead of leaving the closed book stranded.
+	 */
+	private fun completeClosedBookSettlement(gestureId: Long, generationId: Long) {
+		if (!finishGesture(
+				gestureId,
+				ReaderPageGestureTerminalOutcome.RejectedBoundary,
+				ReaderPageGestureTerminalDetail.RendererRejected(
+					generationId,
+					GestureRejectionReason.BOUNDARY
+				)
+			)
+		) {
+			return
+		}
+		discardPendingDeck("closed-book")
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl closed-book endpoint reached generation=$generationId ordinal=$currentOrdinal"
+		)
+		val requestGenerationAtEndpoint = requestGeneration
+		onBoundaryTurn(ReaderPageTurnDirection.Previous)
+		host.postDelayed({
+			if (destroyed || requestGeneration != requestGenerationAtEndpoint) return@postDelayed
+			invalidate("closed-book-cover-absent")
+			onRequestPrewarm()
+		}, ReaderClosedBookCoverHandoffTimeoutMillis)
 	}
 
 	private fun onHandoffAttemptEvent(

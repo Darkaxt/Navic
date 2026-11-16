@@ -403,6 +403,97 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 	}
 
 	@Test
+	fun theClosedBookIsATurnableLeafBeforeTheFirstPageOnly() {
+		val portrait = assertIs<PortraitPageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				generationId = 30L,
+				currentOrdinal = 0,
+				pageCount = 8,
+				closedBook = ::closedBookPage
+			)
+		)
+		assertEquals("closed-book:Left", portrait.previous.logicalPageId)
+		assertFalse(portrait.previous.isFiller)
+		assertTrue(portrait.canTurn(PageChange.PREVIOUS))
+		assertTrue(
+			readerPlayLikeCurlIsClosedBookPage(
+				portrait.getSettlementPage(PageChange.PREVIOUS).logicalPageId
+			)
+		)
+
+		val inside = assertIs<PortraitPageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Portrait,
+				generationId = 31L,
+				currentOrdinal = 3,
+				pageCount = 8,
+				closedBook = ::closedBookPage
+			)
+		)
+		assertEquals("page-2", inside.previous.logicalPageId)
+
+		val landscape = assertIs<LandscapePageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				generationId = 32L,
+				currentOrdinal = 0,
+				pageCount = 8,
+				closedBook = ::closedBookPage
+			)
+		)
+		assertEquals("closed-book:Left", landscape.previousLeft.logicalPageId)
+		assertEquals("closed-book:Right", landscape.previousRight.logicalPageId)
+		assertTrue(landscape.canTurn(PageChange.PREVIOUS))
+		assertEquals(
+			"closed-book:Right",
+			landscape.getSettlementPage(PageChange.PREVIOUS).logicalPageId
+		)
+		// The far end and right-to-left books keep the background-only filler.
+		val last = assertIs<LandscapePageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				generationId = 33L,
+				currentOrdinal = 7,
+				pageCount = 8,
+				closedBook = ::closedBookPage
+			)
+		)
+		assertTrue(last.nextRight.isFiller)
+		assertFalse(last.canTurn(PageChange.NEXT))
+		val rtl = assertIs<LandscapePageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				generationId = 34L,
+				currentOrdinal = 0,
+				pageCount = 8,
+				readerDirection = ReaderPlayLikeCurlReaderDirection.Rtl,
+				closedBook = ::closedBookPage
+			)
+		)
+		assertTrue(rtl.pages.none { readerPlayLikeCurlIsClosedBookPage(it.logicalPageId) })
+		assertFalse(rtl.canTurn(PageChange.PREVIOUS))
+	}
+
+	@Test
+	fun aMissingCoverKeepsTheBoundaryFiller() {
+		val landscape = assertIs<LandscapePageDeck<String>>(
+			deck(
+				orientation = ReaderPlayLikeCurlOrientation.Landscape,
+				generationId = 35L,
+				currentOrdinal = 0,
+				pageCount = 8,
+				closedBook = { _, leaf, _ ->
+					if (leaf == ReaderPlayLikeCurlPhysicalLeaf.Left) null else closedBookPage(35L, leaf, 1)
+				}
+			)
+		)
+		assertTrue(landscape.previousLeft.isFiller)
+		assertTrue(landscape.previousRight.isFiller)
+		assertFalse(landscape.canTurn(PageChange.PREVIOUS))
+	}
+
+	@Test
 	fun landscapeMapsThreeAdjacentWholeSpreadsAroundTheFoliateSpread() {
 		val landscape = assertIs<LandscapePageDeck<String>>(
 			deck(
@@ -691,13 +782,17 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		generationId: Long,
 		currentOrdinal: Int,
 		pageCount: Int,
-		readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr
+		readerDirection: ReaderPlayLikeCurlReaderDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+		closedBook: (
+			(Long, ReaderPlayLikeCurlPhysicalLeaf, Int) -> PageImage<String>?
+		)? = null
 	) = readerPlayLikeCurlLibraryDeck(
 		orientation = orientation,
 		generationId = generationId,
 		currentOrdinal = currentOrdinal,
 		pageCount = pageCount,
 		readerDirection = readerDirection,
+		closedBook = closedBook,
 		filler = ::fillerPage,
 		page = ::page
 	)
@@ -709,6 +804,19 @@ class ReaderPlayLikeCurlLibraryDeckFactoryTest {
 		120,
 		180,
 		"content-$ordinal"
+	)
+
+	private fun closedBookPage(
+		generationId: Long,
+		physicalLeaf: ReaderPlayLikeCurlPhysicalLeaf,
+		fallbackOrdinal: Int
+	): PageImage<String> = PageImage(
+		generationId,
+		"closed-book:${physicalLeaf.name}",
+		fallbackOrdinal,
+		120,
+		180,
+		"cover-${physicalLeaf.name}"
 	)
 
 	private fun fillerPage(

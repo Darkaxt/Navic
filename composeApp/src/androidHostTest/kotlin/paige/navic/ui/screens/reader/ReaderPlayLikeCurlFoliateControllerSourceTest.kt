@@ -71,6 +71,35 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	private val readerAssetRoot = File("src/androidMain/assets/reader")
 
 	@Test
+	fun theClosedBookEndpointHandsOffToTheShellCoverWithAnEscapeHatch() {
+		val source = controllerFile.readText()
+		val completed = source
+			.substringAfter("override fun onSettlementCompleted(")
+			.substringBefore("if (pageChange == PageChange.NONE) {")
+		assertContains(completed, "readerPlayLikeCurlIsClosedBookPage(currentLogicalPageId)")
+		assertContains(completed, "completeClosedBookSettlement(gestureId, generationId)")
+		val started = source
+			.substringAfter("override fun onSettlementStarted(")
+			.substringBefore("override fun onSettlementCompleted(")
+		assertContains(started, "pages?.takeUnless { closedBookTurn }")
+
+		val endpoint = source
+			.substringAfter("private fun completeClosedBookSettlement(")
+			.substringBefore("private fun onHandoffAttemptEvent(")
+		// No navigation and no surface hide before the cover: page 1 must not flash.
+		assertFalse(endpoint.contains("hideSurfaceAfterGesture"))
+		assertFalse(endpoint.contains("relocationGestureCoordinator.commit"))
+		assertContains(endpoint, "ReaderPageGestureTerminalOutcome.RejectedBoundary")
+		assertTrue(
+			endpoint.indexOf("onBoundaryTurn(ReaderPageTurnDirection.Previous)") <
+				endpoint.indexOf("host.postDelayed(")
+		)
+		assertContains(endpoint, "requestGeneration != requestGenerationAtEndpoint")
+		assertContains(endpoint, "invalidate(\"closed-book-cover-absent\")")
+		assertContains(endpoint, "onRequestPrewarm()")
+	}
+
+	@Test
 	fun productionControllerUsesFoliateRastersAndImportedSurface() {
 		assertTrue(controllerFile.isFile, "Production PlayLikeCurl controller must exist")
 		val source = controllerFile.readText()

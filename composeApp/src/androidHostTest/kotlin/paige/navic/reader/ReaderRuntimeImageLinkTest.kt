@@ -357,7 +357,7 @@ class ReaderRuntimeImageLinkTest {
 		assertContains(nativeFrameHostText, "nativeShellCoverForegroundRect")
 		// #25: landscape (CoverX expanded) covers draw full-bleed instead of inside the portrait box.
 		assertContains(nativeFrameHostText, "if (currentBitmap.width > currentBitmap.height) {")
-		assertContains(nativeFrameHostText, "drawFullBleedNativeShellCover(canvas, currentBitmap)")
+		assertContains(nativeFrameHostText, "drawFullBleedNativeShellCover(canvas, currentBitmap, width, height)")
 		assertContains(nativeFrameHostText, "val scale = min(")
 		assertContains(nativeFrameHostText, "maxWidth / bitmapWidth")
 		assertContains(nativeFrameHostText, "maxHeight / bitmapHeight")

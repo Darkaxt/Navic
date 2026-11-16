@@ -882,7 +882,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 	}
 }
 
-private class KomikkuReaderNativeShellCoverView(context: Context) : View(context) {
+private class KomikkuReaderNativeShellCoverView(context: Context) : View(context),
+	ReaderClosedBookPageRenderer {
 	private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 	private val backdropImagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG).apply {
 		alpha = 124
@@ -907,6 +908,8 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	private var title: String = ""
 	private var coverBackdropEnabled: Boolean = true
 	private var bitmap: Bitmap? = null
+	override var revision: Long = 0L
+		private set
 
 	fun setShellCover(coverUrl: String?, title: String, coverBackdropEnabled: Boolean) {
 		if (this.coverUrl == coverUrl && this.title == title && this.coverBackdropEnabled == coverBackdropEnabled) return
@@ -917,25 +920,56 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			?.let { context.readerShellCoverFileFor(it) }
 			?.absolutePath
 			?.let { path -> BitmapFactory.decodeFile(path) }
+		revision += 1L
 		invalidate()
+	}
+
+	// The curl's closed book is drawn from these exact shell-cover pixels, so landing on it and then
+	// showing this view is seamless. The view fills its parent, which may not be laid out while the
+	// cover is hidden, so the parent's geometry is used.
+	override fun render(regionInWindow: Rect, width: Int, height: Int): Bitmap? {
+		val currentBitmap = bitmap ?: return null
+		val presentation = parent as? View ?: return null
+		if (
+			currentBitmap.width <= 0 || currentBitmap.height <= 0 ||
+			presentation.width <= 0 || presentation.height <= 0 ||
+			width <= 0 || height <= 0 || regionInWindow.isEmpty
+		) {
+			return null
+		}
+		val origin = IntArray(2)
+		presentation.getLocationInWindow(origin)
+		// Drawn 1:1 (translate only) and resampled afterwards, like every reader capture.
+		val native = Bitmap.createBitmap(
+			regionInWindow.width(),
+			regionInWindow.height(),
+			Bitmap.Config.ARGB_8888
+		)
+		val canvas = Canvas(native)
+		canvas.translate(
+			(origin[0] - regionInWindow.left).toFloat(),
+			(origin[1] - regionInWindow.top).toFloat()
+		)
+		drawShellCover(canvas, currentBitmap, presentation.width, presentation.height)
+		if (native.width == width && native.height == height) return native
+		return Bitmap.createScaledBitmap(native, width, height, true).also { native.recycle() }
 	}
 
 	override fun onDraw(canvas: Canvas) {
 		super.onDraw(canvas)
-		canvas.drawColor(Color.rgb(16, 14, 10))
 		val currentBitmap = bitmap
 		if (currentBitmap == null || currentBitmap.width <= 0 || currentBitmap.height <= 0) {
-			val shellGeometry = resolveNativeReaderShellCoverGeometry(
-				viewWidth = width,
-				viewHeight = height,
-				bitmapWidth = 720,
-				bitmapHeight = 1000
-			)
+			canvas.drawColor(Color.rgb(16, 14, 10))
 			canvas.drawText(title.ifBlank { "Cover" }, width / 2f, height / 2f, titlePaint)
 			return
 		}
+		drawShellCover(canvas, currentBitmap, width, height)
+	}
+
+	private fun drawShellCover(canvas: Canvas, currentBitmap: Bitmap, width: Int, height: Int) {
+		canvas.drawColor(Color.rgb(16, 14, 10))
 		if (currentBitmap.width > currentBitmap.height) {
-			drawFullBleedNativeShellCover(canvas, currentBitmap)
+			drawFullBleedNativeShellCover(canvas, currentBitmap, width, height)
 			return
 		}
 		val shellGeometry = resolveNativeReaderShellCoverGeometry(
@@ -974,7 +1008,12 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 	}
 
 	// Expanded (CoverX) covers fill the screen, centre-cropped like Bindery's tablet viewports (#25).
-	private fun drawFullBleedNativeShellCover(canvas: Canvas, currentBitmap: Bitmap) {
+	private fun drawFullBleedNativeShellCover(
+		canvas: Canvas,
+		currentBitmap: Bitmap,
+		width: Int,
+		height: Int
+	) {
 		val scale = max(width / currentBitmap.width.toFloat(), height / currentBitmap.height.toFloat())
 		val drawWidth = currentBitmap.width * scale
 		val drawHeight = currentBitmap.height * scale
@@ -1764,6 +1803,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	fun setShellCoverView(shellCoverView: View) {
 		this.shellCoverView = shellCoverView
+		playLikeCurlController.closedBookPageRenderer =
+			shellCoverView as? ReaderClosedBookPageRenderer
 		(shellCoverView.parent as? ViewGroup)?.removeView(shellCoverView)
 		addView(
 			shellCoverView,
