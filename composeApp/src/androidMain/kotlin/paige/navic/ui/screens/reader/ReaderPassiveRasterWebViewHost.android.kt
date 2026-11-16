@@ -548,6 +548,22 @@ internal class ReaderPassiveRasterWebViewHost(
 			return
 		}
 		val generation = callbackGeneration
+		val deliver: (Bitmap?) -> Unit = if (readerPaperProbeEnabled(activity)) {
+			{ bitmap ->
+				if (bitmap == null) onCaptured(null)
+				else probePaperSplit(generation, geometry, bitmap, onCaptured)
+			}
+		} else {
+			onCaptured
+		}
+		captureAfterVisualState(generation, geometry, deliver)
+	}
+
+	private fun captureAfterVisualState(
+		generation: Long,
+		geometry: ReaderPassiveRasterGeometry,
+		onCaptured: (Bitmap?) -> Unit
+	) {
 		val requestId = callbackSequence.incrementAndGet()
 		webView.postVisualStateCallback(
 			requestId,
@@ -568,6 +584,30 @@ internal class ReaderPassiveRasterWebViewHost(
 				}
 			}
 		)
+	}
+
+	// #58 stage 1, debug-only: capture the same page with its text hidden, analyse the split, then
+	// restore the text before the original capture is delivered.
+	private fun probePaperSplit(
+		generation: Long,
+		geometry: ReaderPassiveRasterGeometry,
+		composite: Bitmap,
+		onCaptured: (Bitmap?) -> Unit
+	) {
+		val probe = "window.NavicPassiveRasterPrototype?.paperProbe?.("
+		webView.evaluateJavascript("JSON.stringify(${probe}true) ?? null)") { encoded ->
+			val colors = readerPaperProbeColors(encoded)
+			if (colors == null || !callbackIsCurrent(generation)) {
+				webView.evaluateJavascript("${probe}false)") { onCaptured(composite) }
+				return@evaluateJavascript
+			}
+			captureAfterVisualState(generation, geometry) { paper ->
+				webView.evaluateJavascript("${probe}false)") {
+					if (paper != null) readerPaperProbeRecord(activity, composite, paper, colors)
+					onCaptured(composite)
+				}
+			}
+		}
 	}
 
 	override fun pause() {

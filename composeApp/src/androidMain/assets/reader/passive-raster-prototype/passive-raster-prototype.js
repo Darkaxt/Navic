@@ -23,12 +23,29 @@ export const boundedStatus = () => Object.freeze({
   sessionReady: session != null,
 })
 
+// Debug-only #58 paper probe: hide page text and page numbers so the host can capture paper alone.
+export const paperProbe = hide => {
+  const view = document.querySelector('foliate-view')
+  if (!view) return null
+  const targets = [
+    ...(view.renderer?.getContents?.() || []).map(content => content?.doc?.documentElement),
+    document.querySelector('[data-navic-page-number-layer="true"]'),
+  ].filter(Boolean)
+  for (const element of targets) {
+    if (hide) element.style.setProperty('visibility', 'hidden', 'important')
+    else element.style.removeProperty('visibility')
+  }
+  const style = getComputedStyle(view)
+  return { hidden: targets.length, foreground: style.color, background: style.backgroundColor }
+}
+
 const api = Object.freeze({
   ready: true,
   startCapture,
   cancelOperation,
   readOperationResult,
   boundedStatus,
+  paperProbe,
 })
 
 globalThis.NavicPassiveRasterPrototype = api
