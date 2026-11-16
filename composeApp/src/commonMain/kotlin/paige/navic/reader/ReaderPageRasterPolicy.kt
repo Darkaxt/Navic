@@ -28,13 +28,17 @@ enum class ReaderPageRasterPriority(val rank: Int) {
 	NextChapter(6),
 	PreviousChapter(7),
 	NextChapterRemainder(8),
-	PreviousChapterRemainder(9)
+	PreviousChapterRemainder(9),
+	/** Chapters two or more ahead, prepared only in the "Whole book" cache scope (#57). */
+	LaterChapter(10)
 }
 
 enum class ReaderPageAdjacentChapterDirection {
 	Current,
 	Next,
-	Previous
+	Previous,
+	/** A chapter two or more ahead of the current one ("Whole book" scope, #57). */
+	Later
 }
 
 val ReaderPageRasterPriority.adjacentChapterDirection: ReaderPageAdjacentChapterDirection?
@@ -47,6 +51,8 @@ val ReaderPageRasterPriority.adjacentChapterDirection: ReaderPageAdjacentChapter
 		ReaderPageRasterPriority.NextChapter,
 		ReaderPageRasterPriority.NextChapterRemainder ->
 			ReaderPageAdjacentChapterDirection.Next
+		ReaderPageRasterPriority.LaterChapter ->
+			ReaderPageAdjacentChapterDirection.Later
 		else -> null
 	}
 

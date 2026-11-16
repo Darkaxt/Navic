@@ -59,7 +59,8 @@ class ReaderPageRasterPolicyTest {
 				ReaderPageRasterPriority.NextChapter,
 				ReaderPageRasterPriority.PreviousChapter,
 				ReaderPageRasterPriority.NextChapterRemainder,
-				ReaderPageRasterPriority.PreviousChapterRemainder
+				ReaderPageRasterPriority.PreviousChapterRemainder,
+				ReaderPageRasterPriority.LaterChapter
 			),
 			ReaderPageRasterPriority.entries.sortedBy { priority -> priority.rank }
 		)
@@ -73,14 +74,16 @@ class ReaderPageRasterPolicyTest {
 				ReaderPageAdjacentChapterDirection.Next,
 				ReaderPageAdjacentChapterDirection.Previous,
 				ReaderPageAdjacentChapterDirection.Next,
-				ReaderPageAdjacentChapterDirection.Previous
+				ReaderPageAdjacentChapterDirection.Previous,
+				ReaderPageAdjacentChapterDirection.Later
 			),
 			listOf(
 				ReaderPageRasterPriority.CurrentChapter,
 				ReaderPageRasterPriority.NextChapter,
 				ReaderPageRasterPriority.PreviousChapter,
 				ReaderPageRasterPriority.NextChapterRemainder,
-				ReaderPageRasterPriority.PreviousChapterRemainder
+				ReaderPageRasterPriority.PreviousChapterRemainder,
+				ReaderPageRasterPriority.LaterChapter
 			).map { priority -> priority.adjacentChapterDirection }
 		)
 	}

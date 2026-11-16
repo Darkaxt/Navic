@@ -284,6 +284,56 @@ class ReaderPageRasterBatchPlanTest {
 	}
 
 	@Test
+	fun wholeBookScopeAddsEveryLaterChapterAfterTheAdjacentOnes() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"ltr","step":1,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":3,"previousChapterPageCount":3,"nextChapterPageStartIndex":14,"nextChapterPageCount":8,"chapterRanges":[[0,1],[1,2],[6,8],[14,8],[22,0],[22,5],[27,3]]},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"},{"pageIndex":14,"priority":"next-chapter","authority":"OffscreenPassive"},{"pageIndex":5,"priority":"previous-chapter","authority":"OffscreenPassive"}]}"""
+		)
+
+		assertNotNull(plan)
+		// Per-chapter scope (default): only the adjacent chapters.
+		assertEquals(
+			listOf(ReaderPageAdjacentChapterDirection.Next, ReaderPageAdjacentChapterDirection.Previous),
+			plan.adjacentChapterPrefetchChapters().map { batch -> batch.identity.direction }
+		)
+		val wholeBook = plan.adjacentChapterPrefetchChapters(wholeBook = true)
+		assertEquals(
+			listOf(
+				ReaderPageAdjacentChapterDirection.Next,
+				ReaderPageAdjacentChapterDirection.Previous,
+				ReaderPageAdjacentChapterDirection.Later,
+				ReaderPageAdjacentChapterDirection.Later
+			),
+			wholeBook.map { batch -> batch.identity.direction }
+		)
+		// The empty chapter 4 is skipped; chapters behind the previous one are never added.
+		assertEquals(listOf(3, 1, 5, 6), wholeBook.map { batch -> batch.identity.chapterIndex })
+		assertEquals((22 until 27).toList(), wholeBook[2].targets.map { target -> target.pageIndex })
+		assertEquals((27 until 30).toList(), wholeBook[3].targets.map { target -> target.pageIndex })
+		assertTrue(
+			wholeBook.drop(2).flatMap { batch -> batch.targets }
+				.all { target -> target.priority == ReaderPageRasterPriority.LaterChapter }
+		)
+		// The coordinator accepts several later chapters in one plan.
+		ReaderPageAdjacentChapterPrefetchCoordinator(onSubmit = {}, onCancel = {}).replaceDurablePlan(
+			ReaderPageAdjacentChapterPrefetchPlan(
+				key = ReaderPageAdjacentChapterPrefetchKey(2, 6, 8, rasterProfileEpoch = 1L, rasterEpoch = 1L),
+				chapters = wholeBook
+			)
+		)
+	}
+
+	@Test
+	fun malformedChapterRangesDisableWholeBookPreparation() {
+		val plan = readerPageRasterPreparationPlan(
+			"""{"context":{"centerPageIndex":8,"pageCount":30,"layoutMode":"spread","readerDirection":"ltr","step":1,"currentChapterIndex":2,"currentChapterPageStartIndex":6,"currentChapterPageCount":8,"previousChapterPageStartIndex":3,"previousChapterPageCount":3,"nextChapterPageStartIndex":14,"nextChapterPageCount":8,"chapterRanges":[[0,1],["x"]]},"targets":[{"pageIndex":8,"priority":"current","authority":"CurrentLive"}]}"""
+		)
+
+		assertNotNull(plan)
+		assertTrue(plan.chapterRanges.isEmpty())
+		assertTrue(plan.adjacentChapterPrefetchChapters(wholeBook = true).isEmpty())
+	}
+
+	@Test
 	fun pagesBeforeTheFirstChapterRemainBackwardBackgroundWork() {
 		val plan = readerPageRasterPreparationPlan(
 			"""{"context":{"centerPageIndex":4,"pageCount":12,"layoutMode":"single","readerDirection":"ltr","step":1,"currentChapterIndex":0,"currentChapterPageStartIndex":2,"currentChapterPageCount":6,"previousChapterPageStartIndex":0,"previousChapterPageCount":2,"nextChapterPageStartIndex":8,"nextChapterPageCount":4},"targets":[{"pageIndex":4,"priority":"current","authority":"CurrentLive"},{"pageIndex":1,"priority":"previous-chapter","authority":"OffscreenPassive"},{"pageIndex":0,"priority":"previous-chapter","authority":"OffscreenPassive"}]}"""

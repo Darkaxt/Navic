@@ -559,9 +559,18 @@ internal class ReaderPageRasterPreparationController(
 		onRequestPrewarm()
 	}
 
-	/** Reader "page cache scope" setting (#57); background preparation consumes it in a later stage. */
+	/**
+	 * Reader "page cache scope" setting (#57). "Whole book" adds every later chapter to the
+	 * background batches of the next preparation; battery saver keeps it to the next chapter.
+	 */
 	var pageCacheScope: ReaderPageCacheScope = ReaderPageCacheScope.PerChapter
 		private set
+
+	private fun wholeBookPreparationAllowed(): Boolean =
+		pageCacheScope == ReaderPageCacheScope.FullBook &&
+			runCatching {
+				host.context.getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode != true
+			}.getOrDefault(false)
 
 	/** Reader "layouts" setting (#57); background preparation consumes it in a later stage. */
 	var pageCacheLayouts: ReaderPageCacheLayouts = ReaderPageCacheLayouts.Current
@@ -1666,7 +1675,7 @@ internal class ReaderPageRasterPreparationController(
 				currentChapterIndex = plan.currentChapterIndex,
 				currentChapterPageStartIndex = plan.currentChapterPageStartIndex,
 				currentChapterPageCount = plan.currentChapterPageCount,
-				chapters = plan.adjacentChapterPrefetchChapters(),
+				chapters = plan.adjacentChapterPrefetchChapters(wholeBook = wholeBookPreparationAllowed()),
 				generation = bundleSource.currentGeneration(),
 				preparationGeneration = preparationGeneration
 			)

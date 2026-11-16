@@ -84,8 +84,15 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		require(value.key.rasterProfileEpoch > 0L)
 		require(value.key.rasterEpoch > 0L)
 		require(
-			value.chapters.map { chapter -> chapter.identity.direction }.distinct().size ==
-				value.chapters.size
+			value.chapters
+				.map { chapter -> chapter.identity.direction }
+				.filterNot { direction -> direction == ReaderPageAdjacentChapterDirection.Later }
+				.let { directions -> directions.distinct().size == directions.size }
+		)
+		require(
+			value.chapters
+				.filter { chapter -> chapter.identity.direction == ReaderPageAdjacentChapterDirection.Later }
+				.let { later -> later.map { chapter -> chapter.identity.chapterIndex }.distinct().size == later.size }
 		)
 		value.chapters.forEach { chapter ->
 			requireValidChapter(value.key, chapter)
@@ -251,11 +258,15 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	) {
 		require(chapter.identity.chapterIndex >= 0)
 		require(
-			chapter.identity.chapterIndex == when (chapter.identity.direction) {
-				ReaderPageAdjacentChapterDirection.Current -> key.currentChapterIndex
-				ReaderPageAdjacentChapterDirection.Next -> key.currentChapterIndex + 1
+			when (chapter.identity.direction) {
+				ReaderPageAdjacentChapterDirection.Current ->
+					chapter.identity.chapterIndex == key.currentChapterIndex
+				ReaderPageAdjacentChapterDirection.Next ->
+					chapter.identity.chapterIndex == key.currentChapterIndex + 1
 				ReaderPageAdjacentChapterDirection.Previous ->
-					(key.currentChapterIndex - 1).coerceAtLeast(0)
+					chapter.identity.chapterIndex == (key.currentChapterIndex - 1).coerceAtLeast(0)
+				ReaderPageAdjacentChapterDirection.Later ->
+					chapter.identity.chapterIndex >= key.currentChapterIndex + 2
 			}
 		)
 		require(chapter.identity.pageStartIndex >= 0)

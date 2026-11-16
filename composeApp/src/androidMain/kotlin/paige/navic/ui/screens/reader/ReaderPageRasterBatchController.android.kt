@@ -46,7 +46,9 @@ internal data class ReaderPageRasterPreparationPlan(
 	val nextChapterPageStartIndex: Int,
 	val nextChapterPageCount: Int,
 	val targets: List<ReaderPageRasterBatchTarget>,
-	val captureGeometry: ReaderPageTurnCaptureGeometry? = null
+	val captureGeometry: ReaderPageTurnCaptureGeometry? = null,
+	/** Every chapter's page range, indexed like [currentChapterIndex] ("Whole book" scope). */
+	val chapterRanges: List<ReaderPageRasterPreparedChapterRange> = emptyList()
 )
 
 internal data class ReaderPageRasterPreparedChapterRange(
@@ -188,15 +190,46 @@ internal fun ReaderPageRasterPreparationPlan.blockingTargetsOrNull():
 	}
 }
 
-internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
+/**
+ * Background chapter batches in order: the next chapter, the previous one and, in the
+ * "Whole book" scope, every later chapter to the end. Chapters two or more behind are never
+ * prepared: retention would discard them again (#57).
+ */
+internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters(
+	wholeBook: Boolean = false
+): List<ReaderPageAdjacentChapterPrefetchChapter> =
+	adjacentChapterPrefetchChaptersOnly() + if (wholeBook) laterChapterPrefetchChapters() else emptyList()
+
+private fun ReaderPageRasterPreparationPlan.laterChapterPrefetchChapters():
+	List<ReaderPageAdjacentChapterPrefetchChapter> {
+	if (currentChapterIndex < 0) return emptyList()
+	return ((currentChapterIndex + 2) until chapterRanges.size).mapNotNull { chapterIndex ->
+		val range = chapterRanges[chapterIndex]
+		val identity = ReaderPageAdjacentChapterIdentity(
+			direction = ReaderPageAdjacentChapterDirection.Later,
+			chapterIndex = chapterIndex,
+			pageStartIndex = range.startPageIndex,
+			pageCount = range.pageCount
+		)
+		val chapterTargets = (range.startPageIndex until range.endPageIndexExclusive)
+			.filter { pageIndex -> pageIndex in 0 until pageCount && (pageIndex - centerPageIndex) % step == 0 }
+			.map { pageIndex -> ReaderPageRasterBatchTarget(pageIndex, ReaderPageRasterPriority.LaterChapter) }
+		ReaderPageAdjacentChapterPrefetchChapter(identity, chapterTargets)
+			.takeIf { range.startPageIndex >= 0 && range.pageCount > 0 && chapterTargets.isNotEmpty() }
+	}
+}
+
+private fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChaptersOnly():
 	List<ReaderPageAdjacentChapterPrefetchChapter> =
 		ReaderPageAdjacentChapterDirection.entries
 			.filterNot { direction ->
-				direction == ReaderPageAdjacentChapterDirection.Current
+				direction == ReaderPageAdjacentChapterDirection.Current ||
+					direction == ReaderPageAdjacentChapterDirection.Later
 			}
 			.mapNotNull { direction ->
 				val identity = when (direction) {
-					ReaderPageAdjacentChapterDirection.Current -> return@mapNotNull null
+					ReaderPageAdjacentChapterDirection.Current,
+					ReaderPageAdjacentChapterDirection.Later -> return@mapNotNull null
 					ReaderPageAdjacentChapterDirection.Next -> ReaderPageAdjacentChapterIdentity(
 						direction = direction,
 						chapterIndex = currentChapterIndex + 1,
@@ -211,7 +244,8 @@ internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters():
 					)
 				}
 				val chapterPriority = when (direction) {
-					ReaderPageAdjacentChapterDirection.Current -> return@mapNotNull null
+					ReaderPageAdjacentChapterDirection.Current,
+					ReaderPageAdjacentChapterDirection.Later -> return@mapNotNull null
 					ReaderPageAdjacentChapterDirection.Next -> ReaderPageRasterPriority.NextChapter
 					ReaderPageAdjacentChapterDirection.Previous ->
 						ReaderPageRasterPriority.PreviousChapter
@@ -296,8 +330,23 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 		targets = targets,
 		captureGeometry = root["captureGeometry"]?.let { encodedGeometry ->
 			readerPageTurnCaptureGeometry(encodedGeometry.toString())
-		}
+		},
+		chapterRanges = readerPageRasterChapterRanges(context["chapterRanges"])
 	)
+}
+
+/** `[[pageStartIndex, pageCount], ...]`; anything malformed disables whole-book preparation. */
+private fun readerPageRasterChapterRanges(
+	element: kotlinx.serialization.json.JsonElement?
+): List<ReaderPageRasterPreparedChapterRange> {
+	val ranges = runCatching { element?.jsonArray }.getOrNull() ?: return emptyList()
+	return ranges.map { entry ->
+		val pair = runCatching { entry.jsonArray }.getOrNull() ?: return emptyList()
+		val start = pair.getOrNull(0)?.jsonPrimitive?.intOrNull ?: return emptyList()
+		val count = pair.getOrNull(1)?.jsonPrimitive?.intOrNull ?: return emptyList()
+		if (start < 0 || count < 0) return emptyList()
+		ReaderPageRasterPreparedChapterRange(start, count)
+	}
 }
 
 internal fun readerPageRasterCalibrationTargets(

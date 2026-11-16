@@ -614,6 +614,9 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
       previousChapterPageCount: chapterCount(previousChapter),
       nextChapterPageStartIndex: chapterStart(nextChapter),
       nextChapterPageCount: chapterCount(nextChapter),
+      chapterRanges: Object.freeze(
+        chapters.map(chapter => Object.freeze([chapterStart(chapter), chapterCount(chapter)]))
+      ),
     }),
     captureGeometry: geometry,
     targets: Object.freeze(targets),
