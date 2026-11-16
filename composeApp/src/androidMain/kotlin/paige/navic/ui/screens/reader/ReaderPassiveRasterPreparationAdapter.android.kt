@@ -720,7 +720,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 					if (mismatch != null) {
 						finish(
 							batch,
-							ReaderPageRasterBatchOutcome.Failed(
+							if (mismatch == ReaderPassiveRasterRejection.DestinationCommit) {
+								staleDestinationCommitOutcome(target)
+							} else ReaderPageRasterBatchOutcome.Failed(
 								stage = "passive-hydration-authority",
 								pageIndex = target.pageIndex,
 								reason = "raster-rejected",
@@ -1120,6 +1122,15 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			}
 		}
 	}
+
+	// The live destination was re-committed after this capture (a repair, or the curl deck of a
+	// relayout released early): the capture is stale, not broken, so the window retries.
+	private fun staleDestinationCommitOutcome(target: ReaderPageRasterBatchTarget) =
+		ReaderPageRasterBatchOutcome.Deferred(
+			stage = "passive-admission",
+			pageIndex = target.pageIndex,
+			reason = "canonical-destination-recommitted"
+		)
 
 	private fun completeTarget(batch: Batch, target: ReaderPageRasterBatchTarget) {
 		if (!batchIsCurrent(batch)) return

@@ -618,6 +618,11 @@ class ReaderPageRasterPreparationSourceTest {
 			readerRasterPreparationSource(),
 			"diagnostic == \"passive-admission:canonical-destination-recommitted\" ||"
 		)
+		// The hydration authority check treats a re-committed destination the same way.
+		val hydration = adapter.substringAfter("val mismatch = authorityMismatch(currentInputs, committed)")
+			.substringBefore("return@currentAuthority")
+		assertContains(hydration, "if (mismatch == ReaderPassiveRasterRejection.DestinationCommit) {")
+		assertContains(hydration, "staleDestinationCommitOutcome(target)")
 	}
 
 	@Test

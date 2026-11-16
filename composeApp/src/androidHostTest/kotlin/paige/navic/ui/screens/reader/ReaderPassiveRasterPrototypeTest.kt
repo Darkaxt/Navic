@@ -2513,13 +2513,11 @@ class ReaderPassiveRasterPrototypeTest {
 			)
 			advanceUntilIdle()
 
-			val failed = assertIs<ReaderPageRasterBatchOutcome.Failed>(completion.await())
-			assertEquals("passive-hydration-authority", failed.stage)
-			assertEquals("raster-rejected", failed.reason)
-			assertEquals(
-				ReaderPassiveRasterRejection.DestinationCommit,
-				failed.passiveRasterRejection
-			)
+			// A re-committed destination makes the durable hit stale, not broken: it never
+			// completes, and the window is deferred so it retries against the fresh commit.
+			val deferred = assertIs<ReaderPageRasterBatchOutcome.Deferred>(completion.await())
+			assertEquals("passive-admission", deferred.stage)
+			assertEquals("canonical-destination-recommitted", deferred.reason)
 			assertEquals(2, manifestRequests)
 			assertEquals(0, runtime.captureRequests)
 			assertEquals(0, current.session.metrics().activeCaptures)
