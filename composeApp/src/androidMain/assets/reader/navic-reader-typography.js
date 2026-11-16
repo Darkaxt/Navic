@@ -590,6 +590,69 @@ const readerChapterOpeningHeading = doc => {
   return null
 }
 
+// A heading word wider than its column ("ACKNOWLEDGEMENTS" in a landscape spread) is otherwise
+// split at an arbitrary letter by the paginator's overflow-wrap; hyphens: auto does not reach
+// capitalised words. Such a heading is scaled down just enough for its longest word to fit. The
+// fit re-runs when the column width changes (pagination, rotation) and on every settings apply,
+// and always starts from the heading's own inline font size.
+const ReaderHeadingFitAttribute = 'data-navic-heading-fit'
+const ReaderHeadingFitMinimumScale = 0.5
+const readerHeadingFitObservers = new WeakMap()
+
+const readerFitHeadingWords = heading => {
+  const style = heading.style
+  const saved = heading.getAttribute(ReaderHeadingFitAttribute)
+  if (saved !== null) {
+    const split = saved.indexOf(':')
+    const original = split < 0 ? '' : saved.slice(split + 1)
+    if (original) style.setProperty('font-size', original, saved.slice(0, split))
+    else style.removeProperty('font-size')
+    heading.removeAttribute(ReaderHeadingFitAttribute)
+  }
+  const wrap = style.getPropertyValue('overflow-wrap')
+  const wrapPriority = style.getPropertyPriority('overflow-wrap')
+  style.setProperty('overflow-wrap', 'normal', 'important')
+  const columnWidth = heading.clientWidth
+  const contentWidth = heading.scrollWidth
+  if (wrap) style.setProperty('overflow-wrap', wrap, wrapPriority)
+  else style.removeProperty('overflow-wrap')
+  if (!(columnWidth > 0) || contentWidth <= columnWidth + 1) return false
+  const fontSize = Number.parseFloat(heading.ownerDocument?.defaultView?.getComputedStyle?.(heading)?.fontSize)
+  if (!Number.isFinite(fontSize) || fontSize <= 0) return false
+  const scale = Math.max(ReaderHeadingFitMinimumScale, (columnWidth / contentWidth) * 0.98)
+  heading.setAttribute(
+    ReaderHeadingFitAttribute,
+    `${style.getPropertyPriority('font-size')}:${style.getPropertyValue('font-size')}`
+  )
+  style.setProperty('font-size', `${Math.floor(fontSize * scale * 100) / 100}px`, 'important')
+  return true
+}
+
+export const readerFitOverlongHeadingWords = doc => {
+  if (!doc?.body) return 0
+  const headings = Array.from(doc.body.querySelectorAll(readerChapterOpeningHeadingSelector))
+    .filter(heading => String(heading.textContent || '').trim())
+  const ResizeObserverType = doc.defaultView?.ResizeObserver
+  if (ResizeObserverType && headings.length) {
+    let observer = readerHeadingFitObservers.get(doc)
+    if (!observer) {
+      // Only width changes matter; the fit changes height alone, so it cannot re-trigger itself.
+      const widths = new WeakMap()
+      observer = new ResizeObserverType(entries => {
+        for (const entry of entries) {
+          const width = Math.round(entry.contentRect.width)
+          if (widths.get(entry.target) === width) continue
+          widths.set(entry.target, width)
+          readerFitHeadingWords(entry.target)
+        }
+      })
+      readerHeadingFitObservers.set(doc, observer)
+    }
+    for (const heading of headings) observer.observe(heading)
+  }
+  return headings.filter(readerFitHeadingWords).length
+}
+
 export const readerNormalizeChapterOpeningMargins = (doc, settings = {}) => {
   if (!doc?.body || readerFlowMode(settings) === ReaderFlowScrolled || readerFlowMode(settings) === ReaderFlowScrolledGaps) return null
   const heading = readerChapterOpeningHeading(doc)

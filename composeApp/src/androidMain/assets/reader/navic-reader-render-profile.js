@@ -15,12 +15,13 @@ import {
   readerContentCss,
   readerParagraphSpacingEm,
   readerNormalizeChapterOpeningMargins,
+  readerFitOverlongHeadingWords,
 } from './navic-reader-typography.js'
 import { stableHash } from './navic-reader-identity.js'
 
 // Bump when the content render changes pixels for the same settings, so cached rasters retire.
 // Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
-export const ReaderContentRenderRevision = 1
+export const ReaderContentRenderRevision = 2
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -165,6 +166,7 @@ export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {
   themeStyle.textContent = readerContentCss(settings)
   normalizeReaderInlineTypography(doc, settings)
   readerNormalizeChapterOpeningMargins(doc, settings)
+  readerFitOverlongHeadingWords(doc)
   for (const element of [root, body].filter(Boolean)) {
     setStylesImportant(element, {
       '--reader-background': palette.background,

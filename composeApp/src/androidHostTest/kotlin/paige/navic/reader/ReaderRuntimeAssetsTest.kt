@@ -1631,7 +1631,7 @@ class ReaderRuntimeAssetsTest {
 			.substringAfter("async function ensureCompletePaginationProfile(")
 			.substringBefore("function shouldUseFreshPaginationProfile(")
 
-		assertContains(pagination, "runtimeVersion: 'navic-reader-pagination-profile-4'")
+		assertContains(pagination, "runtimeVersion: 'navic-reader-pagination-profile-5'")
 		assertContains(pagination, "const ReaderPaginationProfileAuthorityCommitReceipt = 'paginator-commit-receipt'")
 		assertContains(pagination, "const ReaderPaginationProfileMaximumCommitTransactionAttempts = 3")
 		assertContains(pagination, "function paginationProfileTaskIsCurrent(")

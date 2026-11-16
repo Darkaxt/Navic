@@ -1040,6 +1040,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	// Rendered closed-book leaves keyed by cover revision and exact region. They never belong to a
 	// prepared Foliate deck, so deck release never recycles them; replaced entries are left to GC.
 	private val closedBookBitmaps = LinkedHashMap<String, Bitmap>()
+
+	// Escape hatch: a deck the renderer rejects because of a closed-book leaf turns the endpoint
+	// off for this reader and re-prepares with the plain boundary filler, so a bad cover render can
+	// never strand the initial preparation.
+	private var closedBookDisabled = false
+	private val closedBookDeckGenerations = LinkedHashSet<Long>()
 	private val settlementMutationFence = ReaderPageSettlementMutationFence()
 	private val hostOwnedTerminalGestureIds = mutableSetOf<Long>()
 	private var presentedFrameRequestId: Long? = null
@@ -1569,6 +1575,31 @@ internal class ReaderPlayLikeCurlFoliateController(
 						"Ignored superseded PlayLikeCurl render failure " +
 							"generation=$generationId reason=${failure.reason}"
 					)
+					return
+				}
+				if (
+					closedBookDeckGenerations.remove(generationId) &&
+					failure.reason == RenderFailureReason.BITMAP
+				) {
+					closedBookDisabled = true
+					closedBookBitmaps.clear()
+					finishActiveGesture(
+						ReaderPageGestureTerminalOutcome.FailedRenderer,
+						ReaderPageGestureTerminalDetail.RenderFailed(
+							failure.generationId,
+							failure.reason
+						)
+					)
+					Logger.e(
+						ReaderPlayLikeCurlFoliateControllerTag,
+						"PlayLikeCurl closed-book deck rejected generation=$generationId; " +
+							"closed-book endpoint disabled, re-preparing"
+					)
+					host.post {
+						if (destroyed) return@post
+						invalidate("closed-book-render-failure")
+						if (enabled) onRequestPrewarm()
+					}
 					return
 				}
 				updateReadiness(
@@ -5283,6 +5314,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		leaf: ReaderPlayLikeCurlPhysicalLeaf,
 		fallbackOrdinal: Int
 	): PageImage<Bitmap>? {
+		if (closedBookDisabled) return null
 		val renderer = closedBookPageRenderer ?: return null
 		val borrowed = deck.value(fallbackOrdinal) ?: return null
 		val foliateLeaf = readerPlayLikeCurlFillerFoliateLeaf(profile.orientation, leaf)
@@ -5328,7 +5360,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 			displayRect,
 			bitmap,
 			material
-		)
+		).also {
+			closedBookDeckGenerations += generationId
+			while (closedBookDeckGenerations.size > 8) {
+				closedBookDeckGenerations.remove(closedBookDeckGenerations.first())
+			}
+		}
 	}
 
 	/**

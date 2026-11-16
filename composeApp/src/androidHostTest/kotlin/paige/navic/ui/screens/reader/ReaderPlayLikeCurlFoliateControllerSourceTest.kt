@@ -100,6 +100,34 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun aRejectedClosedBookDeckDisablesTheEndpointAndRePrepares() {
+		val source = controllerFile.readText()
+		val failure = source
+			.substringAfter("override fun onRenderFailure(failure: RenderFailure) {")
+			.substringBefore("private fun hasDecodedWorkingSetForCurrentOrdinal()")
+		val hatch = failure.indexOf("closedBookDeckGenerations.remove(generationId)")
+		val stuck = failure.indexOf("textureDeck = ReaderTextureDeckState.Failed")
+		assertTrue(hatch in 0 until stuck, "closed-book hatch must precede the terminal failure")
+		val branch = failure.substring(hatch, stuck)
+		assertContains(branch, "failure.reason == RenderFailureReason.BITMAP")
+		assertContains(branch, "closedBookDisabled = true")
+		assertContains(branch, "invalidate(\"closed-book-render-failure\")")
+		assertContains(branch, "onRequestPrewarm()")
+		val page = source
+			.substringAfter("private fun PreparedPages.closedBookPage(")
+			.substringBefore("private fun completeClosedBookSettlement(")
+		assertTrue(page.trimStart().let { it.indexOf("if (closedBookDisabled) return null") < it.indexOf("closedBookPageRenderer") })
+		assertContains(page, "closedBookDeckGenerations += generationId")
+
+		// The library rejects page bitmaps that advertise alpha; the cover render is opaque.
+		val render = hostFile.readText()
+			.substringAfter("override fun render(regionInWindow: Rect, width: Int, height: Int): Bitmap? {")
+			.substringBefore("override fun onDraw(canvas: Canvas) {")
+		assertContains(render, "native.setHasAlpha(false)")
+		assertContains(render, "scaled.setHasAlpha(false)")
+	}
+
+	@Test
 	fun productionControllerUsesFoliateRastersAndImportedSurface() {
 		assertTrue(controllerFile.isFile, "Production PlayLikeCurl controller must exist")
 		val source = controllerFile.readText()

@@ -951,8 +951,14 @@ private class KomikkuReaderNativeShellCoverView(context: Context) : View(context
 			(origin[1] - regionInWindow.top).toFloat()
 		)
 		drawShellCover(canvas, currentBitmap, presentation.width, presentation.height)
+		// drawShellCover fills every pixel opaquely; the curl renderer rejects page bitmaps that
+		// still advertise alpha.
+		native.setHasAlpha(false)
 		if (native.width == width && native.height == height) return native
-		return Bitmap.createScaledBitmap(native, width, height, true).also { native.recycle() }
+		return Bitmap.createScaledBitmap(native, width, height, true).also { scaled ->
+			scaled.setHasAlpha(false)
+			native.recycle()
+		}
 	}
 
 	override fun onDraw(canvas: Canvas) {

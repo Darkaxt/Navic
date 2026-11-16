@@ -509,7 +509,7 @@ function pageTurnRasterDescriptor(pageIndex) {
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
     // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
-    contentRenderRevision: 1,
+    contentRenderRevision: 2,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),

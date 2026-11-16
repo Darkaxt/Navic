@@ -470,7 +470,7 @@ function readerPaginationRenderMetadata() {
     spreadMode: width >= height ? 'dual' : 'single',
     ...this.readerPaginationSettingsMetadata(settings),
     adaptivePageBox,
-    runtimeVersion: 'navic-reader-pagination-profile-4',
+    runtimeVersion: 'navic-reader-pagination-profile-5',
   }
 }
 

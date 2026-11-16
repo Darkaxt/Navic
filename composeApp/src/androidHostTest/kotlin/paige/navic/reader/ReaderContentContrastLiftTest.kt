@@ -42,6 +42,24 @@ class ReaderContentContrastLiftTest {
 	}
 
 	@Test
+	fun overlongHeadingWordsShrinkToTheColumnInsteadOfSplitting() {
+		val typography = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val fit = typography
+			.substringAfter("const readerFitHeadingWords = heading => {")
+			.substringBefore("export const readerFitOverlongHeadingWords")
+		// Every fit starts from the heading's own size, then measures without the split.
+		assertTrue(fit.indexOf("heading.removeAttribute(ReaderHeadingFitAttribute)") < fit.indexOf("heading.scrollWidth"))
+		assertTrue(fit.indexOf("style.setProperty('overflow-wrap', 'normal', 'important')") < fit.indexOf("heading.scrollWidth"))
+		assertContains(fit, "Math.max(ReaderHeadingFitMinimumScale, (columnWidth / contentWidth) * 0.98)")
+		val install = typography
+			.substringAfter("export const readerFitOverlongHeadingWords")
+			.substringBefore("export const readerNormalizeChapterOpeningMargins")
+		assertContains(install, "doc.defaultView?.ResizeObserver")
+		assertContains(install, "if (widths.get(entry.target) === width) continue")
+		assertContains(renderProfile, "readerNormalizeChapterOpeningMargins(doc, settings)\n  readerFitOverlongHeadingWords(doc)")
+	}
+
+	@Test
 	fun contrastMathMatchesWcag() {
 		assertContains(renderProfile, "0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)")
 		assertContains(renderProfile, "(Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)")
