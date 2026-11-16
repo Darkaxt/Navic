@@ -476,6 +476,40 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun aPlanWithoutTheCurrentChapterDefersInsteadOfFailingTheRelayout() {
+		val query = requiredReaderSourceSlice(
+			source = readerRasterPreparationSource(),
+			startDelimiter = "private fun queryRasterPreparationPlan(",
+			endDelimiter = "candidateChapterRange = plan.preparedChapterRange()"
+		)
+		val absent = query.indexOf("if (plan.preparedChapterRange() == null) {")
+		val blocking = query.indexOf("val blockingTargets = plan.blockingTargetsOrNull()")
+		assertTrue(absent in 0 until blocking, "chapter-range check must precede the blocking window")
+		val deferral = query.substring(absent, blocking)
+		assertContains(deferral, "ReaderPageRasterBatchOutcome.Deferred(")
+		assertContains(deferral, "stage = \"raster-plan\"")
+		assertContains(deferral, "reason = \"pagination-not-ready\"")
+		assertFalse(deferral.contains("ReaderPageRasterBatchOutcome.Failed("))
+		// The deferral resumes on the pagination-ready event, like a missing plan.
+		val plan = ReaderPageRasterPreparationPlan(
+			centerPageIndex = 20,
+			pageCount = 40,
+			layoutMode = "spread",
+			readerDirection = ReaderPlayLikeCurlReaderDirection.Ltr,
+			step = 1,
+			currentChapterIndex = -1,
+			currentChapterPageStartIndex = -1,
+			currentChapterPageCount = 0,
+			previousChapterPageStartIndex = -1,
+			previousChapterPageCount = 0,
+			nextChapterPageStartIndex = -1,
+			nextChapterPageCount = 0,
+			targets = emptyList()
+		)
+		assertEquals(null, plan.preparedChapterRange())
+	}
+
+	@Test
 	fun immediateDeckCannotPublishReadyBeforeTheCurrentChapterIsDurable() {
 		val source = readerRasterPreparationSource()
 		val initialDeck = requiredReaderSourceSlice(

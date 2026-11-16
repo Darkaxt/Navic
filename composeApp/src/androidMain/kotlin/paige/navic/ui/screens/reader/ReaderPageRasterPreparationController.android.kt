@@ -1636,6 +1636,25 @@ internal class ReaderPageRasterPreparationController(
 				detail = "session=$session layout=${plan.layoutMode} center=${plan.centerPageIndex} " +
 					"targets=${plan.targets.size}"
 			)
+			// A plan read while a relayout's new pagination profile is still landing has no chapter
+			// for the current page. That is "not ready yet", not a broken chapter: defer it to the
+			// pagination-ready retry (bounded by the automatic retry limit) instead of failing the
+			// relayout behind a Retry dialog.
+			if (plan.preparedChapterRange() == null) {
+				logPrewarmBoundary(
+					event = "chapter-range-absent",
+					detail = "session=$session center=${plan.centerPageIndex} " +
+						"chapter=${plan.currentChapterIndex} pages=${plan.pageCount}"
+				)
+				finishPrewarm(
+					ReaderPageRasterBatchOutcome.Deferred(
+						stage = "raster-plan",
+						pageIndex = plan.centerPageIndex,
+						reason = "pagination-not-ready"
+					)
+				)
+				return@plan
+			}
 			val blockingTargets = plan.blockingTargetsOrNull()
 			if (blockingTargets == null) {
 				finishPrewarm(
