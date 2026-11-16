@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
   build:
-    if: ${{ startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-') }}
+    if: ${{ startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-') && github.repository == 'ssalggnikool/Navic' }}
     runs-on: ubuntu-latest
 
     steps:

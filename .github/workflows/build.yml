@@ -151,7 +151,7 @@ jobs:
 
   build-ipa:
     name: Build iOS IPA
-    if: ${{ (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) || (github.event_name == 'workflow_dispatch' && inputs.build_ios) }}
+    if: ${{ (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && github.repository == 'ssalggnikool/Navic') || (github.event_name == 'workflow_dispatch' && inputs.build_ios) }}
     runs-on: macos-26
     timeout-minutes: 45
     continue-on-error: ${{ startsWith(github.ref, 'refs/tags/v') }}
