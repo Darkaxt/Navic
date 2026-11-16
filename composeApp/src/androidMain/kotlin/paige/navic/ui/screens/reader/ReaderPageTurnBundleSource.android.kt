@@ -1140,6 +1140,7 @@ private data class ReaderPageRasterDescriptorIdentity(
 private data class ReaderPageRasterRetentionChapter(
 	val generation: Long,
 	val publicationHash: String,
+	val paginationHash: String,
 	val spineIndex: Int
 )
 
@@ -2134,13 +2135,15 @@ internal class ReaderPageTurnBundleSource(
 		return ReaderPageRasterRetentionChapter(
 			generation = identity.generation,
 			publicationHash = key.publicationHash,
+			paginationHash = key.paginationHash,
 			spineIndex = key.spineIndex
 		)
 	}
 
 	/**
 	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's rasters
-	 * two or more chapters behind it in every pagination, layout and quality. The cache itself keeps
+	 * two or more chapters behind it in every pagination, layout and quality, plus paginations
+	 * superseded by font/layout changes beyond the most recent few. The cache itself keeps
 	 * the pinned encoded window, so the displayed pages are never removed.
 	 */
 	fun retireRasterChaptersBehindCurrent() {
@@ -2155,7 +2158,8 @@ internal class ReaderPageTurnBundleSource(
 			if (closed) return@launch
 			val removed = scheduler.discardChaptersBehind(
 				publicationHash = chapter.publicationHash,
-				currentSpineIndex = chapter.spineIndex
+				currentSpineIndex = chapter.spineIndex,
+				currentPaginationHash = chapter.paginationHash
 			)
 			if (removed > 0) {
 				Logger.i(

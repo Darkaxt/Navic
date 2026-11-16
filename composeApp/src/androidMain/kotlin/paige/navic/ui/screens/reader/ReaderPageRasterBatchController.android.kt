@@ -134,7 +134,8 @@ internal class ReaderPageRasterCancellationJoin(
 internal fun readerPageRasterBlockingWindow(
 	centerPageIndex: Int,
 	step: Int,
-	pageCount: Int
+	pageCount: Int,
+	radius: Int = ReaderPageRasterBlockingRadius
 ): List<Int> {
 	if (centerPageIndex !in 0 until pageCount || step <= 0) return emptyList()
 	return buildList {
@@ -144,12 +145,12 @@ internal fun readerPageRasterBlockingWindow(
 				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
 				?.let(::add)
 		}
-		(2..ReaderPageRasterBlockingRadius).forEach { offset ->
+		(2..radius).forEach { offset ->
 			(centerPageIndex + offset * step)
 				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
 				?.let(::add)
 		}
-		(2..ReaderPageRasterBlockingRadius).forEach { offset ->
+		(2..radius).forEach { offset ->
 			(centerPageIndex - offset * step)
 				.takeIf { pageIndex -> pageIndex in 0 until pageCount }
 				?.let(::add)

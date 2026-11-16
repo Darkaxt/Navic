@@ -36,6 +36,9 @@ internal data class ReaderPageRasterCacheMetrics(
 	val encodePinnedIdentities: Int
 )
 
+/** Superseded paginations kept per book, so reverting a setting or rotating back stays instant. */
+internal const val ReaderPageRasterRetainedPreviousPaginations = 2
+
 internal class ReaderPageRasterCache<T : Any>(
 	private val root: File,
 	private val codec: ReaderPageRasterCodec<T>,
@@ -646,15 +649,35 @@ internal class ReaderPageRasterCache<T : Any>(
 	 * [currentSpineIndex] across every pagination, layout and quality, keeping the previous chapter.
 	 * The pinned encoded window, the protected chapter and protected decoded pages always survive.
 	 */
-	fun discardChaptersBehind(publicationHash: String, currentSpineIndex: Int): Int {
+	/**
+	 * Discards this book's rasters two or more chapters behind [currentSpineIndex] and, when
+	 * [currentPaginationHash] is given, every pagination (font, size, margins, orientation...) other
+	 * than the current one and the [ReaderPageRasterRetainedPreviousPaginations] most recently used.
+	 */
+	fun discardChaptersBehind(
+		publicationHash: String,
+		currentSpineIndex: Int,
+		currentPaginationHash: String? = null
+	): Int {
 		if (!storageAvailable) return 0
 		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
 		val removed = synchronized(this) {
 			val protection = encodedWindowProtection
+			val keptPaginations = currentPaginationHash?.let { current ->
+				entries.values
+					.filter { it.key.publicationHash == publicationHash && it.key.paginationHash != current }
+					.groupBy { it.key.paginationHash }
+					.mapValues { (_, group) -> group.maxOf { it.lastAccessEpochMillis } }
+					.entries
+					.sortedByDescending { it.value }
+					.take(ReaderPageRasterRetainedPreviousPaginations)
+					.mapTo(mutableSetOf(current)) { it.key }
+			}
 			val discarded = entries.values.filter { entry ->
 				val key = entry.key
 				key.publicationHash == publicationHash &&
-					key.spineIndex < currentSpineIndex - 1 &&
+					(key.spineIndex < currentSpineIndex - 1 ||
+						(keptPaginations != null && key.paginationHash !in keptPaginations)) &&
 					key.chapter != protectedChapter &&
 					!(decoded.containsKey(key.digest) &&
 						key.visualPageOrdinal in protectedDecodedPageIndices) &&

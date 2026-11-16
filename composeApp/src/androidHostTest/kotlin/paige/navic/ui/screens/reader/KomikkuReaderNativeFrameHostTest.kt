@@ -206,6 +206,22 @@ class KomikkuReaderNativeFrameHostTest {
 		val begin = source.substringAfter("private fun beginReadableLayoutRegeneration()").substringBefore("\n\t}")
 		assertContains(begin, "if (shellCoverVisible) return")
 		assertContains(begin, "lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden")
+		assertContains(begin, "readableBeforeSettingsMutation")
+		// A settings mutation captures readability when it starts, before its relocations publish
+		// the cover, and keeps the flag (and prewarm gate) until it commits or is cancelled.
+		val started = source.substringAfter("private fun onSettingsMutationStarted()").substringBefore("\n\t}")
+		assertContains(started, "settingsMutationInFlight = true")
+		assertContains(started, "if (readableBeforeSettingsMutation) regeneratingReadableLayout = true")
+		assertContains(started, "removePageTurnPrewarmLayoutListener()")
+		val finished = source.substringAfter("private fun onSettingsMutationFinished()").substringBefore("\n\t}")
+		assertContains(finished, "settingsMutationInFlight = false")
+		assertContains(finished, "requestPageTurnPrewarmWhenReady()")
+		assertContains(source, "merged.presentation == ReaderPagePreparationPresentation.Hidden && !settingsMutationInFlight")
+		val prewarm = source.substringAfter("private fun requestPageTurnPrewarmWhenReady()").substringBefore("task4ResourceTeardownStarted ||")
+		assertContains(prewarm, "if (settingsMutationInFlight) return")
+		for (relayout in listOf("\"settings-changed\"", "\"reading-direction\"", "\"size-changed\"")) {
+			assertContains(source.substringAfter("pageRasterPreparationController.invalidate(\n\t\t\treason = $relayout").take(80),"layoutRegeneration = regeneratingReadableLayout", message = relayout)
+		}
 		for (exit in listOf(
 			"playLikeCurlController.invalidate(\"viewer-replaced\")",
 			"playLikeCurlController.invalidate(\"shell-cover-visible\")",

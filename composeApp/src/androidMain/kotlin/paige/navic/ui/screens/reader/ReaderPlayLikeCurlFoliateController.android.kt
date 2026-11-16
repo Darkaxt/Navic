@@ -1865,6 +1865,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		setPageOperationPolicy(state.operationPolicy)
 		preparationPhase = state.phase
+		val backgroundPreparationStarted = !backgroundPreparationInProgress
 		backgroundPreparationInProgress = readerPagePreparationIsBackground(state)
 		if (!enabled || destroyed) return
 		logActivationState(
@@ -1945,6 +1946,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 						interaction = blockingPreparationState(),
 						reason = "raster-preparation-blocking"
 					)
+					// A relayout session released early: build the deck from the stored window
+					// once, while the rest of the chapter keeps preparing.
+					if (
+						backgroundPreparationStarted &&
+						backgroundPreparationInProgress &&
+						activePages == null &&
+						activeDeckGenerationId == null
+					) {
+						refreshPreparedDeck()
+					}
 				}
 			}
 			ReaderPagePreparationPhase.Idle -> Unit

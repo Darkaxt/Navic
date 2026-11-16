@@ -51,6 +51,34 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 	}
 
 	@Test
+	fun mutationLifecycleBracketsCommitAndCancel() {
+		val events = mutableListOf<String>()
+		val ownership = ReaderForegroundWebViewOwnership()
+		val coordinator = ReaderSettingsWebViewMutationCoordinator(
+			ownership = ownership,
+			onSnapshotCommitted = { events += "snapshot:$it" },
+			onMutationStarted = { events += "started" },
+			onMutationFinished = { events += "finished" }
+		)
+		val readiness = mutableListOf<ReaderSettingsWebViewMutationReadiness>()
+
+		coordinator.acquireSettingsMutation(requestId = 3L, readiness::add)
+		val committed = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(readiness.single()).mutation
+		assertEquals(listOf("started"), events)
+		assertTrue(committed.commit(snapshotKey = 5))
+		assertFalse(committed.cancel())
+		assertEquals(listOf("started", "snapshot:5", "finished"), events)
+
+		events.clear()
+		coordinator.acquireSettingsMutation(requestId = 4L, readiness::add)
+		val cancelled = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(readiness.last()).mutation
+		assertTrue(cancelled.cancel())
+		assertFalse(cancelled.commit(snapshotKey = 6))
+		assertEquals(listOf("started", "finished"), events)
+		assertEquals(0, ownership.snapshot().liveClaims)
+	}
+
+	@Test
 	fun failedPassiveRestorationRejectsSettingsMutationWithoutChangingSnapshot() {
 		var finishRestoration:
 			((ReaderPageRasterCancellationRestoration) -> Unit)? = null

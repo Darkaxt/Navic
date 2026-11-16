@@ -21,7 +21,8 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 	private val ownership: ReaderForegroundWebViewOwnership,
 	private val claim: ReaderForegroundWebViewLiveClaim,
 	private val generation: ReaderForegroundWebViewMutationGeneration,
-	private val onSnapshotCommitted: (Int) -> Unit
+	private val onSnapshotCommitted: (Int) -> Unit,
+	private val onFinished: () -> Unit = {}
 ) {
 	private var terminal = false
 
@@ -36,6 +37,7 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 			if (current) onSnapshotCommitted(snapshotKey)
 		} finally {
 			ownership.releaseLive(claim)
+			onFinished()
 		}
 		return current
 	}
@@ -43,13 +45,23 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 	fun cancel(): Boolean {
 		if (terminal) return false
 		terminal = true
-		return ownership.releaseLive(claim)
+		return try {
+			ownership.releaseLive(claim)
+		} finally {
+			onFinished()
+		}
 	}
 }
 
+/**
+ * [onMutationStarted] runs when a settings mutation is handed out and [onMutationFinished] once it
+ * commits or is cancelled, so the host can treat the whole relayout as one operation.
+ */
 internal class ReaderSettingsWebViewMutationCoordinator(
 	private val ownership: ReaderForegroundWebViewOwnership,
-	private val onSnapshotCommitted: (Int) -> Unit
+	private val onSnapshotCommitted: (Int) -> Unit,
+	private val onMutationStarted: () -> Unit = {},
+	private val onMutationFinished: () -> Unit = {}
 ) : ReaderSettingsWebViewMutationHost {
 	override fun acquireSettingsMutation(
 		requestId: Long,
@@ -75,13 +87,15 @@ internal class ReaderSettingsWebViewMutationCoordinator(
 				)
 				return@whenLiveReady
 			}
+			onMutationStarted()
 			onReadiness(
 				ReaderSettingsWebViewMutationReadiness.Ready(
 					ReaderSettingsWebViewMutation(
 						ownership = ownership,
 						claim = claim,
 						generation = generation,
-						onSnapshotCommitted = onSnapshotCommitted
+						onSnapshotCommitted = onSnapshotCommitted,
+						onFinished = onMutationFinished
 					)
 				)
 			)

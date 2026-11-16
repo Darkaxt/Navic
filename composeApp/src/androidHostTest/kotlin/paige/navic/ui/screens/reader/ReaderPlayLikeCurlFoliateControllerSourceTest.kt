@@ -1923,6 +1923,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("ReaderPagePreparationPhase.Preparing -> {")
 			.substringBefore("ReaderPagePreparationPhase.Idle -> Unit")
 		assertContains(preparing, "refillDecodedWorkingSet(centerOrdinal, \"raster-background-progress\")")
+		// A relayout session released early requests its deck once, on the background transition.
+		val early = preparing.substringAfter("\"raster-preparation-blocking\"")
+		assertContains(early, "backgroundPreparationStarted &&")
+		assertContains(early, "activeDeckGenerationId == null")
+		assertContains(early, "refreshPreparedDeck()")
 		// Only chapter-entry preparation defers a refill until the whole session is ready.
 		assertContains(
 			source,

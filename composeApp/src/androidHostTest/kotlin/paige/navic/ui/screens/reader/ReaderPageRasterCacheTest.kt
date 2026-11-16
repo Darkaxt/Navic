@@ -1428,6 +1428,36 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun supersededPaginationsBeyondTheMostRecentTwoAreDiscarded() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		var now = 1_000L
+		val clocked = ReaderPageRasterCache(
+			root = fixture.root,
+			codec = ByteArrayRasterCodec(),
+			maxDiskBytes = Long.MAX_VALUE,
+			maxDecodedEntries = 0,
+			clock = { now }
+		)
+		val paginations = listOf("font-a", "font-b", "font-c", "font-d")
+		val keys = paginations.map { pagination ->
+			now += 1_000L
+			chapterKey(5, pagination = pagination).also { rasterKey ->
+				assertTrue(clocked.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+			}
+		}
+		val otherBook = chapterKey(5, publication = "publication-2", pagination = "font-a")
+		assertTrue(clocked.write(otherBook, metadata(), pngBytes(otherBook.digest)))
+
+		assertEquals(1, clocked.discardChaptersBehind("publication-1", 5, currentPaginationHash = "font-d"))
+
+		assertFalse(clocked.contains(keys[0]))
+		assertFalse(clocked.pathFor(keys[0]).exists())
+		keys.drop(1).forEach { rasterKey -> assertTrue(clocked.contains(rasterKey)) }
+		assertTrue(clocked.contains(otherBook))
+		assertEquals(0, clocked.discardChaptersBehind("publication-1", 5, currentPaginationHash = "font-d"))
+	}
+
+	@Test
 	fun chapterRetentionNeverDiscardsThePinnedEncodedWindow() {
 		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
 		val pinnedBehind = chapterKey(spineIndex = 1, visualPageOrdinal = 9)

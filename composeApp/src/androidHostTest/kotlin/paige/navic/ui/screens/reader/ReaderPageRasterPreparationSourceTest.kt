@@ -262,7 +262,7 @@ class ReaderPageRasterPreparationSourceTest {
 	fun invalidationImmediatelyRestoresTheFullPreparationCover() {
 		val source = readerRasterPreparationSource()
 		val invalidation = source.substringAfter(
-			"fun invalidate(reason: String, clearVisualPageIndex: Boolean = false) {"
+			"fun invalidate(reason: String, clearVisualPageIndex: Boolean = false, layoutRegeneration: Boolean = false) {"
 		).substringBefore("\n\tfun invalidateCurrentVisualSnapshot(")
 
 		assertContains(invalidation, "hasPreparedBefore = false")
@@ -501,6 +501,33 @@ class ReaderPageRasterPreparationSourceTest {
 
 		assertFalse(initialDeck.contains("hasPreparedBefore ="))
 		assertFalse(batch.contains("hasPreparedBefore ="))
+		// Only a relayout of a readable chapter may release before the session ends, and only
+		// once the curl deck's whole window is stored; it publishes Preparing, never Ready.
+		val release = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "private fun releaseRelayoutOnceDeckWindowIsDurable()",
+			endDelimiter = "private fun isPrewarmSessionActive("
+		)
+		assertContains(batch, "releaseRelayoutOnceDeckWindowIsDurable()")
+		assertContains(release, "if (!relayoutEarlyRelease || hasPreparedBefore || retryPreparationInProgress) return")
+		assertContains(release, "radius = ReaderPageRasterRelayoutReleaseRadius")
+		assertContains(release, "!window.all(durableRasterPageIndices::contains)) return")
+		assertContains(release, "publishPreparationState(ReaderPagePreparationPhase.Preparing)")
+		assertFalse(release.contains("ReaderPagePreparationPhase.Ready"))
+		assertFalse(release.contains("publishReadyPreparationIfProven"))
+		assertEquals(
+			2,
+			source.split("relayoutEarlyRelease = layoutRegeneration").size - 1,
+			"only a layout invalidation or a quality change arms the relayout release"
+		)
+		assertEquals(listOf(10, 12, 8, 14, 6), readerPageRasterBlockingWindow(10, 2, 40, radius = 2))
+		assertEquals(listOf(0, 1, 2), readerPageRasterBlockingWindow(0, 1, 3, radius = 2))
+		val blocking = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "private fun enterBlockingPreparation(",
+			endDelimiter = "fun updateBitmapQuality("
+		)
+		assertTrue(blocking.indexOf("relayoutEarlyRelease = false") in 0 until blocking.indexOf("if (!hasPreparedBefore) return"))
 		assertContains(followUp, "checkNotNull(plan.blockingTargetsOrNull())")
 		assertContains(followUp, "totalRequired = blockingTargets.size")
 		assertContains(finish, "hasPreparedBefore = candidateBlockingPageIndices.isNotEmpty()")

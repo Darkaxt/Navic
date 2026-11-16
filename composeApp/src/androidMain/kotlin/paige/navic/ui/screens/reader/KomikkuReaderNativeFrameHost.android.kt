@@ -1206,7 +1206,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val settingsWebViewMutationCoordinator =
 		ReaderSettingsWebViewMutationCoordinator(
 			ownership = foregroundWebViewOwnership,
-			onSnapshotCommitted = ::setPageTurnSnapshotKey
+			onSnapshotCommitted = ::setPageTurnSnapshotKey,
+			onMutationStarted = ::onSettingsMutationStarted,
+			onMutationFinished = ::onSettingsMutationFinished
 		)
 	private val pagePointerRouter = ReaderPagePointerRouter(
 		lifecycle = ReaderPageGestureLifecycle(),
@@ -1680,11 +1682,35 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var regeneratingReadableLayout = false
 	private var lastPublishedPagePreparationPresentation = ReaderPagePreparationPresentation.Cover
 
+	// A settings mutation reflows the live page and posts relocations before it commits, so the
+	// readable state is captured when it starts: those intermediate events must not hide the page
+	// behind the cover, and no raster session may start against the half-applied layout.
+	private var settingsMutationInFlight = false
+	private var readableBeforeSettingsMutation = false
+
 	private fun beginReadableLayoutRegeneration() {
 		if (shellCoverVisible) return
-		if (lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden) {
+		if (
+			lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden ||
+			readableBeforeSettingsMutation
+		) {
 			regeneratingReadableLayout = true
 		}
+	}
+
+	private fun onSettingsMutationStarted() {
+		settingsMutationInFlight = true
+		readableBeforeSettingsMutation = !shellCoverVisible &&
+			lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden
+		if (readableBeforeSettingsMutation) regeneratingReadableLayout = true
+		removePageTurnPrewarmLayoutListener()
+	}
+
+	private fun onSettingsMutationFinished() {
+		settingsMutationInFlight = false
+		readableBeforeSettingsMutation = false
+		publishMergedPagePreparationState()
+		requestPageTurnPrewarmWhenReady()
 	}
 
 	private fun publishMergedPagePreparationState() {
@@ -1698,7 +1724,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			regeneratingReadableLayout = regeneratingReadableLayout
 		)
 		if (
-			merged.presentation == ReaderPagePreparationPresentation.Hidden ||
+			(merged.presentation == ReaderPagePreparationPresentation.Hidden && !settingsMutationInFlight) ||
 			merged.phase == ReaderPagePreparationPhase.Failed
 		) {
 			regeneratingReadableLayout = false
@@ -1748,6 +1774,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.RendererReplaced
 		)
+		settingsMutationInFlight = false
+		readableBeforeSettingsMutation = false
 		regeneratingReadableLayout = false
 		playLikeCurlController.invalidate("viewer-replaced")
 		pageRasterPreparationController.invalidate(
@@ -1817,7 +1845,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			reason = "reading-direction",
 			profileRegeneration = true
 		)
-		pageRasterPreparationController.invalidate("reading-direction")
+		pageRasterPreparationController.invalidate(
+			reason = "reading-direction",
+			layoutRegeneration = regeneratingReadableLayout
+		)
 		requestPageTurnPrewarmWhenReady()
 	}
 
@@ -1830,7 +1861,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		beginReadableLayoutRegeneration()
 		pageTurnBitmapQuality = normalized
 		playLikeCurlController.updateBitmapQuality(normalized.persistedValue)
-		pageRasterPreparationController.updateBitmapQuality(normalized.persistedValue)
+		pageRasterPreparationController.updateBitmapQuality(
+			normalized.persistedValue,
+			layoutRegeneration = regeneratingReadableLayout
+		)
 	}
 
 	/** Background-preparation options (#57); host-only, so they never regenerate the layout. */
@@ -1856,7 +1890,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		beginReadableLayoutRegeneration()
 		pageTurnSnapshotKey = snapshotKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
-		pageRasterPreparationController.invalidate("settings-changed")
+		pageRasterPreparationController.invalidate(
+			reason = "settings-changed",
+			layoutRegeneration = regeneratingReadableLayout
+		)
 		requestPageTurnPrewarmWhenReady()
 	}
 
@@ -2164,6 +2201,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun requestPageTurnPrewarmWhenReady() {
+		// One session per relayout: it starts when the settings mutation finishes.
+		if (settingsMutationInFlight) return
 		if (
 			task4ResourceTeardownStarted ||
 			!pageTurnCanvasEnabled ||
@@ -3236,7 +3275,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			ReaderPageHostLifecycleEvent.ViewportChanged
 		)
 		playLikeCurlController.onHostSizeChanged()
-		pageRasterPreparationController.invalidate("size-changed")
+		pageRasterPreparationController.invalidate(
+			reason = "size-changed",
+			layoutRegeneration = regeneratingReadableLayout
+		)
 		requestPageTurnPrewarmWhenReady()
 	}
 
