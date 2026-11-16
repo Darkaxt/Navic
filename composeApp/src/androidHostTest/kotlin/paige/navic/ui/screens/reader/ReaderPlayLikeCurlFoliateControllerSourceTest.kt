@@ -128,6 +128,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun aRendererFailureSurfacesRetryInsteadOfAStuckPreparationBar() {
+		val unsafe = hostFile.readText()
+			.substringAfter("onUnsafeLifecycleEvent = { event ->")
+			.substringBefore("onOwnershipMutated =")
+		assertContains(unsafe, "if (event == ReaderPageHostLifecycleEvent.GlFailed) {")
+		assertContains(unsafe, "pageRasterPreparationController.onRendererFailed()")
+		val raster = rasterPreparationFile.readText()
+			.substringAfter("fun onRendererFailed() {")
+			.substringBefore("fun onProfileBootstrapFailed() {")
+		assertContains(raster, "failCurrentPreparationGeneration(\"Page rendering failed.\")")
+		// The failure branch is the only one that publishes GlFailed.
+		val failure = controllerFile.readText()
+			.substringAfter("override fun onRenderFailure(failure: RenderFailure) {")
+			.substringBefore("private fun hasDecodedWorkingSetForCurrentOrdinal()")
+		assertContains(failure, "ReaderPageHostLifecycleEvent.GlFailed")
+	}
+
+	@Test
 	fun productionControllerUsesFoliateRastersAndImportedSurface() {
 		assertTrue(controllerFile.isFile, "Production PlayLikeCurl controller must exist")
 		val source = controllerFile.readText()

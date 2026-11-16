@@ -643,6 +643,15 @@ internal class ReaderPageRasterPreparationController(
 		return preparationGeneration
 	}
 
+	/**
+	 * The renderer rejected the deck it was presenting. Nothing else re-prepares it, so the
+	 * preparation fails with Retry instead of leaving a bar that never finishes.
+	 */
+	fun onRendererFailed() {
+		if (destroyed) return
+		failCurrentPreparationGeneration("Page rendering failed.")
+	}
+
 	fun onProfileBootstrapFailed() {
 		if (destroyed) return
 		failCurrentPreparationGeneration(

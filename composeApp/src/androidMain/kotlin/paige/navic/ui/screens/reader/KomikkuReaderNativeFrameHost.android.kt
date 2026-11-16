@@ -1374,6 +1374,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 					event == ReaderPageHostLifecycleEvent.GlFailed
 			)
 			dispatchPageHostLifecycleEvent(event)
+			if (event == ReaderPageHostLifecycleEvent.GlFailed) {
+				pageRasterPreparationController.onRendererFailed()
+			}
 		},
 		onOwnershipMutated = applicationOwnershipEpoch::ownerMutationCommitted,
 		onOwnershipAvailabilityEdge = ::retryOwnershipAdmission,
