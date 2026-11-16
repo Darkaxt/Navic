@@ -8,7 +8,9 @@ import android.view.MotionEvent
 import android.webkit.WebView
 import android.widget.FrameLayout
 import karacken.curl.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -1550,6 +1552,83 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			assertEquals(1, f.barrier.atomicCommitCount, "B408.Curl.NoSyntheticSuccessor")
 		}
 
+	/** Actual installed preparation -> passive receipt -> persistent hydration -> original deck.
+	 * The storage seam supplies independently keyed durable rasters, not cached snapshots or Ready.
+	 * Eight controlled offscreen-passive targets exercise durable read-through; CurrentLive writes,
+	 * PNG/filesystem publication and Foliate/GL execution remain outside this host regression. */
+	@OptIn(ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun eightDurableInstalledTargetsReadThroughTheirQualifiedKeysBeforeOriginalRendererAdmission() = runTest {
+		val dispatcher = UnconfinedTestDispatcher(testScheduler)
+		Dispatchers.setMain(dispatcher)
+		val f = MaterialFixture(dispatcher, legacySelection = false, installedForeground = true,
+			durableHandoff = true)
+		try {
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			f.beginBootstrap()
+			val durable = assertNotNull(f.durable)
+			durable.materialized.await()
+			durable.physicallyReturned.await()
+			assertEquals(8, durable.preparedCount, "A407.DeckHandoff.ReadyMeansEightCompletedTargets")
+			assertTrue(durable.requiredSnapshotAbsent, "A407.DeckHandoff.RequiredSnapshotActuallyEvicted")
+			assertEquals(8, durable.commits, "A407.DeckHandoff.EightReceiptQualifiedTargets")
+			assertEquals((0..7).toSet(), durable.warmReads.map { it.visualPageOrdinal }.toSet(),
+				"A407.DeckHandoff.AllTargetsHydrated")
+			assertTrue(durable.warmReads.all { it == durable.expectedKey(it.visualPageOrdinal) },
+				"A407.DeckHandoff.WarmReadsUseIndependentQualifiedKeys")
+			assertTrue(durable.deckReads.isNotEmpty(), "A407.DeckHandoff.ActualReadThroughRequired")
+			assertTrue(durable.deckReads.all { it == durable.expectedKey(it.visualPageOrdinal) },
+				"A407.DeckHandoff.SameQualifiedKeysAfterReady")
+			assertEquals(1, f.surface.originalSubmissionResults.size,
+				"A407.DeckHandoff.OriginalRendererBoundaryReached")
+			assertEquals(DeckRejectionReason.CAPABILITIES_UNAVAILABLE,
+				f.surface.originalSubmissionResults.single().rejectionReason,
+				"A407.DeckHandoff.OriginalRendererBoundaryReached")
+			assertEquals(0, f.surface.originalOwnershipTransfers, "A407.DeckHandoff.NoInventedGlOwnership")
+			assertEquals(0, f.barrier.atomicCommitCount, "A407.DeckHandoff.NoInventedPublication")
+			f.assertDurablePhysicalReturns()
+		} finally {
+			try {
+				try { f.close() } finally { f.closeDurableAndJoin() }
+			} finally { Dispatchers.resetMain() }
+		}
+	}
+
+	@OptIn(ExperimentalCoroutinesApi::class)
+	@Test
+	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
+	fun mismatchedDurableInstalledReadFailsClosedAndReturnsBothExactPhysicalOwners() = runTest {
+		val dispatcher = UnconfinedTestDispatcher(testScheduler)
+		Dispatchers.setMain(dispatcher)
+		val f = MaterialFixture(dispatcher, legacySelection = false, installedForeground = true,
+			durableHandoff = true)
+		try {
+			f.attachOriginalSurfaceToWindowAfterFreeze()
+			f.surface.forwardOriginalSubmissionAdmission = true
+			assertNotNull(f.durable).mismatchDeckKey = true
+			f.beginBootstrap()
+			val durable = assertNotNull(f.durable)
+			durable.materialized.await()
+			durable.physicallyReturned.await()
+			assertEquals(8, durable.preparedCount, "A407.DeckHandoff.ReadyMeansEightCompletedTargets")
+			assertTrue(durable.requiredSnapshotAbsent, "A407.DeckHandoff.RequiredSnapshotActuallyEvicted")
+			assertEquals(8, durable.commits, "A407.DeckHandoff.ControlWarmupCompleted")
+			assertTrue(durable.mismatchedReturns > 0, "A407.DeckHandoff.ControlWrongKeyActuallyReturned")
+			assertTrue(f.surface.submitted.isEmpty(), "A407.DeckHandoff.ControlNoRendererSubmission")
+			assertNull(f.candidate(), "A407.DeckHandoff.ControlNoPreparedCandidate")
+			assertEquals(ReaderTransitionOutcomeKind.Failed, f.coordinator.snapshot().lastOutcome,
+				"A407.DeckHandoff.ControlFailsClosed")
+			assertEquals(0, f.barrier.atomicCommitCount, "A407.DeckHandoff.ControlNoPublication")
+			f.assertDurablePhysicalReturns()
+		} finally {
+			try {
+				try { f.close() } finally { f.closeDurableAndJoin() }
+			} finally { Dispatchers.resetMain() }
+		}
+	}
+
 	/** Source/executor controls execute without the missing Engine API; not semantic/GL proof. */
 	@Test
 	@Config(shadows = [ReaderInstalledUnitPageSurfaceShadow::class])
@@ -1668,7 +1747,8 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 		private val legacySelection: Boolean = true,
 		private val foliateSessionId: String = "installed-material-public-fixture",
 		private val installedForeground: Boolean = false,
-		private val liveWebView: WebView? = null) {
+		private val liveWebView: WebView? = null,
+		durableHandoff: Boolean = false) {
 		private var semanticDispatches = 0
 		private var semanticOrigin: ReaderPresentationEventOrigin.SemanticCommand? = null
 		private var semanticReceiptConsumer: ((ReaderPresentationEventReceipt) -> Unit)? = null
@@ -1682,14 +1762,40 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 		}
 		private val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
 		private val host = FrameLayout(activity)
-		private val webView = liveWebView ?: WebView(activity)
-		val bundle = ReaderPageTurnBundleSource()
+		private val webView = liveWebView ?: if (durableHandoff) DurableHandoffWebView(activity) else WebView(activity)
+		val durable = if (durableHandoff) DurableHandoff() else null
+		val bundle = if (durable == null) ReaderPageTurnBundleSource() else ReaderPageTurnBundleSource(
+			descriptorPort = ReaderPageRasterDescriptorPort { _, page, callback ->
+				// Deliberately misleading foreground descriptor: the durable receipt key is different.
+				callback(durable.descriptor(page).copy(layoutFingerprint = "public-legacy-foreground-layout"))
+			}, hydrationStorePort = durable)
 		val geometry = ReaderPageTurnCaptureGeometry(120.0, 80.0, ReaderPageTurnLayoutMode.Single,
 			listOf(ReaderPageTurnPageRect(ReaderPageTurnPageRole.Full, 0.0, 0.0, 120.0, 80.0)))
-		val plan = ReaderPageRasterPreparationPlan(1, 3, "single", ReaderPlayLikeCurlReaderDirection.Ltr,
+		val plan = if (durable == null) ReaderPageRasterPreparationPlan(1, 3, "single", ReaderPlayLikeCurlReaderDirection.Ltr,
 			1, 0, 0, 3, -1, 0, -1, 0,
 			listOf(1, 2, 0).map { ReaderPageRasterBatchTarget(it, ReaderPageRasterPriority.CurrentChapter) },
 			geometry, ReaderFoliateResolvedLayout(11L, 13L, 0L, 0, 1, 3, 120.0, 80.0))
+		else ReaderPageRasterPreparationPlan(1, 8, "single", ReaderPlayLikeCurlReaderDirection.Ltr,
+			1, 0, 0, 8, -1, 0, -1, 0,
+			listOf(1, 2, 0, 3, 4, 5, 6, 7).map { ReaderPageRasterBatchTarget(it, ReaderPageRasterPriority.CurrentChapter) },
+			geometry, ReaderFoliateResolvedLayout(11L, 13L, 0L, 0, 1, 8, 120.0, 80.0))
+		private val durableAdapter = durable?.let { handoff ->
+			ReaderPassiveRasterPreparationAdapter(ReaderPassiveRasterPrototypeSession(handoff) { bitmap ->
+				if (!bitmap.isRecycled) bitmap.recycle()
+			}, ReaderPassiveRasterLiveManifestPort { page, epoch, raster, _, callback ->
+				callback(ReaderPassiveRasterManifestResolution.Available(ReaderPassiveRasterManifestInputs(
+					canonicalCommit = ReaderPassiveRasterCanonicalCommit(epoch, foliateSessionId, 1L,
+						"public-durable-destination", "public-realized-profile", "public-realized-pagination",
+						"public-realized-layout", "public-realized-decoration",
+						ReaderPassiveRasterGeometry(120, 80, 0, 0, 120, 80), raster,
+						profileAuthority = ReaderPassiveRasterProfileAuthority.PassiveRealized),
+					opaqueCaptureTarget = "public-durable-target-$page", visualPageOrdinal = page,
+					rasterDescriptor = handoff.descriptor(page))))
+			}, bundle, 1L)
+		}
+		private val durablePreparation = durableAdapter?.let { adapter -> ReaderPageRasterPreparationController(
+			host, { webView }, bundleSource = bundle, activatedSessionStore = installed.store,
+			passiveRasterPreparationPortProvider = { adapter }) }
 		val foreground = ReaderForegroundWebViewOwnership()
 		val curl: ReaderPlayLikeCurlFoliateController = ReaderPlayLikeCurlFoliateController(host, { webView },
 			foregroundWebViewOwnership = foreground, bundleSource = bundle,
@@ -1749,6 +1855,17 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 					work = ReaderActivatedRasterWork(installed.domain, installed.store, installed.snapshot, lease) {
 						coordinator.materialCommandIsCurrent(lease)
 					}
+					if (durablePreparation != null) {
+						assertEquals(ReaderPortCommandResult.Accepted, durablePreparation.prepareInstalled(work, plan,
+							onProgress = { callbacks.onProgress(lease) },
+							onReady = { callbacks.onProven(lease) },
+							onFailed = {
+								callbacks.onFailed(lease, ReaderTransitionFailureReason.PortRejected)
+								durable?.materialized?.completeExceptionally(AssertionError("A407.DeckHandoff.ActualWarmPreparationFailed"))
+							}),
+							"A407.DeckHandoff.ActualPreparationAccepted")
+						return
+					}
 					val started = installed.owner.startInstalledWithOutcome(installed.domain, installed.store,
 						installed.snapshot, lease, work::isCurrent, releasePhysicalPreparation = { returned -> returned(); true },
 						startPhysicalPreparation = { completed ->
@@ -1772,6 +1889,12 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 				}
 				override fun release(lease: ReaderRasterPreparationLease, onReleased: () -> Unit) {
 					assertEquals(work.lease, lease)
+					if (durablePreparation != null) {
+						assertEquals(ReaderPortCommandResult.Accepted, durablePreparation.releaseInstalled(work) {
+							rasterReturns++; onReleased(); durable?.onPhysicalReturn()
+						})
+						return
+					}
 					work.retire()
 					assertEquals(ReaderPortCommandResult.Accepted, work.preparationReturn.request(listOf(
 						{ returned -> installed.owner.releaseInstalled(lease, returned) },
@@ -1783,11 +1906,21 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			}, object : ReaderRendererDeckCommandPort {
 				override fun reserve(lease: ReaderDeckLease, callbacks: ReaderDeckLeaseFactEmitter) {
 					exactDeck = lease
-					assertEquals(ReaderPortCommandResult.Accepted, curl.reserveInstalledDeck(work, lease, coordinator::enqueue),
-						"B407.Deck.OriginalReservation")
+					durable?.let { handoff ->
+						handoff.preparedCount = durablePreparation?.installedPreparationFactsFor(work)?.completedCount ?: -1
+						handoff.requiredSnapshotAbsent = !bundle.hasSnapshot(1, ReaderPageTurnTransitionKind.PortraitSlide)
+						handoff.deckPhase = true
+					}
+					assertEquals(ReaderPortCommandResult.Accepted, curl.reserveInstalledDeck(work, lease) { fact ->
+						coordinator.enqueue(fact)
+						if (fact is ReaderTransitionFact.DeckRejected || fact is ReaderTransitionFact.DeckPrepared)
+							durable?.materialized?.complete(Unit)
+					}, "B407.Deck.OriginalReservation")
 				}
 				override fun release(lease: ReaderDeckLease, onReleased: () -> Unit) {
-					assertEquals(ReaderPortCommandResult.Accepted, curl.releaseInstalledDeck(lease, onReleased))
+					assertEquals(ReaderPortCommandResult.Accepted, curl.releaseInstalledDeck(lease) {
+						onReleased(); durable?.onPhysicalReturn()
+					})
 				}
 				override fun cancelPreparation(transitionId: ReaderTransitionId) = Unit
 			})
@@ -1830,9 +1963,13 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 						assertTrue(coordinator.materialCommandIsCurrent(command), "B407.Material.CommandCurrent")
 						val raster = assertNotNull(bundle.reserveActivatedRasterGeneration(command, installed.domain),
 							"B407.Material.OriginalRasterReservation")
+						val preparation = durablePreparation?.let {
+							assertNotNull(it.reserveActivatedPreparationGeneration(command, installed.domain),
+								"A407.DeckHandoff.OriginalPreparationReservation")
+						} ?: 1L
 						val allocation = b407ConstructionStage("B407.Material.AllocationConstruction") {
 							assertNotNull(curl.reserveActivatedMaterialBinding(command, installed.domain,
-								webView, plan, 1L, raster), "B407.Material.OriginalAllocation")
+								webView, plan, preparation, raster), "B407.Material.OriginalAllocation")
 						}
 						// Match the original Native allocation callback order. Only the actual Curl
 						// profile may qualify this authentic provisional bootstrap binding.
@@ -1879,6 +2016,12 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 					"E407.Foreground.OriginalSourceFrozen")
 				assertEquals(ReaderPortCommandResult.Accepted, foreground.finalizeActivatedHandoff(installed.domain),
 					"E407.Foreground.OriginalSourceFinalized")
+			}
+			if (durablePreparation != null) {
+				assertEquals(ReaderPortCommandResult.Accepted,
+					durablePreparation.freezeRasterPreparationOwnershipForTransitionActivation(installed.domain))
+				assertEquals(ReaderPortCommandResult.Accepted,
+					durablePreparation.finalizeRasterPreparationOwnershipAfterTransitionActivation(installed.domain))
 			}
 			assertEquals(ReaderPortCommandResult.Accepted, bundle.freezeForTransitionActivation(installed.domain))
 			assertEquals(ReaderPortCommandResult.Accepted, bundle.finalizeActivatedHandoff(installed.domain))
@@ -1950,7 +2093,7 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 
 		fun candidate() = exactDeck?.let { curl.installedNativeCandidate(it, null, 120, 80) }
 
-		fun start(expectPrepared: Boolean = true, expectSubmission: Boolean = true) {
+		fun beginBootstrap() {
 			if (!legacySelection) requireOriginalAtomicPublicationConsumer()
 			val reservation = assertNotNull(installed.snapshot.initialDecision?.neutralBootstrapReservation,
 				"B407.Semantic.OriginalReservation")
@@ -1975,6 +2118,10 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			b407ConstructionStage("B407.Semantic.ReceiptDelivery") {
 				assertNotNull(semanticReceiptConsumer, "B407.Semantic.OriginalCallback").invoke(receipt)
 			}
+		}
+
+		fun start(expectPrepared: Boolean = true, expectSubmission: Boolean = true) {
+			beginBootstrap()
 			assertEquals(1, commands.filterIsInstance<ReaderTransitionCommand.AllocateMaterialBinding>().size,
 				"B407.Material.AllocationCommandCount")
 			assertEquals(1, commands.filterIsInstance<ReaderTransitionCommand.RequestRasterPreparation>().size,
@@ -2091,6 +2238,17 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			coordinator.enqueue(ReaderTransitionFact.FoliateDestinationCommitted(null, destination))
 		}
 
+		fun assertDurablePhysicalReturns() {
+			assertEquals(1, rasterReturns, "A407.DeckHandoff.ExactRasterReturnedOnce")
+			assertEquals(2, assertNotNull(durable).physicalReturns, "A407.DeckHandoff.BothOriginalReturnsOnce")
+			assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(work.lease.resourceKey),
+				"A407.DeckHandoff.RasterLedgerReturned")
+			assertEquals(ReaderTransitionResourceState.Released, coordinator.releaseStateOf(assertNotNull(deck).resourceKey),
+				"A407.DeckHandoff.DeckLedgerReturned")
+			assertTrue(assertNotNull(durable).copies.all { it.isRecycled }, "A407.DeckHandoff.AllHydratedCopiesReturned")
+			assertFalse(curl.originalLegacyDeckAdmissionRestored, "A407.DeckHandoff.NoLegacyReopen")
+		}
+
 		fun close() {
 			installed.executor.clear()
 			installed.registry.clear()
@@ -2101,6 +2259,10 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			exactDeck?.let { retained ->
 				if (curl.installedDeckFor(retained.resourceKey) != null) curl.releaseInstalledDeck(retained) { }
 			}
+			if (::work.isInitialized && durablePreparation?.installedWorkFor(work.lease.resourceKey) === work) {
+				durablePreparation?.releaseInstalled(work) { }
+			}
+			durableAdapter?.close()
 			if (::work.isInitialized && installed.owner.installedWorkFor(work.lease.resourceKey) === work) {
 				work.retire()
 				installed.owner.releaseInstalled(work.lease) { }
@@ -2109,12 +2271,115 @@ class ReaderInstalledRasterPreparationOwnershipHostTest {
 			activity.finish()
 		}
 
+		suspend fun closeDurableAndJoin() {
+			durableAdapter?.close()
+			curl.destroy().await()
+			durablePreparation?.destroyAndJoin()
+		}
+
 		fun anchor(boundary: Long): ReaderWhispersyncAnchorReceipt {
 			val lease = assertNotNull(exactDeck)
 			return ReaderWhispersyncAnchorReceipt(lease.binding.foliateSessionId, "public-material-destination", 1, 0,
 				lease.rasterGeneration, lease.textureGeneration, 1L, 1L, 1L, boundary, 11L, 13L, 1L, 0, 1, 3,
 				"public-pagination", "public-layout", "public-settings", geometry,
 				listOf(ReaderWhispersyncPageLocalRect(ReaderPageTurnPageRole.Full, 10.0 + boundary, 10.0, 12.0, 8.0)))
+		}
+	}
+
+	/** Lowest storage/runtime seams only: real hydration owns every returned bitmap, and the
+	 * original session validates each public receipt. No onReady/onProven facts originate here. */
+	internal class DurableHandoff : ReaderPageRasterHydrationStorePort, ReaderPassiveRasterRuntimePort<Bitmap> {
+		val materialized = CompletableDeferred<Unit>()
+		val physicallyReturned = CompletableDeferred<Unit>()
+		val warmReads = java.util.Collections.synchronizedList(mutableListOf<ReaderPageRasterKey>())
+		val deckReads = java.util.Collections.synchronizedList(mutableListOf<ReaderPageRasterKey>())
+		val copies = java.util.Collections.synchronizedList(mutableListOf<Bitmap>())
+		@Volatile var deckPhase = false
+		var preparedCount = -1
+		var requiredSnapshotAbsent = false
+		var mismatchDeckKey = false
+		var mismatchedReturns = 0
+			private set
+		var commits = 0
+			private set
+		var physicalReturns = 0
+			private set
+		override val passiveSessionId = "public-durable-passive-session"
+		override val isReady = true
+
+		fun descriptor(page: Int) = ReaderPageRasterDescriptor(
+			"https://example.org/public-durable-fixture.epub", "public-realized-pagination",
+			"public-realized-layout", "public-realized-decoration", 120, 80, 8, 0,
+			"public-chapter.xhtml", page, 8, page)
+
+		// Independent expected key: do not obtain it from the descriptor/provider under test.
+		fun expectedKey(page: Int) = ReaderPageRasterKey(
+			publicationHash = publicHash("https://example.org/public-durable-fixture.epub"),
+			paginationHash = "public-realized-pagination", spineIndex = 0,
+			hrefHash = publicHash("public-chapter.xhtml"), chapterPageIndex = page,
+			visualPageOrdinal = page, viewportWidth = 120, viewportHeight = 80,
+			layoutHash = "public-realized-layout", decorationHash = "public-realized-decoration",
+			quality = ReaderPageBitmapQuality.Balanced)
+
+		private fun publicHash(value: String) = java.security.MessageDigest.getInstance("SHA-256")
+			.digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
+
+		override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>? {
+			val deck = deckPhase
+			(if (deck) deckReads else warmReads).add(key)
+			val returnedKey = if (deck && mismatchDeckKey) {
+				mismatchedReturns++
+				key.copy(layoutHash = "public-wrong-stored-layout")
+			} else {
+				if (key != expectedKey(key.visualPageOrdinal)) return null
+				key
+			}
+			val bitmap = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888).apply {
+				eraseColor(0xFFF8F4E8.toInt()); setHasAlpha(false)
+			}
+			copies.add(bitmap)
+			return ReaderPageRaster(returnedKey, ReaderPageRasterMetadata(0, 0, 120, 80,
+				ReaderPageRasterRect(0, 0, 120, 80), null, null, null, 0xFFF8F4E8.toInt()), bitmap)
+		}
+
+		override suspend fun remove(key: ReaderPageRasterKey, expectedMetadata: ReaderPageRasterMetadata) = false
+
+		override fun commit(manifest: ReaderPassiveRasterCaptureManifest, captureTarget: String,
+			passiveCommitSequence: Long, onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit) {
+			commits++
+			onCommitted(ReaderPassiveRasterCaptureReceipt(
+				passiveSessionId = passiveSessionId, echoedManifestSequence = manifest.manifestSequence,
+				echoedCaptureEpoch = manifest.captureEpoch, echoedLiveFoliateSessionId = manifest.liveFoliateSessionId,
+				echoedPublicationSessionGeneration = manifest.publicationSessionGeneration,
+				echoedDestinationCommitToken = manifest.destinationCommitToken, echoedCaptureBasis = manifest.captureBasis,
+				observedCaptureTarget = captureTarget, observedVisualPageOrdinal = manifest.visualPageOrdinal,
+				observedRasterProfileKey = "public-realized-profile", observedPaginationFingerprint = "public-realized-pagination",
+				observedLayoutFingerprint = "public-realized-layout", observedDecorationFingerprint = "public-realized-decoration",
+				observedViewportAndCaptureGeometry = ReaderPassiveRasterGeometry(120, 80, 0, 0, 120, 80),
+				echoedRasterGeneration = manifest.rasterGeneration, passiveCommitSequence = passiveCommitSequence))
+		}
+
+		override fun capture(geometry: ReaderPassiveRasterGeometry, onCaptured: (Bitmap?) -> Unit) {
+			error("A407.DeckHandoff.DurableFixtureMustNotRecapture")
+		}
+		override fun cancelActiveCommit(onDrained: () -> Unit) = onDrained()
+		override fun pause() = Unit
+		override fun resume() = Unit
+		override fun destroy() = Unit
+		fun onPhysicalReturn() {
+			physicalReturns++
+			if (physicalReturns == 2) physicallyReturned.complete(Unit)
+		}
+	}
+
+	/** The original bitmap-source capture still admits/returns its visual/draw owners. */
+	private class DurableHandoffWebView(context: Context) : WebView(context) {
+		override fun postVisualStateCallback(requestId: Long, callback: VisualStateCallback) = callback.onComplete(requestId)
+		override fun postOnAnimation(action: Runnable) = action.run()
+		override fun draw(canvas: android.graphics.Canvas) {
+			canvas.drawColor(0xFFF8F4E8.toInt())
+			val ink = android.graphics.Paint().apply { color = android.graphics.Color.BLACK }
+			canvas.drawRect(0f, 0f, 60f, 80f, ink)
 		}
 	}
 
