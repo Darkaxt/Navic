@@ -69,6 +69,53 @@ class ReaderPagePaperSplitTest {
 	}
 
 	@Test
+	fun lightTextOnDarkPaperRoundTrips() {
+		val darkForeground = 0xFFD8D4CC.toInt()
+		val darkBackground = 0xFF25232B.toInt()
+		val darkReference = ReaderPagePaperReference("0123abcd-0.0.64x48", darkForeground, darkBackground)
+		val darkPaper = { x: Int, y: Int ->
+			val grain = 30 + ((x * 37 + y * 11) % 12)
+			(0xFF shl 24) or (grain shl 16) or ((grain - 2) shl 8) or (grain + 6)
+		}
+		// Independent of the recomposer: C = P * (1 - a + a * F / B) per channel.
+		val composite = { x: Int, y: Int ->
+			val paper = darkPaper(x, y)
+			val a = coverageAt(x, y) / 255.0
+			var pixel = 0xFF shl 24
+			for (shift in intArrayOf(16, 8, 0)) {
+				val t = ((darkForeground ushr shift) and 0xFF).toDouble() / ((darkBackground ushr shift) and 0xFF)
+				val value = (((paper ushr shift) and 0xFF) * (1.0 - a + a * t)).let { Math.round(it).toInt() }
+				pixel = pixel or (value.coerceIn(0, 255) shl shift)
+			}
+			pixel
+		}
+		val output = ByteArrayOutputStream()
+		assertTrue(
+			readerPaperSplitEncode(
+				width = width,
+				height = height,
+				reference = darkReference,
+				compositeRow = { y, row -> for (x in 0 until width) row[x] = composite(x, y) },
+				paperRow = { y, row -> for (x in 0 until width) row[x] = darkPaper(x, y) },
+				output = output
+			)
+		)
+		val input = ByteArrayInputStream(output.toByteArray())
+		val header = assertNotNull(readerPaperSplitReadHeader(input))
+		val decoded = Array(height) { IntArray(width) }
+		readerPaperSplitDecodeRows(
+			header = header,
+			input = input,
+			paperRow = { y, row -> for (x in 0 until width) row[x] = darkPaper(x, y) },
+			outputRow = { y, row -> row.copyInto(decoded[y]) }
+		)
+		for (y in 0 until height) for (x in 0 until width) for (shift in intArrayOf(16, 8, 0)) {
+			val delta = abs(((composite(x, y) ushr shift) and 0xFF) - ((decoded[y][x] ushr shift) and 0xFF))
+			assertTrue(delta <= 3, "pixel $x,$y channel $shift differs by $delta")
+		}
+	}
+
+	@Test
 	fun colouredContentThatTextCannotExplainIsRejected() {
 		val recomposer = ReaderPaperSplitRecomposer(foreground, background)
 		val (ok, _) = encode { x, y ->

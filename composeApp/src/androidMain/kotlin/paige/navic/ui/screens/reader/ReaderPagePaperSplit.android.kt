@@ -44,11 +44,13 @@ internal data class ReaderPagePaperReference(
 
 private fun channel(color: Int, shift: Int): Int = (color ushr shift) and 0xFF
 
+// Light text on a dark theme gives t > 1: the paper layers multiply it all the same, so the model
+// holds and t must not be capped at 1 (that left every dark-theme page as a full PNG).
 internal fun readerPaperSplitTint(foreground: Int, background: Int): DoubleArray =
 	DoubleArray(3) { index ->
 		val shift = intArrayOf(16, 8, 0)[index]
 		val bg = channel(background, shift)
-		if (bg == 0) 1.0 else (channel(foreground, shift).toDouble() / bg).coerceIn(0.0, 1.0)
+		if (bg == 0) 1.0 else channel(foreground, shift).toDouble() / bg
 	}
 
 /** Per channel, per coverage: the factor (x256) the paper is multiplied by. */
