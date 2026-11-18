@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import coil3.PlatformContext as CoilPlatformContext
 import coil3.imageLoader
 import paige.navic.domain.manager.DownloadManager
@@ -21,6 +22,7 @@ internal class AndroidMediaItemFactory(
 	private val playbackArtworkForSong: (DomainSong) -> PlaybackArtworkResolution,
 	private val streamUriForSongId: (String) -> Uri
 ) {
+	@OptIn(UnstableApi::class)
 	fun toMediaItem(song: DomainSong): MediaItem {
 		val metadataBuilder = MediaMetadata.Builder()
 			.setTitle(song.title)
@@ -28,6 +30,7 @@ internal class AndroidMediaItemFactory(
 			.setArtist(song.artistName)
 			.setAlbumTitle(song.albumTitle)
 			.setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+			.setDurationMs(song.duration.inWholeMilliseconds.takeIf { it > 0 })
 
 		val playbackArtwork = playbackArtworkForSong(song)
 		val artworkData = playbackArtwork.coverArtId?.let { coverId ->

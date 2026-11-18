@@ -9,6 +9,7 @@ import paige.navic.domain.manager.ConnectivityManager
 import paige.navic.domain.manager.AndroidKeystoreCredentialStore
 import paige.navic.domain.manager.CredentialStore
 import paige.navic.domain.manager.LogManager
+import paige.navic.domain.manager.PlaybackLedgerExport
 import paige.navic.domain.manager.PermissionManager
 import paige.navic.domain.manager.QueueNotificationManager
 import paige.navic.domain.manager.ReaderPublicationPrefetch
@@ -18,11 +19,14 @@ import paige.navic.domain.repositories.PlayerStateRepository
 import paige.navic.reader.androidReaderPublicationPrefetch
 import paige.navic.shared.AndroidAudiobookPlaybackManager
 import paige.navic.shared.AndroidMediaPlayerViewModel
+import paige.navic.shared.AndroidPlaybackLedgerStore
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.MediaPlayerViewModel
 
 actual val platformModule = module {
 	single<CredentialStore> { AndroidKeystoreCredentialStore(androidApplication()) }
+	single { AndroidPlaybackLedgerStore(androidApplication()) }
+	single<PlaybackLedgerExport> { get<AndroidPlaybackLedgerStore>() }
 
 	single<PlayerStateRepository> {
 		val context = androidApplication()

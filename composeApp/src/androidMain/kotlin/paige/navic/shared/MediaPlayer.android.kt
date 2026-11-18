@@ -150,6 +150,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 	private val serviceScope = MainScope()
 	private var streamPrefetcher: NavidromeStreamPrefetcher? = null
 	private var deferredTranscodeSeek: NavidromeDeferredTranscodeSeek? = null
+	private var playbackLedger: AndroidPlaybackLedger? = null
+	private val playbackLedgerStore: AndroidPlaybackLedgerStore by inject()
 
 	private fun isOnUnmeteredNetwork(): Boolean {
 		val system = getSystemService(android.net.ConnectivityManager::class.java) ?: return false
@@ -237,6 +239,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 			streamDataSourceFactory,
 			httpDataSourceFactory,
 			onOpen = { requested, served, fullyCached ->
+				playbackLedger?.onStreamOpen(served.songId, served.quality, fullyCached)
 				Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
 					"stream-open", "songId" to requested.songId, "requested" to requested.quality,
 					"served" to served.quality, "fullyCached" to fullyCached))
@@ -263,7 +266,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		}
 		val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
-		val player = ExoPlayer.Builder(this)
+		val silenceMeter = PlaybackSilenceMeter()
+		val player = ExoPlayer.Builder(this, SilenceMeteringRenderersFactory(this, silenceMeter))
 			.setLoadControl(loadControl)
 			.setMediaSourceFactory(mediaSourceFactory)
 			.setHandleAudioBecomingNoisy(true)
@@ -295,6 +299,11 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 					).build()
 			}
 		exoPlayer = player
+		val ledgerHandler = Handler(player.applicationLooper)
+		playbackLedger = AndroidPlaybackLedger(player, playbackLedgerStore).also { ledger ->
+			silenceMeter.onSilentSpan = { lengthMs -> ledgerHandler.post { ledger.onSilence(lengthMs) } }
+			ledger.start()
+		}
 		audioSettingsWarnings = AndroidAudioSettingsWarnings(this, resourceProvider.icNavic) { player.playWhenReady }
 		setListener(object : MediaSessionService.Listener {
 			override fun onForegroundServiceStartNotAllowedException() {
@@ -489,6 +498,8 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		unregisterAudioDeviceCallback()
 		unregisterVolumeZeroObserver()
 		scrobbleManager?.release()
+		playbackLedger?.close()
+		playbackLedger = null
 		streamPrefetcher?.close()
 		deferredTranscodeSeek?.cancel()
 		deferredTranscodeSeek = null

@@ -939,6 +939,8 @@
 	<string name="action_repeat">Repeat</string>
 	<string name="action_delete">Delete</string>
 	<string name="action_copy_logs">Copy logs</string>
+	<string name="option_copy_playback_ledger">Copy playback ledger</string>
+	<string name="subtitle_copy_playback_ledger">Every played song: how long it played, why it moved on, stalls, silent gaps and errors (%1$d songs)</string>
 	<string name="action_cancel">Cancel</string>
 	<string name="action_refresh">Refresh</string>
 	<string name="action_open_aurral_settings">Open Aurral settings</string>

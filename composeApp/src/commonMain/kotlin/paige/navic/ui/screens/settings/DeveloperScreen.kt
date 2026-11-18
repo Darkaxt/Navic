@@ -12,19 +12,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessResumed
+import kotlinx.coroutines.launch
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_ok
 import navic.composeapp.generated.resources.action_test_exception_handler
 import navic.composeapp.generated.resources.info_exception_handler
 import navic.composeapp.generated.resources.option_check_for_updates
+import navic.composeapp.generated.resources.option_copy_playback_ledger
 import navic.composeapp.generated.resources.option_custom_headers
 import navic.composeapp.generated.resources.option_ebook_reader_show_tap_zones
 import navic.composeapp.generated.resources.option_ebook_reader_web_debugging
@@ -33,17 +41,21 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_show_tap_zones
 import navic.composeapp.generated.resources.subtitle_ebook_reader_web_debugging
 import navic.composeapp.generated.resources.subtitle_issue_logging
 import navic.composeapp.generated.resources.subtitle_check_for_updates
+import navic.composeapp.generated.resources.subtitle_copy_playback_ledger
 import navic.composeapp.generated.resources.title_confirm
 import navic.composeapp.generated.resources.title_developer
 import navic.composeapp.generated.resources.title_logs
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.AppLogManager
+import paige.navic.domain.manager.PlaybackLedgerExport
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ChevronForward
+import paige.navic.icons.outlined.Copy
 import paige.navic.ui.components.common.Form
 import paige.navic.ui.components.common.FormButton
 import paige.navic.ui.components.common.FormRow
@@ -60,6 +72,13 @@ fun SettingsDeveloperScreen() {
 	var exceptionConfirmationShown by rememberSaveable { mutableStateOf(false) }
 	val appLogManager = koinInject<AppLogManager>()
 	val preferenceManager = koinInject<PreferenceManager>()
+	val koin = getKoin()
+	val playbackLedger = remember(koin) { koin.getOrNull<PlaybackLedgerExport>() }
+	var playbackLedgerCount by remember { mutableIntStateOf(0) }
+	val scope = rememberCoroutineScope()
+	@Suppress("DEPRECATION")
+	val clipboardManager = LocalClipboardManager.current
+	LaunchedEffect(playbackLedger) { playbackLedgerCount = playbackLedger?.entryCount() ?: 0 }
 
 	Scaffold(
 		topBar = {
@@ -118,6 +137,24 @@ fun SettingsDeveloperScreen() {
 					) {
 						Text(stringResource(Res.string.title_logs))
 						Icon(Icons.Outlined.ChevronForward, null)
+					}
+					if (playbackLedger != null) {
+						FormRow(onClick = {
+							scope.launch {
+								clipboardManager.setText(AnnotatedString(playbackLedger.exportText()))
+								playbackLedgerCount = playbackLedger.entryCount()
+							}
+						}) {
+							Column(Modifier.weight(1f)) {
+								Text(stringResource(Res.string.option_copy_playback_ledger))
+								Text(
+									stringResource(Res.string.subtitle_copy_playback_ledger, playbackLedgerCount),
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant
+								)
+							}
+							Icon(Icons.Outlined.Copy, null)
+						}
 					}
 					FormRow(
 						onClick = dropUnlessResumed {
