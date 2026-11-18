@@ -11,8 +11,19 @@ private val GenreMixMetadataTokens = setOf(
 	"automatic"
 )
 
+// Navidrome 0.64 names imported smart playlists from the .nsp contents (e.g. "Discover" or
+// "admin - K-Pop Radar"), so the "[A] " file name survives only in the import comment.
+private val StationImportComment = Regex("""^Auto-imported from '\[A]\s*(.+?)\.nsp'$""")
+
+private fun DomainPlaylist.stationSourceName(): String? =
+	comment?.trim()?.let { text -> StationImportComment.find(text)?.groupValues?.get(1)?.trim() }
+		?.ifBlank { null }
+		?: name.takeIf { it.startsWith(StationPlaylistPrefix) }
+			?.removePrefix(StationPlaylistPrefix)
+			?.trimStart()
+
 fun DomainPlaylist.isStationPlaylist(): Boolean =
-	name.startsWith(StationPlaylistPrefix)
+	stationSourceName() != null
 
 fun DomainPlaylist.isGeneratedMixPlaylist(): Boolean =
 	isMoodMixPlaylist() || isGenreMixPlaylist()
@@ -40,10 +51,7 @@ fun generatedMixPlaylistArtworkLabel(name: String): String =
 	}
 
 fun DomainPlaylist.stationDisplayName(): String {
-	if (!isStationPlaylist()) return name
-	return name.removePrefix(StationPlaylistPrefix)
-		.trimStart()
-		.ifBlank { name }
+	return stationSourceName()?.ifBlank { null } ?: name
 }
 
 fun DomainPlaylist.playlistDisplayName(): String =

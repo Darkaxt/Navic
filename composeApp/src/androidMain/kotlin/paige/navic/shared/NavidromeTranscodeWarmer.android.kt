@@ -12,8 +12,8 @@ import java.util.concurrent.Executor
 /**
  * Asks Navidrome to start transcoding upcoming queue items before they play.
  *
- * A HEAD request on a cold transcoded stream makes Navidrome run the transcode into its cache
- * without sending audio. When the item is reached (including a manual skip), the completed cache
+ * A one-byte probe ([navidromeStreamProbeSpec]; Navidrome 0.64 rejects HEAD) on a cold transcoded
+ * stream makes Navidrome run the transcode into its cache without the client downloading audio. When the item is reached (including a manual skip), the completed cache
  * entry is served immediately with an exact length and byte ranges, so
  * [NavidromeCachedTranscodeDataSource] does not have to wait and the song is seekable from the start.
  * Raw (untranscoded) streams and local files need no warm-up.
@@ -51,14 +51,14 @@ internal class NavidromeTranscodeWarmer(
 				if (warmed.containsKey(key)) return@forEach
 				warmed[key] = Unit
 			}
-			executor.execute { head(uri) }
+			executor.execute { probe(uri) }
 		}
 	}
 
-	private fun head(uri: Uri) {
+	private fun probe(uri: Uri) {
 		val source = httpFactory.createDataSource()
 		try {
-			source.open(DataSpec.Builder().setUri(uri).setHttpMethod(DataSpec.HTTP_METHOD_HEAD).build())
+			source.open(navidromeStreamProbeSpec(uri))
 		} catch (_: IOException) {
 			// Best effort: playback still opens the live stream and waits for the cache itself.
 		} finally {

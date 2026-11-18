@@ -56,9 +56,11 @@ class PlaylistRepository(
 		listType: DomainPlaylistListType,
 		reversed: Boolean
 	): ImmutableList<DomainPlaylist> {
-		dbRepository.syncPlaylists().getOrThrow().forEach { playlist ->
-			dbRepository.syncPlaylistSongs(playlist.playlistId).getOrThrow()
-		}
+		// One failing playlist must not leave every later playlist without songs.
+		dbRepository.syncPlaylists().getOrThrow()
+			.map { playlist -> dbRepository.syncPlaylistSongs(playlist.playlistId) }
+			.firstNotNullOfOrNull { result -> result.exceptionOrNull() }
+			?.let { error -> throw error }
 		return getLocalData(listType, reversed)
 	}
 
@@ -131,8 +133,10 @@ class PlaylistRepository(
 
 	/** Background network sync; writes to Room, which [playlistsFlow] observes. */
 	suspend fun syncPlaylists() {
-		dbRepository.syncPlaylists().getOrThrow().forEach { playlist ->
-			dbRepository.syncPlaylistSongs(playlist.playlistId).getOrThrow()
-		}
+		// One failing playlist must not leave every later playlist without songs.
+		dbRepository.syncPlaylists().getOrThrow()
+			.map { playlist -> dbRepository.syncPlaylistSongs(playlist.playlistId) }
+			.firstNotNullOfOrNull { result -> result.exceptionOrNull() }
+			?.let { error -> throw error }
 	}
 }

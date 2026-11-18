@@ -18,6 +18,50 @@ internal class AndroidPlaybackDiagnosticsLogger {
 	private var lastPlayWhenReadyReason: String? = null
 	private var lastSuppressionReason: String = "none"
 	private var lastRecoveryDownloadSignature: String? = null
+	private var knownDurationMediaId: String? = null
+	private var knownDurationMs: Long? = null
+
+	/**
+	 * Every song change with the previous song's final position and known duration, so a song cut
+	 * off early (an automatic advance far before its end) is visible in the in-app log.
+	 */
+	fun onPositionDiscontinuity(
+		player: Player,
+		oldPosition: Player.PositionInfo,
+		newPosition: Player.PositionInfo,
+		reason: Int
+	) {
+		val previousId = oldPosition.mediaItem?.mediaId
+		val nextId = newPosition.mediaItem?.mediaId
+		if (previousId == nextId && oldPosition.mediaItemIndex == newPosition.mediaItemIndex) return
+		val durationMs = knownDurationMs?.takeIf { knownDurationMediaId == previousId }
+			?: oldPosition.mediaItem?.mediaMetadata?.durationMs
+		Logger.i(
+			PlaybackDiagnosticsLogTag,
+			playbackDiagnosticMessage(
+				"media-item-transition",
+				"reason" to discontinuityReasonLabel(reason),
+				"prevSongId" to previousId,
+				"prevIndex" to oldPosition.mediaItemIndex,
+				"prevPositionMs" to oldPosition.positionMs,
+				"prevDurationMs" to durationMs,
+				"songId" to nextId,
+				"index" to newPosition.mediaItemIndex,
+				"source" to oldPosition.mediaItem?.localConfiguration?.uri?.scheme?.let { scheme ->
+					if (scheme == "http" || scheme == "https") "stream" else "local"
+				}
+			)
+		)
+		rememberDuration(player)
+	}
+
+	fun rememberDuration(player: Player) {
+		val duration = player.duration
+		if (duration > 0) {
+			knownDurationMediaId = player.currentMediaItem?.mediaId
+			knownDurationMs = duration
+		}
+	}
 
 	fun onQueueSelection(request: QueueSelectionRequest, song: DomainSong?) {
 		Logger.i(
@@ -83,6 +127,7 @@ internal class AndroidPlaybackDiagnosticsLogger {
 		currentSong: DomainSong?,
 		pendingRecoverySongId: String?
 	) {
+		rememberDuration(player)
 		if (isPlaying) return
 		// With playWhenReady still true the user did not pause: playback stalled (buffering, seek
 		// rebuffer, end, error or suppression). Logging it as the last play/pause reason mislabels
@@ -377,6 +422,17 @@ internal class AndroidPlaybackDiagnosticsLogger {
 			)
 		)
 	}
+}
+
+private fun discontinuityReasonLabel(reason: Int): String = when (reason) {
+	Player.DISCONTINUITY_REASON_AUTO_TRANSITION -> "auto"
+	Player.DISCONTINUITY_REASON_SEEK -> "seek"
+	Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT -> "seek-adjustment"
+	Player.DISCONTINUITY_REASON_SKIP -> "skip"
+	Player.DISCONTINUITY_REASON_REMOVE -> "remove"
+	Player.DISCONTINUITY_REASON_INTERNAL -> "internal"
+	Player.DISCONTINUITY_REASON_SILENCE_SKIP -> "silence-skip"
+	else -> "unknown-$reason"
 }
 
 private fun playbackStateLabel(state: Int): String = when (state) {

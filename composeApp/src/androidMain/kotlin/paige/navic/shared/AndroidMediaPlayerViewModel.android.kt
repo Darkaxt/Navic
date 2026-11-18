@@ -3,7 +3,6 @@ package paige.navic.shared
 import android.app.Application
 import android.net.Uri
 import androidx.annotation.OptIn
-import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -408,6 +407,7 @@ class AndroidMediaPlayerViewModel(
 						queueAutoFiller.maybeAutoFillQueue()
 					}
 
+					override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) = playbackDiagnostics.onPositionDiscontinuity(this@apply, old, new, reason)
 					override fun onIsPlayingChanged(isPlaying: Boolean) {
 						_uiState.update { it.copy(isPaused = !playWhenReady) }
 						val nowMillis = Clock.System.now().toEpochMilliseconds()

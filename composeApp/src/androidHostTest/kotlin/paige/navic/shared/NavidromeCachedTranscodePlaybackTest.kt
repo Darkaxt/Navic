@@ -33,7 +33,8 @@ class NavidromeCachedTranscodePlaybackTest {
 			private var openUri: Uri? = null
 			override fun open(dataSpec: DataSpec): Long {
 				openUri = dataSpec.uri
-				if (dataSpec.httpMethod == DataSpec.HTTP_METHOD_HEAD) {
+				assertTrue(dataSpec.httpMethod != DataSpec.HTTP_METHOD_HEAD, "Navidrome 0.64 rejects HEAD (405)")
+				if (dataSpec.length == 1L) {
 					headProbes++
 					if (headProbes > liveHeadProbes) cacheComplete = true
 					log += "HEAD cached=$cacheComplete"
@@ -42,7 +43,8 @@ class NavidromeCachedTranscodePlaybackTest {
 					log += "GET pos=${dataSpec.position} cached=$cacheComplete"
 				}
 				return if (cacheComplete) {
-					headers = mapOf("Accept-Ranges" to listOf("bytes"))
+					headers = mapOf("Accept-Ranges" to listOf("bytes")) +
+						if (dataSpec.length == 1L) mapOf("Content-Range" to listOf("bytes 0-0/$cachedLength")) else emptyMap()
 					cachedLength - dataSpec.position
 				} else {
 					headers = mapOf("Accept-Ranges" to listOf("none"))
@@ -59,6 +61,17 @@ class NavidromeCachedTranscodePlaybackTest {
 			override fun clearAllRequestProperties() = Unit
 			override fun getResponseCode(): Int = 200
 		}
+	}
+
+	@Test
+	fun probeLengthComesFromTheContentRangeTotal() {
+		assertEquals(5_161_985L, mapOf("content-range" to listOf("bytes 0-0/5161985")).contentRangeTotalLength())
+		assertEquals(null, mapOf("Content-Range" to listOf("bytes 0-0/*")).contentRangeTotalLength())
+		assertEquals(null, emptyMap<String, List<String>>().contentRangeTotalLength())
+		val spec = navidromeStreamProbeSpec(streamUri)
+		assertEquals(DataSpec.HTTP_METHOD_GET, spec.httpMethod)
+		assertEquals(0L, spec.position)
+		assertEquals(1L, spec.length)
 	}
 
 	private class FakeClock {

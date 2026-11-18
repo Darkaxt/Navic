@@ -5,6 +5,7 @@ import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
 import androidx.room3.Transaction
+import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
 import paige.navic.data.database.entities.PlaylistEntity
 import paige.navic.data.database.entities.PlaylistSongCrossRef
@@ -13,10 +14,12 @@ import paige.navic.util.core.Logger
 
 @Dao
 interface PlaylistDao {
-	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	// Upsert keeps the row: a conflict-replace insert deletes it first, and the PlaylistSongCrossRef
+	// ON DELETE CASCADE then wipes every cached playlist's songs on each list refresh.
+	@Upsert
 	suspend fun insertPlaylist(playlist: PlaylistEntity)
 
-	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	@Upsert
 	suspend fun insertPlaylists(playlists: List<PlaylistEntity>)
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)

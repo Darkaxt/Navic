@@ -166,13 +166,18 @@ class DbRepository(
 				playlists.map { playlist ->
 					async {
 						concurrentRequestLimit.withPermit {
-							syncPlaylistSongs(playlist.playlistId).getOrThrow()
+							// Settle every playlist before failing, so one bad playlist cannot
+							// cancel the rest and leave them without cached songs.
+							val result = syncPlaylistSongs(playlist.playlistId)
 							val done = completedPlaylists.incrementAndGet()
 							val globalProgress = 0.75f + (0.25f * (done.toFloat() / totalPlaylists))
 							progressCallback(globalProgress, Res.string.info_syncing_playlists)
+							result
 						}
 					}
 				}.awaitAll()
+					.firstNotNullOfOrNull { result -> result.exceptionOrNull() }
+					?.let { error -> throw error }
 			}
 		}
 

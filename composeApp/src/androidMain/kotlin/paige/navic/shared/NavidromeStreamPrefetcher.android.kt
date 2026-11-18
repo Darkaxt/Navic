@@ -14,6 +14,7 @@ import java.io.InterruptedIOException
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import paige.navic.domain.models.playbackErrorCauseDetails
 
 /**
  * Fills the local playback cache ahead of playback, one transfer at a time on a background thread.
@@ -122,7 +123,8 @@ internal class NavidromeStreamPrefetcher(
 			onTransfer(event, key, "cancelled")
 			false
 		} catch (error: IOException) {
-			onTransfer(event, key, "failed:${error.javaClass.simpleName}")
+			// R8 obfuscates exception class names (e.g. "so2"); the cause chain stays readable.
+			onTransfer(event, key, "failed:${error.javaClass.simpleName}:${error.message.orEmpty().take(120)}<-${playbackErrorCauseDetails(error).take(240)}")
 			false
 		} finally {
 			activeWriter = null

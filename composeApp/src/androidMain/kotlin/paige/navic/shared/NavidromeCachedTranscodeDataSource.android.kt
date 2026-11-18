@@ -22,7 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * real encoded size and the server stops at the declared length. Navidrome keeps transcoding
  * into its cache independently of the client, and a completed cache entry is served with its
  * exact length and byte ranges. This source keeps the live response open as a fallback while
- * probing with HEAD until the cache entry is complete, then switches to the cached response.
+ * probing (see [navidromeStreamProbeSpec]) until the cache entry is complete, then switches to the
+ * cached response.
  */
 @OptIn(UnstableApi::class)
 internal class NavidromeCachedTranscodeDataSource(
@@ -121,7 +122,7 @@ internal class NavidromeCachedTranscodeDataSource(
 	private fun cachedTranscodeReady(dataSpec: DataSpec): Boolean {
 		val probe = newProbeSource()
 		return try {
-			probe.open(dataSpec.buildUpon().setHttpMethod(DataSpec.HTTP_METHOD_HEAD).build())
+			probe.open(navidromeStreamProbeSpec(dataSpec.uri))
 			probe.responseHeaders.acceptsByteRanges()
 		} catch (interrupted: InterruptedIOException) {
 			throw interrupted
@@ -135,6 +136,20 @@ internal class NavidromeCachedTranscodeDataSource(
 		}
 	}
 }
+
+/**
+ * A one-byte ranged GET used to probe a Navidrome stream. Navidrome 0.64 answers HEAD on
+ * /rest/stream with 405, so probes, warm-ups and length checks must not use HEAD. A completed
+ * transcode answers 206 with `Accept-Ranges: bytes` and `Content-Range: bytes 0-0/<total>`;
+ * a cold one is served live (`Accept-Ranges: none`), and the probe closes it after the headers.
+ */
+internal fun navidromeStreamProbeSpec(uri: Uri): DataSpec =
+	DataSpec.Builder().setUri(uri).setPosition(0).setLength(1).build()
+
+/** Total length from `Content-Range: bytes 0-0/<total>`, or null when absent or unknown (`*`). */
+internal fun Map<String, List<String>>.contentRangeTotalLength(): Long? =
+	entries.firstOrNull { it.key.equals("Content-Range", ignoreCase = true) }
+		?.value?.firstOrNull()?.substringAfterLast('/', "")?.trim()?.toLongOrNull()?.takeIf { it > 0 }
 
 internal fun Uri.isNavidromeStreamEndpoint(): Boolean {
 	val path = path ?: return false

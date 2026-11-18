@@ -33,6 +33,21 @@ class PlaybackDiagnosticsSourceTest {
 	}
 
 	@Test
+	fun songChangesLogThePreviousSongsFinalPositionAndDuration() {
+		val viewModel = androidSharedSourceFile("AndroidMediaPlayerViewModel.android.kt").readText()
+		val logger = androidSharedSourceFile("AndroidPlaybackDiagnosticsLogger.android.kt").readText()
+		val prefetcher = androidSharedSourceFile("NavidromeStreamPrefetcher.android.kt").readText()
+
+		assertContains(viewModel, "override fun onPositionDiscontinuity(")
+		assertContains(viewModel, "playbackDiagnostics.onPositionDiscontinuity(this@apply, old, new, reason)")
+		assertContains(logger, "\"media-item-transition\"")
+		assertContains(logger, "\"prevPositionMs\" to oldPosition.positionMs")
+		assertContains(logger, "\"prevDurationMs\" to durationMs")
+		assertContains(logger, "Player.DISCONTINUITY_REASON_AUTO_TRANSITION -> \"auto\"")
+		assertContains(prefetcher, "playbackErrorCauseDetails(error)")
+	}
+
+	@Test
 	fun playbackServiceLogsExplicitServicePauseAndResumeReasons() {
 		val source = androidSharedSourceFile("MediaPlayer.android.kt").readText()
 		val coordinator = androidSharedSourceFile("AndroidPlaybackAutoResumeCoordinator.android.kt").readText()

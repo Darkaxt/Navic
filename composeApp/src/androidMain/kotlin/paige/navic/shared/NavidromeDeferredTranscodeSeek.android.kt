@@ -143,18 +143,17 @@ internal class NavidromeDeferredTranscodeSeek(
 }
 
 /**
- * HEAD probe: the length of Navidrome's finished transcode once its cached copy is complete
- * (served with byte ranges), or null while the song is still being transcoded.
+ * Ranged probe ([navidromeStreamProbeSpec]): the length of Navidrome's finished transcode once its
+ * cached copy is complete (served with byte ranges), or null while the song is still transcoding.
  */
 @OptIn(UnstableApi::class)
 internal fun completedNavidromeTranscodeLength(httpFactory: HttpDataSource.Factory, streamUri: Uri): Long? {
 	val probe = httpFactory.createDataSource()
 	return try {
-		probe.open(DataSpec.Builder().setUri(streamUri).setHttpMethod(DataSpec.HTTP_METHOD_HEAD).build())
+		probe.open(navidromeStreamProbeSpec(streamUri))
 		val headers = probe.responseHeaders
 		if (!headers.acceptsByteRanges()) return null
-		headers.entries.firstOrNull { it.key.equals("Content-Length", ignoreCase = true) }
-			?.value?.firstOrNull()?.trim()?.toLongOrNull()?.takeIf { it > 0 }
+		headers.contentRangeTotalLength()
 	} catch (_: IOException) {
 		null
 	} finally {

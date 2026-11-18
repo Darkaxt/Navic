@@ -159,6 +159,40 @@ class PlaylistStationPolicyTest {
 		assertTrue(canDeletePlaylistFromDetail(playlist(id = "readonly", name = "Training").copy(readOnly = true)))
 	}
 
+	@Test
+	fun navidromeImportedStationsAreRecognisedByTheirNspCommentAndShowTheFileName() {
+		val renamed = playlist(
+			id = "kpop",
+			name = "admin - K-Pop Radar",
+			comment = "Auto-imported from '[A] K-Pop Radar.nsp'"
+		)
+		val plain = playlist(
+			id = "discover",
+			name = "Discover",
+			comment = "Auto-imported from '[A] Discover.nsp'"
+		)
+		val m3u = playlist(id = "gym", name = "Gym", comment = "Auto-imported from 'Gym.m3u'")
+		val nspWithoutMarker = playlist(
+			id = "smart",
+			name = "Smart",
+			comment = "Auto-imported from 'Smart.nsp'"
+		)
+		val mood = playlist(
+			id = "chill",
+			name = "Chill Mix",
+			comment = "Last curated: 2026-11-18 03:15:02 UTC; unique mood assignment"
+		)
+		val playlists = listOf(renamed, plain, m3u, nspWithoutMarker, mood)
+
+		assertEquals(listOf(renamed, plain), playlists.stationPlaylists())
+		assertEquals(listOf(m3u, nspWithoutMarker), playlists.userPlaylists())
+		assertEquals(listOf(mood), playlists.moodMixPlaylists())
+		assertEquals("K-Pop Radar", renamed.playlistDisplayName())
+		assertEquals("Discover", plain.playlistDisplayName())
+		assertEquals("Gym", m3u.playlistDisplayName())
+		assertFalse(canDeletePlaylistFromDetail(renamed))
+	}
+
 	private fun playlist(
 		id: String,
 		name: String,
