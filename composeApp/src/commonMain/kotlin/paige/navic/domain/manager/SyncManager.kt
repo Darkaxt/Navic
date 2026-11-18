@@ -221,6 +221,9 @@ class SyncManager(
 					SyncActionType.DELETE_PLAYLIST -> api.deletePlaylist(action.itemId)
 					SyncActionType.SCROBBLE -> api.scrobble(
 						action.itemId,
+						action.createdAtEpochMs.takeIf { it > 0 }
+							?.let(Instant::fromEpochMilliseconds)
+							?: Clock.System.now(),
 						submission = true
 					)
 
