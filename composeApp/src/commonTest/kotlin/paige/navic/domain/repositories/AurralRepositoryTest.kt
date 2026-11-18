@@ -930,6 +930,27 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryDiscoveryConfirmsArtistsTheLibraryListReportsAsUnmonitored(): Unit = runBlocking {
+		val cellos = "c8e94c78-0e17-4d9a-b1f6-96e1b22ebe97"
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			discovery = AurralDiscoverySummary(
+				recommendations = listOf(AurralDiscoverArtist(id = cellos, name = "2CELLOS"))
+			),
+			libraryArtists = listOf(AurralDiscoverArtist(id = cellos, name = "2CELLOS", monitored = false)),
+			libraryArtistMonitoring = true
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		assertEquals(true, repository.getLibraryDiscovery().getOrThrow().recommendations.single().monitored)
+		assertEquals(true, repository.refreshLibraryArtistMonitorStates().getOrThrow()[cellos])
+		assertEquals(listOf(cellos), apiClient.libraryArtistMonitoringRequests)
+	}
+
+	@Test
 	fun repositoryDiscoveryPersistsCatalogMetadataAcrossRepositoryInstances(): Unit = runBlocking {
 		var nowMillis = 1_000L
 		val metadataCache = RecordingAurralMetadataCache()

@@ -61,6 +61,7 @@ import paige.navic.domain.models.settings.Theme
 import paige.navic.domain.models.settings.ThemeMode
 import paige.navic.domain.models.settings.ToolbarPosition
 import paige.navic.domain.models.DefaultMaxConcurrentDownloads
+import paige.navic.domain.models.DomainGenreListType
 import com.russhwolf.settings.Settings as KmpSettings
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -108,6 +109,8 @@ class PreferenceManager(
 	var quickPicksMinDurationSeconds by preference(0)
 	var libraryRowOrder by preference("")
 	var libraryHiddenRows by preference("")
+	var genreListSorting by preference(DomainGenreListType.AlbumCount)
+	var genreListReversed by preference(false)
 	var lyricsAutoscroll by preference(true)
 	var lyricsBeatByBeat by preference(true)
 	var lyricsKeepAlive by preference(true)

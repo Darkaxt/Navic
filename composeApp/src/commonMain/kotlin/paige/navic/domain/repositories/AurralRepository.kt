@@ -47,6 +47,7 @@ class AurralRepository(
 ) {
 	private val discoverArtistImageUrlsByName = mutableMapOf<String, String?>()
 	private val localState = AurralRepositoryLocalState(nowMillis)
+	private val monitoringVerifier = AurralLibraryMonitoringVerifier(nowMillis)
 	private val auth = AurralRepositoryAuth(preferenceManager, apiClient)
 	private val flowActions = AurralFlowRepositoryActions(preferenceManager, apiClient, auth)
 	private val confirmationQueueManager = AurralConfirmationQueueManager(
@@ -1173,7 +1174,9 @@ class AurralRepository(
 				path = cacheKey,
 				operation = "Aurral library artists"
 			) {
-				apiClient.fetchLibraryArtists(baseUrl, requestHeaders)
+				monitoringVerifier.verify(apiClient.fetchLibraryArtists(baseUrl, requestHeaders)) { artistMbid ->
+					apiClient.fetchLibraryArtistMonitoring(baseUrl, requestHeaders, artistMbid)
+				}
 			}
 		}.onSuccess { artists ->
 			localState.rememberLibraryArtists(cacheKey, artists, currentTime)

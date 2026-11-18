@@ -425,6 +425,12 @@ fun ArtistDetailScreen(
 						AurralArtistProfileMetadata(
 							genres = state.aurralArtistGenres,
 							externalLinks = state.aurralArtistExternalLinks,
+							onGenreClick = { genre ->
+								artistGenreDestination(genre)?.let { destination ->
+									platformContext.clickSound()
+									backStack.add(destination)
+								}
+							},
 							modifier = Modifier
 								.fillMaxWidth()
 								.padding(horizontal = 20.dp)
@@ -1045,6 +1051,7 @@ private fun CarouselItemScope.AurralOwnershipAlbumItem(
 private fun AurralArtistProfileMetadata(
 	genres: List<String>,
 	externalLinks: List<AurralArtistExternalLink>,
+	onGenreClick: (String) -> Unit,
 	modifier: Modifier = Modifier
 ) {
 	val uriHandler = LocalUriHandler.current
@@ -1072,7 +1079,7 @@ private fun AurralArtistProfileMetadata(
 				visibleGenres.forEach { genre ->
 					ArtistHeaderMetadataChip(
 						label = genre,
-						onClick = null
+						onClick = dropUnlessResumed { onGenreClick(genre) }
 					)
 				}
 			}

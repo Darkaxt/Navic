@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.ui.Modifier
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.info_no_genres
+import navic.composeapp.generated.resources.info_no_search_results
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.domain.models.DomainGenreSummary
 import paige.navic.icons.Icons
@@ -14,7 +15,8 @@ import paige.navic.ui.components.common.ContentUnavailable
 import paige.navic.ui.core.UiState
 
 fun LazyGridScope.genreListScreenContent(
-	state: UiState<List<DomainGenreSummary>>
+	state: UiState<List<DomainGenreSummary>>,
+	searching: Boolean = false
 ) {
 	val data = state.data.orEmpty()
 	if (data.isNotEmpty()) {
@@ -34,7 +36,9 @@ fun LazyGridScope.genreListScreenContent(
 				item(span = { GridItemSpan(maxLineSpan) }) {
 					ContentUnavailable(
 						icon = Icons.Outlined.Genre,
-						label = stringResource(Res.string.info_no_genres)
+						label = stringResource(
+							if (searching) Res.string.info_no_search_results else Res.string.info_no_genres
+						)
 					)
 				}
 			}
