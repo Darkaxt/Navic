@@ -2443,6 +2443,17 @@ internal class ReaderPageTurnBundleSource(
 			if (!isHydrationCurrent(hydration)) return
 			val webView = hydration.webView.get() ?: return
 			raster = readPersistentRaster(webView, hydration.key)
+			// #62: a live page whose passive render is already durable is stored only under the
+			// passive key; the live digest is recorded as that entry's issued alias.
+			var expectedIdentity = hydration.key.identity
+			if (raster == null) {
+				persistentRasterAliasKey(webView, hydration.key.digest)
+					?.takeIf { aliasKey -> aliasKey != hydration.key }
+					?.let { aliasKey ->
+						expectedIdentity = aliasKey.identity
+						raster = readPersistentRaster(webView, aliasKey)
+					}
+			}
 			if (!isHydrationCurrent(hydration)) return
 			val value = raster ?: run {
 				logHydrationMiss(
@@ -2451,7 +2462,8 @@ internal class ReaderPageTurnBundleSource(
 				)
 				return
 			}
-			if (value.key.identity != hydration.key.identity) {
+			val aliased = expectedIdentity != hydration.key.identity
+			if (value.key.identity != expectedIdentity) {
 				logHydrationMiss(hydration.key.visualPageOrdinal, "persistent-identity-mismatch")
 				return
 			}
@@ -2482,7 +2494,7 @@ internal class ReaderPageTurnBundleSource(
 				)?.matches(physicalLayout)
 			} == true
 			if (!kindMatches || !physicalLayoutMatches) {
-				if (!kindMatches) {
+				if (!kindMatches && !aliased) {
 					runCatching { removePersistentRaster(hydration.key, value.metadata) }
 				}
 				Logger.w(
@@ -3617,6 +3629,20 @@ internal class ReaderPageTurnBundleSource(
 								centerPageOrdinal = protectedCenter,
 								pinnedPageOrdinals = protectedEncodedPageIndices
 							)
+						}
+						// #62: the passive split raster for this live page is already durable under
+						// its own key; writing the live snapshot again would duplicate it as a PNG.
+						if (
+							expectedDescriptor == null &&
+							persistentRasterAliasKey(webView, key.digest) != null
+						) {
+							rasterPersistenceSkipped(pageIndex, "aliased-passive-raster", generation)
+							onPersisted(
+								ReaderPageRasterPublicationCompletion(
+									ReaderPageRasterPublicationResult.Durable
+								)
+							)
+							return@launch
 						}
 						val value = ReaderPageRasterPublicationValue(
 							key = key,

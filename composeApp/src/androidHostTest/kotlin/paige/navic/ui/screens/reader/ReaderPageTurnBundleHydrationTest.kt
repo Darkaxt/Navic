@@ -1065,6 +1065,65 @@ class ReaderPageTurnBundleHydrationTest {
 	}
 
 	@Test
+	fun livePageHydratesThroughThePassiveRasterAlias() = runTest {
+		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+		val activity = Robolectric.buildActivity(Activity::class.java).setup()
+		val webView = WebView(activity.get())
+		activity.get().setContentView(webView)
+		Shadows.shadowOf(Looper.getMainLooper()).idle()
+		val messages = mutableListOf<String>()
+		val events = mutableListOf<String>()
+		val diagnostics = ReaderPageRuntimeDiagnostics(
+			readerSession = 17L,
+			nowMs = { 25L },
+			emit = messages::add
+		)
+		val source = ReaderPageTurnBundleSource(
+			descriptorPort = FakeDescriptorPort(events),
+			hydrationStorePort = AliasedHydrationStore(events)
+		)
+		val controller = ReaderPageRasterBatchController(source, diagnostics)
+		val reference = referenceSnapshot()
+		val durableTargets = mutableListOf<Int>()
+		try {
+			val outcome = CompletableDeferred<ReaderPageRasterBatchOutcome>()
+			reference.retain()
+			assertTrue(
+				controller.start(
+					webView = webView,
+					kind = ReaderPageTurnTransitionKind.PortraitSlide,
+					reference = reference,
+					targets = listOf(
+						ReaderPageRasterBatchTarget(
+							pageIndex = 4,
+							priority = ReaderPageRasterPriority.Current
+						)
+					),
+					trigger = ReaderPageRasterAcquisitionTrigger.WarmReopen,
+					onStagingStarted = { _, onPresented -> onPresented(true) },
+					onTargetDurable = { target -> durableTargets += target.pageIndex },
+					onComplete = outcome::complete
+				)
+			)
+
+			assertEquals(ReaderPageRasterBatchOutcome.Ready, outcome.await())
+			assertEquals(
+				listOf("descriptor:4", "persistent:4:live", "alias:4", "persistent:4:passive"),
+				events
+			)
+			assertTrue(messages.any { it.contains("source=PersistentHydration") && it.contains("result=Hit") })
+			assertFalse(messages.any { it.contains("source=WebViewCapture") })
+			assertEquals(listOf(4), durableTargets)
+		} finally {
+			controller.cancel()
+			source.close()
+			reference.releaseCacheOwnership()
+			activity.destroy()
+			Dispatchers.resetMain()
+		}
+	}
+
+	@Test
 	fun warmPersistentHitCompletesWithoutRepublishingTheHydratedRaster() = runTest {
 		Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
 		val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -2108,6 +2167,31 @@ class ReaderPageTurnBundleHydrationTest {
 			assertEquals(pageIndex, request.first)
 			request.second(descriptor(pageIndex))
 		}
+	}
+
+	/** Holds only the passive render; the live key reaches it through the issued-digest alias (#62). */
+	private class AliasedHydrationStore(
+		private val events: MutableList<String>
+	) : ReaderPageRasterHydrationStorePort {
+		private val seen = mutableMapOf<String, ReaderPageRasterKey>()
+
+		override suspend fun readCopy(key: ReaderPageRasterKey): ReaderPageRaster<Bitmap>? {
+			val passive = key.paginationHash == "passive"
+			events += "persistent:${key.visualPageOrdinal}:${if (passive) "passive" else "live"}"
+			if (!passive) seen[key.digest] = key
+			return if (passive) persistentRaster(key) else null
+		}
+
+		override suspend fun aliasedKey(issuedDigest: String, token: String): ReaderPageRasterKey? {
+			val live = seen[issuedDigest] ?: return null
+			events += "alias:${live.visualPageOrdinal}"
+			return live.copy(paginationHash = "passive")
+		}
+
+		override suspend fun remove(
+			key: ReaderPageRasterKey,
+			expectedMetadata: ReaderPageRasterMetadata
+		): Boolean = false
 	}
 
 	private class FakeHydrationStore(

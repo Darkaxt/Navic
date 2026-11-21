@@ -3540,7 +3540,8 @@ class ReaderPassiveRasterPrototypeTest {
 			assertEquals(1, runtime.captureRequests)
 			val issuedDigest = cold.descriptor.key(ReaderPageBitmapQuality.Native).digest
 			val realizedKey = aliasRealizedDescriptor(cold.descriptor).key(ReaderPageBitmapQuality.Native)
-			assertEquals(listOf(issuedDigest), store.aliasLookups)
+			// Later lookups are #62 live-hydration alias probes after an exact-key miss.
+			assertEquals(issuedDigest, store.aliasLookups.first())
 			val recorded = store.recordedAliases.single()
 			assertEquals(realizedKey, recorded.key)
 			assertEquals(issuedDigest, recorded.issuedDigest)
