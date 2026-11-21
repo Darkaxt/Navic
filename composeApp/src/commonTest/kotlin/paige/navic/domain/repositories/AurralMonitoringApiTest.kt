@@ -1,6 +1,7 @@
 package paige.navic.domain.repositories
 
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -15,6 +16,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+/** An Aurral 2.x server: no bootstrap route, so these tests see only the monitoring requests. */
+internal fun legacyAurralEngine(handler: MockRequestHandler) = MockEngine { request ->
+	if (request.url.encodedPath.endsWith("/api/health/bootstrap")) respond("{}", HttpStatusCode.NotFound)
+	else handler(request)
+}
+
 class AurralMonitoringApiTest {
 	private val mbid = "11111111-1111-1111-1111-111111111111"
 	private val baseUrl = "https://aurral.example.com"
@@ -27,7 +34,7 @@ class AurralMonitoringApiTest {
 	fun explicitMatchingPutConfirmsBothDirectionsWithoutVerificationGet() = runTest {
 		for (monitored in listOf(true, false)) {
 			val methods = mutableListOf<HttpMethod>()
-			val engine = MockEngine { request ->
+			val engine = legacyAurralEngine { request ->
 				methods += request.method
 				respond(
 					"""{"foreignArtistId":"$mbid","monitored":$monitored}""",
@@ -51,7 +58,7 @@ class AurralMonitoringApiTest {
 			"""{"mbid":"$mbid","foreignArtistId":"different","monitored":false}""",
 			"""{"mbid":"$mbid","monitored":true}"""
 		)) {
-			val engine = MockEngine { respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json")) }
+			val engine = legacyAurralEngine { respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json")) }
 			try {
 				val api = KtorAurralApiClient(NetworkClientFactory { engine })
 				assertEquals(AurralArtistMonitoringOutcome.AwaitingConfirmation, api.monitorArtist(baseUrl, emptyMap(), mbid, payload(false)), body)
@@ -63,7 +70,7 @@ class AurralMonitoringApiTest {
 	fun acceptedPostOrPutRemainsPendingEvenWithMatchingArtistFields() = runTest {
 		for (adding in listOf(true, false)) {
 			val methods = mutableListOf<HttpMethod>()
-			val engine = MockEngine { request ->
+			val engine = legacyAurralEngine { request ->
 				methods += request.method
 				respond(
 					"""{"queued":true,"foreignArtistId":"$mbid","monitored":true}""",
@@ -84,7 +91,7 @@ class AurralMonitoringApiTest {
 	@Test
 	fun postExistingArtistRaceCompletesOriginalMutationWithOnePut() = runTest {
 		val methods = mutableListOf<HttpMethod>()
-		val engine = MockEngine { request ->
+		val engine = legacyAurralEngine { request ->
 			methods += request.method
 			when (request.method) {
 				HttpMethod.Get -> respond("{}", HttpStatusCode.NotFound)
@@ -109,7 +116,7 @@ class AurralMonitoringApiTest {
 			Triple(HttpStatusCode.OK, """{"mbid":"$mbid","monitored":false}""", false),
 			Triple(HttpStatusCode.OK, """{"mbid":"$mbid","monitored":true}""", true)
 		)) {
-			val engine = MockEngine { request ->
+			val engine = legacyAurralEngine { request ->
 				assertEquals("no-cache", request.headers[HttpHeaders.CacheControl])
 				respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
 			}
@@ -125,7 +132,7 @@ class AurralMonitoringApiTest {
 		for (invalidateAt in listOf("existing-get", "missing-get", "existing-post")) {
 			var current = true
 			val methods = mutableListOf<HttpMethod>()
-			val engine = MockEngine { request ->
+			val engine = legacyAurralEngine { request ->
 				methods += request.method
 				if (request.method == HttpMethod.Get) {
 					if (invalidateAt != "existing-post") current = false
@@ -149,7 +156,7 @@ class AurralMonitoringApiTest {
 
 	@Test
 	fun cancelledMutationDoesNotReturnAnAcceptedOutcome() = runTest {
-		val engine = MockEngine { request ->
+		val engine = legacyAurralEngine { request ->
 			if (request.method == HttpMethod.Put) throw CancellationException("cancelled PUT")
 			respond("{}")
 		}

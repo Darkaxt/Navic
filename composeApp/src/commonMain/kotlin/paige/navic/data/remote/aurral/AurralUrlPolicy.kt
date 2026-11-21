@@ -83,7 +83,7 @@ internal fun aurralFlowStreamUrl(
 	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
 	return aurralEndpoint(
 		configuredBaseUrl,
-		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
+		"api/playlists/stream/${encodeUrlComponent(trimmedJobId)}"
 	) + "?token=${encodeUrlComponent(trimmedToken)}"
 }
 
@@ -98,7 +98,7 @@ internal fun aurralFlowStreamTokenUrl(
 	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
 	return aurralEndpoint(
 		configuredBaseUrl,
-		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
+		"api/playlists/stream/${encodeUrlComponent(trimmedJobId)}"
 	) + "?st=${encodeUrlComponent(trimmedToken)}"
 }
 
@@ -111,7 +111,7 @@ internal fun aurralFlowRawStreamUrl(
 	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
 	return aurralEndpoint(
 		configuredBaseUrl,
-		"api/weekly-flow/stream/${encodeUrlComponent(trimmedJobId)}"
+		"api/playlists/stream/${encodeUrlComponent(trimmedJobId)}"
 	)
 }
 
@@ -126,7 +126,7 @@ internal fun aurralFlowArtworkUrl(
 	val configuredBaseUrl = configuredAurralBaseUrl(baseUrl) ?: return null
 	return aurralEndpoint(
 		configuredBaseUrl,
-		"api/weekly-flow/artwork/${encodeUrlComponent(trimmedPlaylistId)}"
+		"api/playlists/artwork/${encodeUrlComponent(trimmedPlaylistId)}"
 	) + "?token=${encodeUrlComponent(trimmedToken)}"
 }
 
@@ -273,3 +273,11 @@ private fun encodeUrlComponent(value: String): String {
 		}
 	}
 }
+
+/**
+ * Flow songs persisted before Aurral 3 keep `api/weekly-flow/...` URLs, an alias Aurral 3 dropped.
+ * `api/playlists/...` serves the same files on every supported server version.
+ */
+internal fun aurralCurrentFlowUrl(url: String): String =
+	url.replace("/api/weekly-flow/stream/", "/api/playlists/stream/")
+		.replace("/api/weekly-flow/artwork/", "/api/playlists/artwork/")

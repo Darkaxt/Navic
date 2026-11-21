@@ -20,7 +20,8 @@ internal fun aurralServiceStatus(
 	health: AurralHealthDto,
 	authMe: AurralAuthMeDto?,
 	weeklyFlow: AurralWeeklyFlowStatusDto?,
-	requests: List<AurralRequestDto>
+	requests: List<AurralRequestDto>,
+	apiVersion: Int = AURRAL_LEGACY_API_VERSION
 ): AurralServiceStatus {
 	val user = authMe?.user ?: health.user
 	val stats = weeklyFlow?.stats ?: AurralFlowStatsDto()
@@ -31,10 +32,11 @@ internal fun aurralServiceStatus(
 	return AurralServiceStatus(
 		healthStatus = health.status,
 		appVersion = health.appVersion,
+		apiVersion = apiVersion,
 		authRequired = health.authRequired,
 		username = user?.username,
 		role = user?.role,
-		accessFlow = user?.permissions?.accessFlow == true,
+		accessFlow = user?.permissions?.let { it.accessFlow || it.accessPlaylists } == true,
 		addArtist = user?.permissions?.addArtist == true,
 		addAlbum = user?.permissions?.addAlbum == true,
 		changeMonitoring = user?.permissions?.changeMonitoring == true,
@@ -43,7 +45,7 @@ internal fun aurralServiceStatus(
 		discoveryUpdating = health.discovery?.isUpdating == true,
 		flowsCount = weeklyFlow?.flows.orEmpty().size,
 		enabledFlowsCount = weeklyFlow?.flows.orEmpty().count { it.enabled },
-		sharedPlaylistsCount = weeklyFlow?.sharedPlaylists.orEmpty().size,
+		sharedPlaylistsCount = (weeklyFlow?.staticPlaylists ?: weeklyFlow?.sharedPlaylists).orEmpty().size,
 		requestsCount = requests.size,
 		flowTracksTotal = stats.total,
 		flowTracksPending = stats.pending,
@@ -55,6 +57,7 @@ internal fun aurralServiceStatus(
 		flows = flows,
 		flowCapabilities = weeklyFlow?.capabilities?.toCapabilities() ?: AurralFlowCapabilities(),
 		acquisitionQueue = requests.mapNotNull(::aurralAcquisitionQueueItem)
+			.map { item -> if (aurralSupportsRequestCancel(apiVersion)) item else item.copy(cancellable = false) }
 	)
 }
 
@@ -362,3 +365,6 @@ private fun aurralArtistExternalLinks(
 
 private fun String.isAbsoluteHttpUrl(): Boolean =
 	startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+internal fun aurralApiVersion(bootstrap: AurralBootstrapDto?): Int =
+	bootstrap?.api?.version?.takeIf { it > 0 } ?: AURRAL_LEGACY_API_VERSION

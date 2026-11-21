@@ -28,6 +28,9 @@ internal class AurralMutationRepositoryActions(
 		if (!preferenceManager.aurralEnabled) {
 			return Result.failure(IllegalStateException(AURRAL_DISABLED_MESSAGE))
 		}
+		if (!item.cancellable) {
+			return Result.failure(IllegalStateException(AURRAL_REQUEST_CANCEL_UNSUPPORTED_MESSAGE))
+		}
 		val target = aurralAcquisitionDeleteTarget(item)
 			?: return Result.failure(IllegalStateException("Aurral request delete target is unavailable."))
 		val baseUrlError = aurralBaseUrlConfigurationError(preferenceManager.aurralBaseUrl)

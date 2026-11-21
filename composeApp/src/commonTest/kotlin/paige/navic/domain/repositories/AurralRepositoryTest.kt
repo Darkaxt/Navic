@@ -132,7 +132,7 @@ class AurralRepositoryTest {
 	@Test
 	fun aurralFlowStreamUrlUsesBearerQueryToken() {
 		assertEquals(
-			"https://aurral.example.com/api/weekly-flow/stream/job-123?token=session-token",
+			"https://aurral.example.com/api/playlists/stream/job-123?token=session-token",
 			aurralFlowStreamUrl(
 				baseUrl = "https://aurral.example.com",
 				jobId = " job-123 ",
@@ -144,7 +144,7 @@ class AurralRepositoryTest {
 	@Test
 	fun aurralFlowArtworkUrlUsesBearerQueryTokenAndBasePath() {
 		assertEquals(
-			"https://aurral.example.com/aurral/api/weekly-flow/artwork/playlist-1?token=session-token",
+			"https://aurral.example.com/aurral/api/playlists/artwork/playlist-1?token=session-token",
 			aurralFlowArtworkUrl(
 				baseUrl = "https://aurral.example.com/aurral",
 				playlistId = " playlist-1 ",
@@ -156,7 +156,7 @@ class AurralRepositoryTest {
 	@Test
 	fun aurralFlowStreamUrlCanUseShortStreamToken() {
 		assertEquals(
-			"https://aurral.example.com/api/weekly-flow/stream/job-123?st=stream-token",
+			"https://aurral.example.com/api/playlists/stream/job-123?st=stream-token",
 			aurralFlowStreamTokenUrl(
 				baseUrl = "https://aurral.example.com",
 				jobId = " job-123 ",
@@ -170,7 +170,7 @@ class AurralRepositoryTest {
 	@Test
 	fun aurralFlowMediaUrlsEncodePathAndTokenValues() {
 		assertEquals(
-			"https://aurral.example.com/api/weekly-flow/stream/job%201%2Fdemo?token=token%20value%2Fplus",
+			"https://aurral.example.com/api/playlists/stream/job%201%2Fdemo?token=token%20value%2Fplus",
 			aurralFlowStreamUrl(
 				baseUrl = "https://aurral.example.com",
 				jobId = "job 1/demo",
@@ -2312,7 +2312,7 @@ class AurralRepositoryTest {
 		assertEquals(2025, song.year)
 		assertEquals(187000.milliseconds, song.duration)
 		assertEquals(
-			"https://aurral.example.com/aurral/api/weekly-flow/stream/job-ready?token=session-token",
+			"https://aurral.example.com/aurral/api/playlists/stream/job-ready?token=session-token",
 			song.filePath
 		)
 	}
@@ -2342,7 +2342,7 @@ class AurralRepositoryTest {
 		val songs = repository.getFlowPlayableSongs("flow-1").getOrThrow()
 
 		assertEquals(
-			"https://aurral.example.com/api/weekly-flow/stream/job-ready?st=stream-token",
+			"https://aurral.example.com/api/playlists/stream/job-ready?st=stream-token",
 			songs.single().filePath
 		)
 		assertEquals(listOf("https://aurral.example.com"), apiClient.streamTokenBaseUrls)

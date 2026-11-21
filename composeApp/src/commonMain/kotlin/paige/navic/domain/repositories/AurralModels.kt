@@ -14,6 +14,8 @@ sealed interface AurralConnectionResult {
 data class AurralServiceStatus(
 	val healthStatus: String = "unknown",
 	val appVersion: String? = null,
+	/** Aurral app API version: 1 for 2.x servers, 2 for Aurral 3 (`api/health/bootstrap`). */
+	val apiVersion: Int = AURRAL_LEGACY_API_VERSION,
 	val authRequired: Boolean = false,
 	val username: String? = null,
 	val role: String? = null,
@@ -202,7 +204,9 @@ data class AurralAcquisitionQueueItem(
 	val artistName: String,
 	val status: String,
 	val requestedAt: String?,
-	val inQueue: Boolean
+	val inQueue: Boolean,
+	/** Aurral 3 removed request cancellation, so its requests cannot be cancelled from Navic. */
+	val cancellable: Boolean = true
 )
 
 fun AurralAcquisitionQueueItem.toAlbumRequest() = AurralAlbumRequest(

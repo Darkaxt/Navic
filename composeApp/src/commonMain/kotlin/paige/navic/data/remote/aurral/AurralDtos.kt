@@ -45,6 +45,7 @@ internal data class AurralFallbackGenreSectionDto(
 @Serializable
 internal data class AurralArtistSearchResponseDto(
 	val artists: List<AurralDiscoverArtistDto> = emptyList(),
+	val items: List<AurralDiscoverArtistDto> = emptyList(),
 	val count: Int = 0,
 	val offset: Int = 0
 )
@@ -154,9 +155,21 @@ internal data class AurralUserDto(
 	val permissions: AurralPermissionsDto = AurralPermissionsDto()
 )
 
+/** `GET api/health/bootstrap` (Aurral 3+). Older servers lack the route or the `api` block. */
+@Serializable
+internal data class AurralBootstrapDto(
+	val api: AurralBootstrapApiDto? = null
+)
+
+@Serializable
+internal data class AurralBootstrapApiDto(
+	val version: Int? = null
+)
+
 @Serializable
 internal data class AurralPermissionsDto(
 	@SerialName("accessFlow") val accessFlow: Boolean = false,
+	@SerialName("accessPlaylists") val accessPlaylists: Boolean = false,
 	@SerialName("addArtist") val addArtist: Boolean = false,
 	@SerialName("addAlbum") val addAlbum: Boolean = false,
 	@SerialName("changeMonitoring") val changeMonitoring: Boolean = false
@@ -166,6 +179,7 @@ internal data class AurralPermissionsDto(
 internal data class AurralWeeklyFlowStatusDto(
 	val flows: List<AurralFlowDto> = emptyList(),
 	@SerialName("sharedPlaylists") val sharedPlaylists: List<AurralSharedPlaylistDto> = emptyList(),
+	@SerialName("staticPlaylists") val staticPlaylists: List<AurralSharedPlaylistDto>? = null,
 	@SerialName("flowStats") val flowStats: Map<String, AurralFlowStatsDto> = emptyMap(),
 	val stats: AurralFlowStatsDto = AurralFlowStatsDto(),
 	val capabilities: AurralFlowCapabilitiesDto = AurralFlowCapabilitiesDto(),

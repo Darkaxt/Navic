@@ -23,6 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import paige.navic.domain.models.AurralAlbumRequest
@@ -41,6 +43,12 @@ sealed interface AurralArtistMonitoringOutcome {
 }
 
 interface AurralApiClient {
+	/** Aurral app API version (see [AurralServiceStatus.apiVersion]). */
+	suspend fun fetchApiVersion(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): Int = AURRAL_LEGACY_API_VERSION
+
 	suspend fun testConnection(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
@@ -233,6 +241,31 @@ internal class KtorAurralApiClient(
 	networkClientFactory: NetworkClientFactory = NetworkClientFactory()
 ) : AurralApiClient {
 	private val client = networkClientFactory.create(json = AURRAL_JSON)
+	private val apiVersionsMutex = Mutex()
+	private val apiVersionsByBaseUrl = mutableMapOf<String, Int>()
+
+	override suspend fun fetchApiVersion(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): Int {
+		apiVersionsMutex.withLock { apiVersionsByBaseUrl[baseUrl] }?.let { return it }
+		val response = client.get(aurralEndpoint(baseUrl, "api/health/bootstrap")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		val version = when {
+			response.status.isSuccess() -> aurralApiVersion(
+				runCatching { response.body<AurralBootstrapDto>() }
+					.onFailure { if (it is CancellationException) throw it }
+					.getOrNull()
+			)
+			// 2.x servers have no bootstrap route.
+			response.status == HttpStatusCode.NotFound -> AURRAL_LEGACY_API_VERSION
+			// Anything else is transient: answer conservatively and ask again next time.
+			else -> return AURRAL_LEGACY_API_VERSION
+		}
+		apiVersionsMutex.withLock { apiVersionsByBaseUrl[baseUrl] = version }
+		return version
+	}
 
 	override suspend fun testConnection(
 		baseUrl: String,
@@ -264,7 +297,8 @@ internal class KtorAurralApiClient(
 			health = health,
 			authMe = authMe,
 			weeklyFlow = weeklyFlow,
-			requests = requests
+			requests = requests,
+			apiVersion = fetchApiVersion(baseUrl, requestHeaders)
 		)
 	}
 
@@ -280,7 +314,8 @@ internal class KtorAurralApiClient(
 			health = AurralHealthDto(),
 			authMe = authMe,
 			weeklyFlow = weeklyFlow,
-			requests = requests
+			requests = requests,
+			apiVersion = fetchApiVersion(baseUrl, requestHeaders)
 		)
 	}
 
@@ -381,9 +416,10 @@ internal class KtorAurralApiClient(
 		requestHeaders: Map<String, String>,
 		request: AurralArtistSearchRequest
 	): AurralArtistSearchResult {
-		val response = client.get(aurralEndpoint(baseUrl, "api/search/artists")) {
+		val response = client.get(aurralEndpoint(baseUrl, "api/search")) {
 			aurralJsonRequest(requestHeaders)
-			parameter("query", request.query)
+			parameter("q", request.query)
+			parameter("scope", "artist")
 			parameter("limit", request.limit)
 			parameter("offset", request.offset)
 		}
@@ -677,7 +713,7 @@ internal class KtorAurralApiClient(
 		baseUrl: String,
 		requestHeaders: Map<String, String>
 	): AurralWeeklyFlowStatusDto? {
-		val response = client.get(aurralEndpoint(baseUrl, "api/weekly-flow/status?includeJobs=false")) {
+		val response = client.get(aurralEndpoint(baseUrl, "api/playlists/status?includeJobs=false")) {
 			aurralJsonRequest(requestHeaders)
 		}
 		return when {
@@ -723,6 +759,9 @@ internal class KtorAurralApiClient(
 		requestHeaders: Map<String, String>,
 		target: AurralAcquisitionDeleteTarget
 	) {
+		check(aurralSupportsRequestCancel(fetchApiVersion(baseUrl, requestHeaders))) {
+			AURRAL_REQUEST_CANCEL_UNSUPPORTED_MESSAGE
+		}
 		val path = when (target) {
 			is AurralAcquisitionDeleteTarget.Album -> {
 				"api/requests/album/${aurralEncodeUrlComponent(target.albumId)}"
@@ -744,7 +783,7 @@ internal class KtorAurralApiClient(
 		requestHeaders: Map<String, String>,
 		payload: AurralFlowCreatePayload
 	): AurralFlowActionResult {
-		val response = client.post(aurralEndpoint(baseUrl, "api/weekly-flow/flows")) {
+		val response = client.post(aurralEndpoint(baseUrl, "api/playlists/flows")) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
 			setBody(payload)
@@ -762,7 +801,7 @@ internal class KtorAurralApiClient(
 		enabled: Boolean
 	): AurralFlowActionResult {
 		val response = client.put(
-			aurralEndpoint(baseUrl, "api/weekly-flow/flows/${aurralEncodeUrlComponent(flowId)}/enabled")
+			aurralEndpoint(baseUrl, "api/playlists/flows/${aurralEncodeUrlComponent(flowId)}/enabled")
 		) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
@@ -781,7 +820,7 @@ internal class KtorAurralApiClient(
 		limit: Int
 	): AurralFlowActionResult {
 		val response = client.post(
-			aurralEndpoint(baseUrl, "api/weekly-flow/start/${aurralEncodeUrlComponent(flowId)}")
+			aurralEndpoint(baseUrl, "api/playlists/start/${aurralEncodeUrlComponent(flowId)}")
 		) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
@@ -800,7 +839,7 @@ internal class KtorAurralApiClient(
 		limit: Int
 	): List<AurralFlowJobDto> {
 		val response = client.get(
-			aurralEndpoint(baseUrl, "api/weekly-flow/jobs/${aurralEncodeUrlComponent(flowId)}")
+			aurralEndpoint(baseUrl, "api/playlists/jobs/${aurralEncodeUrlComponent(flowId)}")
 		) {
 			aurralJsonRequest(requestHeaders)
 			parameter("limit", limit)
@@ -853,6 +892,7 @@ internal class KtorAurralApiClient(
 		ensureCurrent: () -> Unit
 	): AurralArtistMonitoringOutcome {
 		val artistEndpoint = aurralEndpoint(baseUrl, "api/library/artists/${aurralEncodeUrlComponent(artistMbid)}")
+		val monitoringBody = aurralUsesMonitoringBody(fetchApiVersion(baseUrl, requestHeaders))
 		currentCoroutineContext().ensureActive()
 		ensureCurrent()
 		val existingResponse = client.get(artistEndpoint) {
@@ -860,7 +900,7 @@ internal class KtorAurralApiClient(
 			headers[HttpHeaders.CacheControl] = "no-cache"
 		}
 		if (existingResponse.status.isSuccess()) {
-			return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, ensureCurrent)
+			return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, monitoringBody, ensureCurrent)
 		}
 		if (existingResponse.status != HttpStatusCode.NotFound) {
 			error(aurralHttpErrorMessage("Aurral artist lookup", existingResponse.status))
@@ -874,7 +914,7 @@ internal class KtorAurralApiClient(
 		val addResponse = client.post(aurralEndpoint(baseUrl, "api/library/artists")) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
-			setBody(payload)
+			if (monitoringBody) setBody(payload.toMonitoringAddBody()) else setBody(payload)
 		}
 		if (!addResponse.status.isSuccess()) {
 			error(aurralHttpErrorMessage("Aurral artist add", addResponse.status))
@@ -889,7 +929,7 @@ internal class KtorAurralApiClient(
 			}
 			// An artist created between GET and POST still needs the requested update.
 			if (response?.queued == false && response.foreignArtistId?.trim().equals(artistMbid, ignoreCase = true)) {
-				return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, ensureCurrent)
+				return updateArtistMonitoring(artistEndpoint, requestHeaders, artistMbid, payload, monitoringBody, ensureCurrent)
 			}
 		}
 		return AurralArtistMonitoringOutcome.AwaitingConfirmation
@@ -900,6 +940,7 @@ internal class KtorAurralApiClient(
 		requestHeaders: Map<String, String>,
 		artistMbid: String,
 		payload: AurralArtistMonitorPayload,
+		monitoringBody: Boolean,
 		ensureCurrent: () -> Unit
 	): AurralArtistMonitoringOutcome {
 		currentCoroutineContext().ensureActive()
@@ -907,7 +948,11 @@ internal class KtorAurralApiClient(
 		val response = client.put(artistEndpoint) {
 			aurralJsonRequest(requestHeaders)
 			header("Content-Type", ContentType.Application.Json.toString())
-			setBody(payload.toMonitoringUpdatePayload())
+			if (monitoringBody) {
+				setBody(AurralArtistMonitoringBodyUpdate(AurralMonitoringBody(payload.monitored)))
+			} else {
+				setBody(payload.toMonitoringUpdatePayload())
+			}
 		}
 		if (!response.status.isSuccess()) error(aurralHttpErrorMessage("Aurral artist monitoring", response.status))
 		if (response.status == HttpStatusCode.OK) {
@@ -1010,6 +1055,25 @@ private data class AurralLoginPayload(
 private data class AurralArtistMonitoringUpdatePayload(
 	val monitored: Boolean = true,
 	val monitorOption: String = "all"
+)
+
+@Serializable
+private data class AurralMonitoringBody(val monitored: Boolean)
+
+@Serializable
+private data class AurralArtistMonitoringBodyUpdate(val monitoring: AurralMonitoringBody)
+
+@Serializable
+private data class AurralArtistMonitoringBodyAdd(
+	@SerialName("foreignArtistId") val foreignArtistId: String,
+	val artistName: String,
+	val monitoring: AurralMonitoringBody
+)
+
+private fun AurralArtistMonitorPayload.toMonitoringAddBody() = AurralArtistMonitoringBodyAdd(
+	foreignArtistId = foreignArtistId,
+	artistName = artistName,
+	monitoring = AurralMonitoringBody(monitored)
 )
 
 private fun AurralArtistMonitorPayload.toMonitoringUpdatePayload(): AurralArtistMonitoringUpdatePayload =

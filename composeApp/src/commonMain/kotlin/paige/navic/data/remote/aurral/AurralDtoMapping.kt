@@ -44,7 +44,8 @@ internal fun aurralArtistSearchResult(
 		query = query,
 		count = response.count,
 		offset = response.offset,
-		artists = response.artists.mapNotNull { it.toDiscoverArtist(baseUrl, trustUuidId = true) }
+		artists = response.items.ifEmpty { response.artists }
+			.mapNotNull { it.toDiscoverArtist(baseUrl, trustUuidId = true) }
 	)
 
 internal fun aurralAlbumSearchResult(

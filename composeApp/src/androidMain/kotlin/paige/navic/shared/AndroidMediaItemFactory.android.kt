@@ -9,6 +9,7 @@ import coil3.PlatformContext as CoilPlatformContext
 import coil3.imageLoader
 import paige.navic.domain.manager.DownloadManager
 import paige.navic.domain.manager.SessionManager
+import paige.navic.data.remote.aurral.aurralCurrentFlowUrl
 import paige.navic.domain.models.AurralFlowSongIdPrefix
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.PlaybackArtworkResolution
@@ -67,7 +68,7 @@ internal class AndroidMediaItemFactory(
 	private fun DomainSong.mediaUri(): Uri =
 		when {
 			id.startsWith(AurralFlowSongIdPrefix) && !filePath.isNullOrEmpty() -> {
-				filePath.toUri()
+				aurralCurrentFlowUrl(filePath).toUri()
 			}
 
 			id.startsWith("radio_") && !filePath.isNullOrEmpty() -> {

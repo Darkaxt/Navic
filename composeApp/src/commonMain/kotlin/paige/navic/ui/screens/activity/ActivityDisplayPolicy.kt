@@ -92,7 +92,7 @@ fun navicDownloadQueueControls(downloads: List<ActivityDownloadItem>): NavicDown
 fun aurralAcquisitionQueueItemControls(item: AurralAcquisitionQueueItem): AurralAcquisitionQueueItemControls {
 	val progress = aurralAcquisitionProgress(item.status)
 	return AurralAcquisitionQueueItemControls(
-		canCancel = !item.albumId.isNullOrBlank() || !item.artistMbid.isNullOrBlank(),
+		canCancel = item.cancellable && (!item.albumId.isNullOrBlank() || !item.artistMbid.isNullOrBlank()),
 		canRetry = progress.failed &&
 			!item.albumMbid.isNullOrBlank() &&
 			item.albumName.isNotBlank() &&
