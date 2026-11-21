@@ -486,25 +486,28 @@ function pageTurnLivePresentationTargetCanonicalCommit(target) {
   ) ? canonicalCommit : null
 }
 
-function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
+// `layout` (from readerAlternateLayout) describes the other orientation's page instead (#57).
+function pageTurnPassiveRasterDescriptor(visualPageOrdinal, layout = null) {
   const ordinal = Math.floor(Number(visualPageOrdinal))
   if (!Number.isSafeInteger(ordinal) || ordinal < 0) return null
-  const locator = readerPageLocatorForVisualIndex(this.paginationProfile, ordinal)
-  const captureGeometry = this.pageTurnCaptureGeometry()
-  if (!locator || !captureGeometry || !this.publicationUrl || !this.paginationFingerprint) {
+  const paginationProfile = layout ? layout.profile : this.paginationProfile
+  const paginationFingerprint = layout ? layout.fingerprint : this.paginationFingerprint
+  const locator = readerPageLocatorForVisualIndex(paginationProfile, ordinal)
+  const captureGeometry = layout ? layout.captureGeometry : this.pageTurnCaptureGeometry()
+  if (!locator || !captureGeometry || !this.publicationUrl || !paginationFingerprint) {
     return null
   }
   const viewportWidth = Math.max(1, Math.round(Number(captureGeometry.viewportWidth) || 1))
   const viewportHeight = Math.max(1, Math.round(Number(captureGeometry.viewportHeight) || 1))
   const profileTarget = {
     publicationUrl: String(this.publicationUrl),
-    paginationFingerprint: this.paginationFingerprint,
+    paginationFingerprint,
     spineIndex: locator.spineIndex,
     href: locator.href,
     chapterPageIndex: locator.chapterPageIndex,
     chapterPageCount: locator.chapterPageCount,
     visualPageOrdinal: locator.pageIndex,
-    render: this.paginationProfile?.render || null,
+    render: paginationProfile?.render || null,
     readerSettings: this.readerSettings || {},
     layoutMode: captureGeometry.mode,
     layoutPages: captureGeometry.pages,
@@ -512,7 +515,7 @@ function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
     viewportHeight,
   }
   const pagePosition = this.currentPagePosition
-  const targetIsCurrent =
+  const targetIsCurrent = !layout &&
     Math.floor(Number(pagePosition?.pageIndex)) === ordinal &&
     Math.floor(Number(pagePosition?.spineIndex)) === locator.spineIndex &&
     Math.floor(Number(pagePosition?.chapterPageIndex)) === locator.chapterPageIndex
@@ -540,7 +543,9 @@ function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
     profileAuthority: profile.profileAuthority,
     viewportWidth,
     viewportHeight,
-    pageCount: Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1)),
+    pageCount: Math.max(1, Math.floor(Number(
+      layout ? paginationProfile.pageCount : this.currentPagePosition?.pageCount
+    ) || 1)),
     spineIndex: locator.spineIndex,
     href: locator.href,
     chapterPageIndex: locator.chapterPageIndex,
@@ -553,7 +558,8 @@ function pageTurnPassiveRasterDescriptor(visualPageOrdinal) {
 function pageTurnPassiveRasterManifestInputs(
   visualPageOrdinal,
   captureEpoch,
-  rasterGeneration
+  rasterGeneration,
+  layout = null
 ) {
   const target = this.pageTurnLivePresentationTargetValue
   const ordinal = Math.floor(Number(visualPageOrdinal))
@@ -578,8 +584,8 @@ function pageTurnPassiveRasterManifestInputs(
       failureReason: 'canonical-rendered-destination-absent',
     })
   }
-  const descriptor = pageTurnPassiveRasterDescriptor.call(this, ordinal)
-  const captureGeometry = this.pageTurnCaptureGeometry()
+  const descriptor = pageTurnPassiveRasterDescriptor.call(this, ordinal, layout)
+  const captureGeometry = layout ? layout.captureGeometry : this.pageTurnCaptureGeometry()
   if (!descriptor || !captureGeometry) {
     return Object.freeze({
       failureReason: 'current-live-profile-or-layout-unavailable',
@@ -603,7 +609,7 @@ function pageTurnPassiveRasterManifestInputs(
     paginationFingerprint: descriptor.paginationFingerprint,
     layoutFingerprint: descriptor.layoutFingerprint,
     decorationFingerprint: descriptor.decorationFingerprint,
-    render: this.paginationProfile?.render || null,
+    render: (layout ? layout.profile : this.paginationProfile)?.render || null,
     readerSettings: this.readerSettings || {},
     layoutMode: captureGeometry?.mode || 'single',
     layoutPages: captureGeometry?.pages || [],

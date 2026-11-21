@@ -92,46 +92,16 @@ private fun readerPassiveRasterSnapshot(
 		sourceRight > bitmap.width ||
 		sourceBottom > bitmap.height
 	) return null
-	val surfaceBitmap = if (
-		sourceLeft == 0 && sourceTop == 0 &&
-			sourceRight == bitmap.width && sourceBottom == bitmap.height
-	) {
-		bitmap
-	} else {
-		runCatching {
-			Bitmap.createBitmap(
-				bitmap,
-				sourceLeft,
-				sourceTop,
-				surfaceWidth,
-				surfaceHeight
-			)
-		}.getOrNull()?.also { cropped ->
-			if (cropped !== bitmap && !bitmap.isRecycled) bitmap.recycle()
-		}
-	} ?: return null
-	val qualityBitmap = if (
-		surfaceBitmap.width == expectedBitmapWidth &&
-			surfaceBitmap.height == expectedBitmapHeight
-	) {
-		surfaceBitmap
-	} else {
-		runCatching {
-			Bitmap.createScaledBitmap(
-				surfaceBitmap,
-				expectedBitmapWidth,
-				expectedBitmapHeight,
-				true
-			)
-		}.getOrNull()?.also { scaled ->
-			if (scaled !== surfaceBitmap && !surfaceBitmap.isRecycled) {
-				surfaceBitmap.recycle()
-			}
-		}
-	} ?: return null
-	if (paperReference != null) {
-		readerPaperSplitCarry(paperReference, qualityBitmap, sourceLeft, sourceTop, surfaceWidth, surfaceHeight)
-	}
+	val qualityBitmap = readerPassiveRasterSurfaceBitmap(
+		bitmap = bitmap,
+		paperReference = paperReference,
+		sourceLeft = sourceLeft,
+		sourceTop = sourceTop,
+		surfaceWidth = surfaceWidth,
+		surfaceHeight = surfaceHeight,
+		bitmapWidth = expectedBitmapWidth,
+		bitmapHeight = expectedBitmapHeight
+	) ?: return null
 	return ReaderPageSlideSnapshot(
 		key = ReaderPageSlideSnapshotKey(
 			visualPageIndex = pageIndex,
@@ -148,6 +118,60 @@ private fun readerPassiveRasterSnapshot(
 		reverseFaceColor = reference.reverseFaceColor,
 		captureMillis = (SystemClock.uptimeMillis() - captureStartedAtMillis).coerceAtLeast(0L)
 	)
+}
+
+/** Crops a passive full-frame capture to the reader surface and scales it to the raster quality. */
+internal fun readerPassiveRasterSurfaceBitmap(
+	bitmap: Bitmap,
+	paperReference: ReaderPagePaperReference?,
+	sourceLeft: Int,
+	sourceTop: Int,
+	surfaceWidth: Int,
+	surfaceHeight: Int,
+	bitmapWidth: Int,
+	bitmapHeight: Int
+): Bitmap? {
+	val surfaceBitmap = if (
+		sourceLeft == 0 && sourceTop == 0 &&
+			surfaceWidth == bitmap.width && surfaceHeight == bitmap.height
+	) {
+		bitmap
+	} else {
+		runCatching {
+			Bitmap.createBitmap(
+				bitmap,
+				sourceLeft,
+				sourceTop,
+				surfaceWidth,
+				surfaceHeight
+			)
+		}.getOrNull()?.also { cropped ->
+			if (cropped !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+		}
+	} ?: return null
+	val qualityBitmap = if (
+		surfaceBitmap.width == bitmapWidth &&
+			surfaceBitmap.height == bitmapHeight
+	) {
+		surfaceBitmap
+	} else {
+		runCatching {
+			Bitmap.createScaledBitmap(
+				surfaceBitmap,
+				bitmapWidth,
+				bitmapHeight,
+				true
+			)
+		}.getOrNull()?.also { scaled ->
+			if (scaled !== surfaceBitmap && !surfaceBitmap.isRecycled) {
+				surfaceBitmap.recycle()
+			}
+		}
+	} ?: return null
+	if (paperReference != null) {
+		readerPaperSplitCarry(paperReference, qualityBitmap, sourceLeft, sourceTop, surfaceWidth, surfaceHeight)
+	}
+	return qualityBitmap
 }
 
 // Covers the prepared chapter window plus the adjacent-chapter prefetch; an evicted descriptor
@@ -1562,6 +1586,127 @@ internal class ReaderPageTurnBundleSource(
 					"Page raster alias recorded page=${realizedKey.visualPageOrdinal} " +
 						"recorded=$recorded"
 				)
+			}
+		)
+	}
+
+	/**
+	 * #57 "Both layouts": persists a receipt-verified passive raster of the other orientation so
+	 * a later rotation hydrates it through its planned-descriptor alias. It never touches the live
+	 * physical layout, memory cache, scheduler profile or encoded-window protection.
+	 */
+	fun persistAlternateLayoutRaster(
+		capture: ReaderPassiveRasterCaptureResult<Bitmap>,
+		currentAuthority: ReaderPassiveRasterAdmissionAuthority,
+		layout: ReaderAlternateLayoutGeometry,
+		isStillCurrent: () -> Boolean,
+		onPersisted: (Boolean) -> Unit
+	) {
+		val inputs = currentAuthority.manifestInputs
+		val commit = inputs.canonicalCommit
+		val descriptor = inputs.rasterDescriptor
+		val webView = activeWebView.get()?.takeIf { it.isAttachedToWindow }
+		if (
+			webView == null ||
+			closed ||
+			commit.profileAuthority != ReaderPassiveRasterProfileAuthority.PassiveRealized ||
+			descriptor.visualPageOrdinal != inputs.visualPageOrdinal ||
+			descriptor.paginationFingerprint != commit.paginationFingerprint ||
+			descriptor.layoutFingerprint != commit.layoutFingerprint ||
+			descriptor.decorationFingerprint != commit.decorationFingerprint ||
+			!runCatching(isStillCurrent).getOrDefault(false)
+		) {
+			capture.raster?.release()
+			onPersisted(false)
+			return
+		}
+		val admitted = readerAdmitPassiveRaster(
+			context = ReaderPassiveRasterAdmissionContext(
+				expectedManifestSequence = capture.manifest.manifestSequence,
+				currentCaptureEpoch = commit.captureEpoch,
+				currentLiveFoliateSessionId = commit.liveFoliateSessionId,
+				activePublicationSessionGeneration = commit.publicationSessionGeneration,
+				currentDestinationCommitToken = commit.destinationCommitToken,
+				currentOpaqueCaptureTarget = inputs.opaqueCaptureTarget,
+				currentVisualPageOrdinal = inputs.visualPageOrdinal,
+				currentRasterProfileKey = commit.rasterProfileKey,
+				currentPaginationFingerprint = commit.paginationFingerprint,
+				currentLayoutFingerprint = commit.layoutFingerprint,
+				currentDecorationFingerprint = commit.decorationFingerprint,
+				currentViewportAndCaptureGeometry = commit.viewportAndCaptureGeometry,
+				currentRasterGeneration = commit.rasterGeneration,
+				activePassiveSessionId = currentAuthority.activePassiveSessionId,
+				expectedPassiveCommitSequence = currentAuthority.expectedPassiveCommitSequence,
+				currentProfileAuthority = commit.profileAuthority
+			),
+			capture = capture
+		)
+		if (admitted !is ReaderPassiveRasterAdmission.Admitted) {
+			onPersisted(false)
+			return
+		}
+		val realizedKey = readerPassiveRasterReceiptAuthoritativeDescriptor(
+			descriptor = descriptor,
+			receipt = admitted.receipt
+		).key(bitmapQuality)
+		val issuedDigest = descriptor.key(bitmapQuality).digest
+		val raster = admitted.transferRaster()?.let { bitmap ->
+			readerAlternateLayoutRaster(bitmap, commit.viewportAndCaptureGeometry, layout, bitmapQuality)
+		}
+		if (raster == null) {
+			onPersisted(false)
+			return
+		}
+		val (bitmap, metadata) = raster
+		trackRasterPersistenceJob(
+			rasterScope.launch(start = CoroutineStart.UNDISPATCHED) {
+				var persisted = false
+				try {
+					rasterScheduler(webView)
+					val store = persistentStore
+					if (store != null && !closed && runCatching(isStillCurrent).getOrDefault(false)) {
+						val write = withContext(NonCancellable + Dispatchers.IO) {
+							if (store.contains(realizedKey, metadata)) {
+								ReaderPageRasterWriteResult(
+									persisted = true,
+									ownership = ReaderPageRasterValueOwnership.Caller
+								)
+							} else {
+								store.writePublication(
+									key = realizedKey,
+									metadata = metadata,
+									value = bitmap,
+									commitFence = { action ->
+										if (!closed && runCatching(isStillCurrent).getOrDefault(false)) {
+											action()
+										} else {
+											ReaderPageRasterWriteResult(
+												persisted = false,
+												ownership = ReaderPageRasterValueOwnership.Caller
+											)
+										}
+									}
+								)
+							}
+						}
+						check(write.ownership == ReaderPageRasterValueOwnership.Caller) {
+							"Alternate layout raster store adopted a caller-owned value"
+						}
+						persisted = write.persisted &&
+							recordPersistentRasterAlias(webView, realizedKey, issuedDigest)
+					}
+				} catch (failure: CancellationException) {
+					throw failure
+				} catch (_: Throwable) {
+					persisted = false
+				} finally {
+					ReaderAndroidPageRasterCodec.release(bitmap)
+					Logger.i(
+						ReaderPageTurnBundleSourceTag,
+						"Alternate layout raster page=${realizedKey.visualPageOrdinal} persisted=$persisted"
+					)
+					onPersisted(persisted)
+				}
 			}
 		)
 	}

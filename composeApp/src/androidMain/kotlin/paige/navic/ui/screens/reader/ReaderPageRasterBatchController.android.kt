@@ -266,7 +266,14 @@ private fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChaptersOnly(
 				}
 			}
 
-internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRasterPreparationPlan? {
+/**
+ * [requireCurrentLive] is false only for the #57 alternate-layout plan, whose pages are all
+ * offscreen passive: no page of the other orientation is on screen.
+ */
+internal fun readerPageRasterPreparationPlan(
+	encoded: String?,
+	requireCurrentLive: Boolean = true
+): ReaderPageRasterPreparationPlan? {
 	val raw = encoded.orEmpty().trim()
 	val root = runCatching {
 		val firstPass = Json.parseToJsonElement(raw)
@@ -298,9 +305,14 @@ internal fun readerPageRasterPreparationPlan(encoded: String?): ReaderPageRaster
 	val currentLiveTargets = targets.filter { target ->
 		target.authority == ReaderPageRasterTargetAuthority.CurrentLive
 	}
-	if (
-		currentLiveTargets.size != 1 ||
-		currentLiveTargets.single().pageIndex != centerPageIndex
+	if (requireCurrentLive) {
+		if (
+			currentLiveTargets.size != 1 ||
+			currentLiveTargets.single().pageIndex != centerPageIndex
+		) return null
+	} else if (
+		currentLiveTargets.isNotEmpty() ||
+		targets.none { target -> target.pageIndex == centerPageIndex }
 	) return null
 	return ReaderPageRasterPreparationPlan(
 		centerPageIndex = centerPageIndex,

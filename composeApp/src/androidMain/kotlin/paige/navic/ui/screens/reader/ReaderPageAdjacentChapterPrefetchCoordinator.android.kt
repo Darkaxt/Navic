@@ -65,7 +65,11 @@ internal data class ReaderPageAdjacentChapterPrefetchSubmission(
  */
 internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	private val onSubmit: (ReaderPageAdjacentChapterPrefetchSubmission) -> Unit,
-	private val onCancel: (ReaderPageAdjacentChapterPrefetchSubmission) -> Unit
+	private val onCancel: (ReaderPageAdjacentChapterPrefetchSubmission) -> Unit,
+	/** Every chapter of the current plan is durable or was attempted, with nothing in flight. */
+	private val onDrained: () -> Unit = {},
+	/** The drained state may no longer hold: a new plan, deck, interaction or foreground work. */
+	private val onDisturbed: () -> Unit = {}
 ) {
 	private var plan: ReaderPageAdjacentChapterPrefetchPlan? = null
 	private var preparedActiveDeck: ReaderPagePreparedActiveDeck? = null
@@ -102,6 +106,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			return
 		}
 		cancelActive()
+		onDisturbed()
 		plan = value
 		durablePageIndices.clear()
 		attemptedChapterIdentities.clear()
@@ -111,6 +116,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 
 	fun beginBlockingSession() {
 		cancelActive()
+		onDisturbed()
 		plan = null
 		durablePageIndices.clear()
 		attemptedChapterIdentities.clear()
@@ -119,6 +125,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 
 	fun clear() {
 		cancelActive()
+		onDisturbed()
 		plan = null
 		preparedActiveDeck = null
 		durablePageIndices.clear()
@@ -134,6 +141,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			trySubmit()
 		} else {
 			cancelActive()
+			onDisturbed()
 		}
 	}
 
@@ -143,6 +151,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		attemptedChapterIdentities.clear()
 		if (active) {
 			cancelActive()
+			onDisturbed()
 		} else {
 			trySubmit()
 		}
@@ -157,6 +166,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		suspended = true
 		attemptedChapterIdentities.clear()
 		cancelActive()
+		onDisturbed()
 	}
 
 	fun resumeAfterForegroundWork() {
@@ -170,6 +180,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		preparedActiveDeck = deck
 		attemptedChapterIdentities.clear()
 		cancelActive()
+		onDisturbed()
 		trySubmit()
 	}
 
@@ -217,8 +228,11 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		) return
 		val chapter = currentPlan.chapters.firstOrNull { candidate ->
 			candidate.targets.any { target -> target.pageIndex !in durablePageIndices }
-		} ?: return
-		if (chapter.identity in attemptedChapterIdentities) return
+		}
+		if (chapter == null || chapter.identity in attemptedChapterIdentities) {
+			onDrained()
+			return
+		}
 		val missingTargets = chapter.targets.filter { target ->
 			target.pageIndex !in durablePageIndices
 		}

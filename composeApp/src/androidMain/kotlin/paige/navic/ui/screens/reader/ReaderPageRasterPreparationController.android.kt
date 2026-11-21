@@ -220,6 +220,8 @@ internal class ReaderPageRasterPreparationController(
 	private val onPreparationStateChange: (ReaderPagePreparationState) -> Unit = {},
 	private val onRasterProofReady: (Long) -> Unit = {},
 	private val onPassiveRasterMemoryPressure: (String) -> Unit = {},
+	/** #57 "Both layouts": true once the current layout's work drains, false when disturbed. */
+	private val onCurrentLayoutSettledChanged: (Boolean) -> Unit = {},
 	private val rasterBackgroundBatchController: ReaderPageRasterBatchPort =
 		ReaderPageRasterBatchController(bundleSource, diagnostics),
 	private val passiveRasterPreparationPortProvider: () -> ReaderPassiveRasterPreparationPort? =
@@ -243,7 +245,15 @@ internal class ReaderPageRasterPreparationController(
 	private val adjacentChapterPrefetchCoordinator =
 		ReaderPageAdjacentChapterPrefetchCoordinator(
 			onSubmit = ::scheduleBackgroundPrefetch,
-			onCancel = ::cancelBackgroundPrefetchSubmission
+			onCancel = ::cancelBackgroundPrefetchSubmission,
+			onDrained = {
+				if (
+					pageCacheLayouts == ReaderPageCacheLayouts.Both &&
+					!destroyed &&
+					!prewarmInProgress
+				) onCurrentLayoutSettledChanged(true)
+			},
+			onDisturbed = { onCurrentLayoutSettledChanged(false) }
 		)
 	private var backgroundPrefetchWebView: WebView? = null
 	private val backgroundPrefetchAttachmentListener =
@@ -572,13 +582,14 @@ internal class ReaderPageRasterPreparationController(
 				host.context.getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode != true
 			}.getOrDefault(false)
 
-	/** Reader "layouts" setting (#57); background preparation consumes it in a later stage. */
+	/** Reader "layouts" setting (#57); "Both" also prefetches the other orientation when idle. */
 	var pageCacheLayouts: ReaderPageCacheLayouts = ReaderPageCacheLayouts.Current
 		private set
 
 	fun updatePageCacheOptions(scope: String?, layouts: String?) {
 		pageCacheScope = normalizeReaderPageCacheScope(scope)
 		pageCacheLayouts = normalizeReaderPageCacheLayouts(layouts)
+		if (pageCacheLayouts != ReaderPageCacheLayouts.Both) onCurrentLayoutSettledChanged(false)
 	}
 
 	private fun failCurrentPreparationGeneration(error: String) {
@@ -2200,7 +2211,14 @@ internal class ReaderPageRasterPreparationController(
 	) {
 		durableBackgroundPrefetch = prefetch
 		val profileEpoch = currentRasterProfileEpoch ?: return
-		if (prefetch.chapters.isEmpty()) {
+		// A chapter with no adjacent work still drains, so "Both layouts" can start (#57).
+		// Only a page outside every chapter has no plan at all.
+		if (
+			prefetch.chapters.isEmpty() &&
+			(prefetch.currentChapterIndex < 0 ||
+				prefetch.currentChapterPageStartIndex < 0 ||
+				prefetch.currentChapterPageCount <= 0)
+		) {
 			adjacentChapterPrefetchCoordinator.clear()
 			clearBackgroundPrefetchWebView()
 			return

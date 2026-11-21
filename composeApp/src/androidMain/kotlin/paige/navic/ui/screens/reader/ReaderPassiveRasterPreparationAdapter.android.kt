@@ -1219,6 +1219,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 }
 
 internal class ReaderPageLivePassiveRasterManifestPort(
+	/** #57: the alternate-layout port asks the same live document for the other orientation. */
+	private val bridgeMethod: String = "pageTurnPassiveRasterManifestInputs",
+	/** Physical size of the document the manifest describes; the live WebView by default. */
+	private val measuredSize: (WebView) -> Pair<Int, Int> = { it.width to it.height },
 	private val webViewProvider: () -> WebView?
 ) : ReaderPassiveRasterLiveManifestPort {
 	override fun request(
@@ -1240,15 +1244,14 @@ internal class ReaderPageLivePassiveRasterManifestPort(
 		try {
 			webView.evaluateJavascript(
 				"JSON.stringify(window.NavicReaderBridge?." +
-					"pageTurnPassiveRasterManifestInputs?.(" +
+					"$bridgeMethod?.(" +
 					"$visualPageOrdinal, $captureEpoch, $rasterGeneration, " +
 						"$preparationGeneration) ?? null)"
 			) { encoded ->
 				val resolution = readerPassiveRasterManifestResolution(encoded)
 				val normalized = when (resolution) {
 					is ReaderPassiveRasterManifestResolution.Available -> {
-						val measuredWidth = webView.width
-						val measuredHeight = webView.height
+						val (measuredWidth, measuredHeight) = measuredSize(webView)
 						val geometry = readerPassiveRasterCanonicalFullFrameGeometry(
 							observedGeometry = resolution.inputs.canonicalCommit
 								.viewportAndCaptureGeometry,

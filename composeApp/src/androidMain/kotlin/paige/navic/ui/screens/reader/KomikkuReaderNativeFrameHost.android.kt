@@ -1245,6 +1245,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var passiveRasterPreparationAdapter: ReaderPassiveRasterPreparationAdapter? = null
 	private val passiveRasterRendererLossFence = ReaderPassiveRasterRendererLossFence()
 	private var passiveRasterCaptureEpoch = 0L
+	private val alternateLayoutPreparation = ReaderAlternateLayoutPreparation(
+		activityProvider = { context as? Activity },
+		liveWebViewProvider = { viewerContentContainer.findDescendantWebView() },
+		bundleSource = pageTurnBundleSource,
+		captureEpochProvider = { passiveRasterCaptureEpoch }
+	)
 	private val foregroundWebViewOwnership = ReaderForegroundWebViewOwnership(
 		onPassiveMutationReleased = ::onForegroundWebViewPassiveMutationReleased
 	)
@@ -1421,6 +1427,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		qaFaultRegistry = qaFaultRegistry,
 		passiveRasterPreparationPortProvider = { passiveRasterPreparationAdapter },
 		onPassiveRasterMemoryPressure = ::onPassiveRasterMemoryPressure,
+		onCurrentLayoutSettledChanged = { settled ->
+			if (
+				settled &&
+				!task4ResourceTeardownStarted &&
+				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+			) {
+				alternateLayoutPreparation.onCurrentLayoutSettled()
+			} else if (!settled) {
+				alternateLayoutPreparation.cancel("current-layout-busy")
+			}
+		},
 		fenceCallbacks = {
 			ReaderPageQaFaultControl.detach(qaFaultRegistration)
 			qaFaultRegistry.closeAndDrain()
@@ -2247,6 +2264,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun closePassiveRasterPreparationAdapter() {
+		alternateLayoutPreparation.cancel("passive-host-closed")
 		passiveRasterRendererLossFence.clear()
 		passiveRasterPreparationAdapter?.close()
 		passiveRasterPreparationAdapter = null
@@ -2381,12 +2399,14 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 		override fun onPause(owner: LifecycleOwner) {
 			passiveRasterPreparationAdapter?.pause()
+			alternateLayoutPreparation.cancel("paused")
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 		}
 
 		override fun onStop(owner: LifecycleOwner) {
 			passiveRasterPreparationAdapter?.pause()
+			alternateLayoutPreparation.cancel("stopped")
 			pageRasterHostEventController.lifecycleResumedChanged(false)
 			playLikeCurlController.onHostResumedChanged(false)
 		}
@@ -3349,6 +3369,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			return
 		}
 		passiveRasterPreparationAdapter?.pause()
+		alternateLayoutPreparation.cancel("window-hidden")
 		pageRasterHostEventController.lifecycleResumedChanged(false)
 		playLikeCurlController.onHostResumedChanged(false)
 		dispatchPageHostLifecycleEvent(

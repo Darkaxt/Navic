@@ -1583,7 +1583,27 @@ export const setStylesImportant = (element, styles) => {
   }
 }
 
+let readerViewportOverrideValue = null
+
+// Computes layout for a remembered viewport of the other orientation (#57 "Both layouts"),
+// so the existing geometry and fingerprint functions describe it without a rotation.
+export const withReaderViewportOverride = (viewport, compute) => {
+  const previous = readerViewportOverrideValue
+  readerViewportOverrideValue = viewport
+  try {
+    return compute()
+  } finally {
+    readerViewportOverrideValue = previous
+  }
+}
+
 export const readerViewportSize = () => {
+  if (readerViewportOverrideValue) {
+    return {
+      width: Math.max(1, Math.round(Number(readerViewportOverrideValue.width) || 1)),
+      height: Math.max(1, Math.round(Number(readerViewportOverrideValue.height) || 1)),
+    }
+  }
   const viewport = window.visualViewport
   const width = Math.max(
     1,

@@ -1131,11 +1131,13 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringBefore("function pageTurnPreviewContext(")
 
 		assertContains(runtime, "pageTurnRasterPreparationPlan: pageIndex =>")
-		assertContains(plan, "this.paginationProfile?.chapters")
+		assertContains(plan, "const planProfile = layout ? layout.profile : this.paginationProfile")
+		assertContains(plan, "planProfile?.chapters")
+		// The other orientation (#57 Both layouts) has no live page, so its centre is passive.
 		assertContains(
 			plan,
-			"addTarget(centerPageIndex, 'current', " +
-				"ReaderPageRasterTargetAuthorityCurrentLive)"
+			"layout ? ReaderPageRasterTargetAuthorityOffscreenPassive : " +
+				"ReaderPageRasterTargetAuthorityCurrentLive"
 		)
 		assertContains(plan, "addTarget(centerPageIndex + step, 'next-transition')")
 		assertContains(plan, "addTarget(centerPageIndex - step, 'previous-transition')")
@@ -1327,7 +1329,10 @@ class ReaderPageTurnDestinationSourceTest {
 			.substringAfter("function pageTurnRasterPreparationPlan(")
 			.substringBefore("function pageTurnPreviewContext()")
 
-		assertContains(plan, "const geometry = this.pageTurnCaptureGeometry()")
+		assertContains(
+			plan,
+			"const geometry = layout ? layout.captureGeometry : this.pageTurnCaptureGeometry()"
+		)
 		assertContains(plan, "captureGeometry: geometry")
 	}
 

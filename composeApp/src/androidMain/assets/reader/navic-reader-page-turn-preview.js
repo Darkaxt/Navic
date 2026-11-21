@@ -527,20 +527,24 @@ function pageTurnRasterDescriptor(pageIndex) {
   })
 }
 
-function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
-  const geometry = this.pageTurnCaptureGeometry()
+// `layout` (from readerAlternateLayout) plans the other orientation: every target is passive (#57).
+function pageTurnRasterPreparationPlan(pageIndexOverride = null, layout = null) {
+  const geometry = layout ? layout.captureGeometry : this.pageTurnCaptureGeometry()
   const layoutMode = geometry.mode
   const readerDirection = this.effectiveReaderDirection?.() || this.readerDirectionModeValue
   // One raster per page index; in spread mode an index is a whole spread, so adjacent indices
   // are the adjacent spreads.
   const step = 1
   const requestedCenter = Number(pageIndexOverride)
-  const pageCount = Math.max(1, Math.floor(Number(this.currentPagePosition?.pageCount) || 1))
+  const pageCount = Math.max(1, Math.floor(Number(
+    layout ? layout.profile.pageCount : this.currentPagePosition?.pageCount
+  ) || 1))
   const centerPageIndex = Number.isFinite(requestedCenter)
     ? Math.max(0, Math.min(pageCount - 1, Math.floor(requestedCenter)))
     : Math.max(0, Math.min(pageCount - 1, Math.floor(Number(this.currentPagePosition?.pageIndex) || 0)))
-  const chapters = Array.isArray(this.paginationProfile?.chapters)
-    ? this.paginationProfile.chapters
+  const planProfile = layout ? layout.profile : this.paginationProfile
+  const chapters = Array.isArray(planProfile?.chapters)
+    ? planProfile.chapters
     : []
   const currentChapterIndex = chapters.findIndex(chapter => {
     const pageStartIndex = Math.max(0, Math.floor(Number(chapter?.pageStartIndex) || 0))
@@ -576,7 +580,7 @@ function pageTurnRasterPreparationPlan(pageIndexOverride = null) {
     return physicalPagesInRange(pageStartIndex, pageStartIndex + chapterPageCount)
   }
 
-  addTarget(centerPageIndex, 'current', ReaderPageRasterTargetAuthorityCurrentLive)
+  addTarget(centerPageIndex, 'current', layout ? ReaderPageRasterTargetAuthorityOffscreenPassive : ReaderPageRasterTargetAuthorityCurrentLive)
   addTarget(centerPageIndex + step, 'next-transition')
   addTarget(centerPageIndex - step, 'previous-transition')
   addTarget(centerPageIndex + step * 2, 'next-lookahead')

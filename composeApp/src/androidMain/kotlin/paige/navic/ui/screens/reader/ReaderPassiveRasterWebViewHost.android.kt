@@ -251,7 +251,8 @@ internal class ReaderPassiveRasterWebViewHost(
 	override val passiveSessionId: String,
 	private val viewportGeometry: ReaderPassiveRasterGeometry,
 	private val mainHandler: Handler = Handler(Looper.getMainLooper()),
-	private val onRendererGone: () -> Unit = { }
+	private val onRendererGone: () -> Unit = { },
+	private val onReady: () -> Unit = { }
 ) : ReaderPassiveRasterRuntimePort<Bitmap> {
 	private class ActiveCommit(
 		val generation: Long,
@@ -436,6 +437,7 @@ internal class ReaderPassiveRasterWebViewHost(
 			if (!callbackIsCurrent(generation)) return@evaluateJavascript
 			if (encoded == "true") {
 				runtimeReady = true
+				mainHandler.post { if (isReady) onReady() }
 				Logger.i(
 					"ReaderPassiveRaster",
 					"Passive runtime ready elapsedMs=${SystemClock.elapsedRealtime() - createdAtMillis} " +

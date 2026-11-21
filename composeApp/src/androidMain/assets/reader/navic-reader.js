@@ -153,6 +153,7 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import { NavicReaderPageTurnMethods } from './navic-reader-page-turns.js'
+import { NavicReaderAlternateLayoutMethods } from './navic-reader-alternate-layout.js'
 import { NavicReaderPageTurnPreviewMethods } from './navic-reader-page-turn-preview.js'
 import { NavicReaderContentInteractionMethods } from './navic-reader-content-interactions.js'
 import { NavicReaderPaginationMethods } from './navic-reader-pagination.js'
@@ -1506,6 +1507,7 @@ Object.assign(NavicReaderRuntime.prototype,
   NavicReaderLocationMethods,
   NavicReaderMediaOverlayMethods,
   NavicReaderPageTurnMethods,
+  NavicReaderAlternateLayoutMethods,
   NavicReaderPageTurnPreviewMethods,
   NavicReaderContentInteractionMethods,
   NavicReaderPaginationMethods,
@@ -1600,6 +1602,10 @@ window.NavicReaderBridge = {
   pageTurnPreviewContext: () => runtime.pageTurnPreviewContext(),
   pageTurnRasterDescriptor: pageIndex => runtime.pageTurnRasterDescriptor(pageIndex),
   pageTurnRasterPreparationPlan: pageIndex => runtime.pageTurnRasterPreparationPlan(pageIndex),
+  pageTurnAlternateLayoutPlan: () => runtime.pageTurnAlternateLayoutPlan(),
+  pageTurnAlternatePassiveRasterDescriptor: ordinal => runtime.pageTurnAlternatePassiveRasterDescriptor(ordinal),
+  pageTurnAlternatePassiveRasterManifestInputs: (ordinal, epoch, generation) =>
+    runtime.pageTurnAlternatePassiveRasterManifestInputs(ordinal, epoch, generation),
   pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
     runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
   exposePageTurnPreviewFinal: (token, foregroundMutationGeneration) =>

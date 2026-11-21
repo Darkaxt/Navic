@@ -9,6 +9,49 @@ import paige.navic.reader.ReaderPageRasterPriority
 
 class ReaderPageAdjacentChapterPrefetchTest {
 	@Test
+	fun reportsDrainedOnlyOnceEveryChapterFinishedAndDisturbedOnInteraction() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		var drained = 0
+		var disturbed = 0
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {},
+			onDrained = { drained++ },
+			onDisturbed = { disturbed++ }
+		)
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		repeat(2) {
+			assertEquals(0, drained, "work is still pending")
+			val submission = submissions.last()
+			submission.targets.forEach { target -> coordinator.onTargetDurable(submission, target.pageIndex) }
+			assertTrue(coordinator.onBatchFinished(submission))
+		}
+		assertEquals(1, drained)
+		val beforeInteraction = disturbed
+		coordinator.onInteractionActiveChanged(true)
+		assertEquals(beforeInteraction + 1, disturbed)
+		coordinator.onInteractionActiveChanged(false)
+		assertEquals(2, drained, "idle again after the interaction")
+	}
+
+	@Test
+	fun aPlanWithoutAdjacentChaptersDrainsOnceItsDeckIsPrepared() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		var drained = 0
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {},
+			onDrained = { drained++ }
+		)
+		coordinator.replaceDurablePlan(adjacentPlan().copy(chapters = emptyList()))
+		assertEquals(0, drained, "the deck is not prepared yet")
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		assertTrue(submissions.isEmpty())
+		assertEquals(1, drained, "nothing adjacent to prepare, so the other layout may start (#57)")
+	}
+
+	@Test
 	fun waitsForMatchingPreparedActiveDeckThenSubmitsSeparateChapters() {
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(

@@ -776,6 +776,7 @@ async function ensureCompletePaginationProfile(url = this.publicationUrl, settin
     cachedProfile.estimatedChapterCount === 0
   ) {
     this.paginationProfile = cachedProfile
+    this.rememberReaderLayoutViewport(cachedProfile)
     this.hydrateObservedChapterPageCountsFromProfile(cachedProfile)
     this.postPaginationProfileStatus(ReaderPaginationProfileStatusCached, {
       fingerprint,
@@ -805,6 +806,7 @@ async function ensureCompletePaginationProfile(url = this.publicationUrl, settin
     this.hydrateObservedChapterPageCountsFromProfile(profile)
     if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     this.writeCachedPaginationProfile(profile)
+    if (profile.estimatedChapterCount === 0) this.rememberReaderLayoutViewport(profile)
     if (!this.paginationProfileTaskIsCurrent(task)) return this.paginationProfile
     readerTrace('pagination-profile:updated', {
       fingerprint,
