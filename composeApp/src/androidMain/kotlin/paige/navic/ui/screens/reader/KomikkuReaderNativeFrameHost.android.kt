@@ -3368,6 +3368,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			requestPageTurnPrewarmWhenReady()
 			return
 		}
+		// Captured before hiding restores the cover. Returning to a readable page is a relayout,
+		// not a chapter entry: it releases once the window around the page is durable instead
+		// of re-preparing the whole chapter behind a blank screen (#63).
+		val readableWhenHidden = !shellCoverVisible &&
+			lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden
 		passiveRasterPreparationAdapter?.pause()
 		alternateLayoutPreparation.cancel("window-hidden")
 		pageRasterHostEventController.lifecycleResumedChanged(false)
@@ -3378,7 +3383,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		regeneratingReadableLayout = false
 		removePageTurnPrewarmLayoutListener()
 		playLikeCurlController.onHostWindowHidden()
-		pageRasterPreparationController.invalidate("window-hidden")
+		pageRasterPreparationController.invalidate(
+			reason = "window-hidden",
+			layoutRegeneration = readableWhenHidden
+		)
 	}
 
 	override fun onDetachedFromWindow() {

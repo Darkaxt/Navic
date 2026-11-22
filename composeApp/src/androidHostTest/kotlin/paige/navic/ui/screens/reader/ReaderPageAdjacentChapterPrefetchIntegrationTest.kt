@@ -1688,7 +1688,7 @@ class ReaderPageAdjacentChapterPrefetchIntegrationTest {
 		assertContains(hidden, "reason = \"window-hidden\"")
 		assertContains(hidden, "profileRegeneration = true")
 		assertContains(host, "playLikeCurlController.onHostWindowHidden()")
-		assertContains(host, "pageRasterPreparationController.invalidate(\"window-hidden\")")
+		assertContains(host, "pageRasterPreparationController.invalidate(\n\t\t\treason = \"window-hidden\",")
 	}
 
 	@Test

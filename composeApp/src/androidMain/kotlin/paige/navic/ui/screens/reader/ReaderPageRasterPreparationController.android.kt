@@ -321,7 +321,8 @@ internal class ReaderPageRasterPreparationController(
 	private var lastPrewarmBoundary: String? = null
 	private var lastPreparationStateTrace: String? = null
 	private var hasPreparedBefore = false
-	// A layout-only change of a readable chapter: turns resume once the deck window is stored.
+	// A layout-only change of a readable chapter, or a jump into another chapter (#63): turns
+	// resume once the deck window is stored.
 	private var relayoutEarlyRelease = false
 	private var prewarmAcquisitionTriggerClassified = false
 	private var activeAcquisitionTrigger =
@@ -540,8 +541,10 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun enterBlockingPreparation(reason: String) {
-		relayoutEarlyRelease = false
+		// Already under the cover: keep an armed early release. A slow relayout loses pagination
+		// readiness again when its profile lands, which must not cost the release (#63).
 		if (!hasPreparedBefore) return
+		relayoutEarlyRelease = false
 		hasPreparedBefore = false
 		logLoadingEvent(
 			event = "cover-restored",
@@ -878,7 +881,9 @@ internal class ReaderPageRasterPreparationController(
 		cancelPrewarm(reason = "invalidate:$reason")
 		bundleSource.invalidate(reason)
 		hasPreparedBefore = false
-		relayoutEarlyRelease = layoutRegeneration && !clearVisualPageIndex
+		// A follow-up invalidation (the relayout shell cover appearing) must not disarm a pending
+		// relayout release; only a position reset does (#63).
+		relayoutEarlyRelease = (layoutRegeneration || relayoutEarlyRelease) && !clearVisualPageIndex
 		preparedChapterRange = null
 		candidateChapterRange = null
 		candidateBlockingPageIndices = emptySet()
@@ -954,11 +959,16 @@ internal class ReaderPageRasterPreparationController(
 			if (visualCenterChanging && !prewarmPending) onRequestPrewarm()
 			return
 		}
+		val exactTurn = reason == "page-turn:exact"
 		val restoresCover = readerPageVisualChangeRestoresCover(
 			hasPreparedBefore = hasPreparedBefore,
 			insidePreparedChapter = preparedChapterRange?.contains(pageIndex) == true,
-			exactTurn = reason == "page-turn:exact"
+			exactTurn = exactTurn
 		)
+		// #63: a TOC jump may already be under the cover (pagination readiness is lost first),
+		// so a jump out of a prepared chapter is recognised by the range, not by the cover.
+		val jumpsOutOfPreparedChapter = !exactTurn &&
+			preparedChapterRange?.contains(pageIndex) == false
 		if (currentVisualPageIndex == pageIndex) {
 			if (reason == "page-turn:exact" && !prewarmPending) onRequestPrewarm()
 			return
@@ -969,6 +979,9 @@ internal class ReaderPageRasterPreparationController(
 		beginBlockingBackgroundPrefetchSession()
 		cancelRasterRepairs("visual-index-changed:${reason ?: "unspecified"}")
 		cancelPrewarm(reason = "visual-index-changed:${reason ?: "unspecified"}")
+		// #63: a jump into another chapter lifts the cover once the curl deck's window is
+		// stored, like a relayout; the rest of the chapter prepares in the background.
+		if (jumpsOutOfPreparedChapter) relayoutEarlyRelease = true
 		deferPreparationForVisualRestoration()
 		currentVisualPageIndex = pageIndex
 		logLoadingEvent(
@@ -1968,10 +1981,11 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	/**
-	 * Relayout early release: a chapter that was readable before a layout-only change (font, size,
-	 * direction, quality, rotation) becomes turnable again as soon as the curl deck's window is
-	 * stored. The session continues as background preparation for the rest of the chapter.
-	 * Chapter entry and first open never take this path and still prepare the whole chapter.
+	 * Early release: a chapter that was readable before a layout-only change (font, size,
+	 * direction, quality, rotation), or a chapter entered by a jump from a readable one (TOC,
+	 * link, search; #63), becomes turnable as soon as the curl deck's window is stored. The
+	 * session continues as background preparation for the rest of the chapter. First open
+	 * never takes this path and still prepares the whole chapter.
 	 */
 	private fun releaseRelayoutOnceDeckWindowIsDurable() {
 		if (!relayoutEarlyRelease || hasPreparedBefore || retryPreparationInProgress) return

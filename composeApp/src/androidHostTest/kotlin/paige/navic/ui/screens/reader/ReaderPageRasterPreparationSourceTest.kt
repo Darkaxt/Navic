@@ -550,10 +550,30 @@ class ReaderPageRasterPreparationSourceTest {
 		assertFalse(release.contains("ReaderPagePreparationPhase.Ready"))
 		assertFalse(release.contains("publishReadyPreparationIfProven"))
 		assertEquals(
-			2,
-			source.split("relayoutEarlyRelease = layoutRegeneration").size - 1,
+			1,
+			source.split("relayoutEarlyRelease = layoutRegeneration\n").size - 1,
 			"only a layout invalidation or a quality change arms the relayout release"
 		)
+		// #63: the relayout shell cover invalidates again; that keeps an armed release and only a
+		// position reset disarms it.
+		assertContains(
+			source,
+			"relayoutEarlyRelease = (layoutRegeneration || relayoutEarlyRelease) && !clearVisualPageIndex"
+		)
+		// #63: a jump out of the prepared chapter (TOC, link, search) arms the same release, even
+		// when pagination readiness already restored the cover, and only after
+		// the old session is cancelled, so nothing resets it.
+		val synchronize = requiredReaderSourceSlice(
+			source = source,
+			startDelimiter = "fun synchronizeVisualPageIndex(",
+			endDelimiter = "fun attachRasterRepairQaFault("
+		)
+		assertEquals(1, source.split("relayoutEarlyRelease = true").size - 1)
+		val chapterEntryArm = synchronize.indexOf("if (jumpsOutOfPreparedChapter) relayoutEarlyRelease = true")
+		assertContains(synchronize, "preparedChapterRange?.contains(pageIndex) == false")
+		assertTrue(chapterEntryArm > synchronize.indexOf("enterBlockingPreparation(\"chapter-entry:"))
+		assertTrue(chapterEntryArm > synchronize.indexOf("cancelPrewarm(reason = \"visual-index-changed:"))
+		assertTrue(chapterEntryArm < synchronize.indexOf("onRequestPrewarm()\n\t}"))
 		assertEquals(listOf(10, 12, 8, 14, 6), readerPageRasterBlockingWindow(10, 2, 40, radius = 2))
 		assertEquals(listOf(0, 1, 2), readerPageRasterBlockingWindow(0, 1, 3, radius = 2))
 		val blocking = requiredReaderSourceSlice(
@@ -561,7 +581,8 @@ class ReaderPageRasterPreparationSourceTest {
 			startDelimiter = "private fun enterBlockingPreparation(",
 			endDelimiter = "fun updateBitmapQuality("
 		)
-		assertTrue(blocking.indexOf("relayoutEarlyRelease = false") in 0 until blocking.indexOf("if (!hasPreparedBefore) return"))
+		// A slow relayout loses pagination readiness again under the cover; that keeps the armed release.
+		assertTrue(blocking.indexOf("relayoutEarlyRelease = false") > blocking.indexOf("if (!hasPreparedBefore) return"))
 		assertContains(followUp, "checkNotNull(plan.blockingTargetsOrNull())")
 		assertContains(followUp, "totalRequired = blockingTargets.size")
 		assertContains(finish, "hasPreparedBefore = candidateBlockingPageIndices.isNotEmpty()")

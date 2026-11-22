@@ -203,6 +203,12 @@ class KomikkuReaderNativeFrameHostTest {
 		for (entry in listOf("fun setPageTurnReadingDirection(", "fun setPageTurnBitmapQuality(", "fun setPageTurnSnapshotKey(")) {
 			assertContains(source.substringAfter(entry).substringBefore("\n\t}"), "beginReadableLayoutRegeneration()", message = entry)
 		}
+		// #63: minimize/restore of a readable page releases like a relayout; readability is captured
+		// before hiding restores the cover.
+		val visibility = source.substringAfter("override fun onWindowVisibilityChanged(").substringBefore("override fun onDetachedFromWindow(")
+		val readableCapture = visibility.indexOf("val readableWhenHidden = !shellCoverVisible &&")
+		assertTrue(readableCapture in 0 until visibility.indexOf("playLikeCurlController.onHostWindowHidden()"))
+		assertContains(visibility, "reason = \"window-hidden\",\n\t\t\tlayoutRegeneration = readableWhenHidden")
 		val begin = source.substringAfter("private fun beginReadableLayoutRegeneration()").substringBefore("\n\t}")
 		assertContains(begin, "if (shellCoverVisible) return")
 		assertContains(begin, "lastPublishedPagePreparationPresentation == ReaderPagePreparationPresentation.Hidden")
