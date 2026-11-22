@@ -16,6 +16,7 @@ import paige.navic.data.remote.NetworkClientFactory
 import paige.navic.data.remote.aurral.AURRAL_JSON
 import paige.navic.data.remote.aurral.AurralArtistSearchResponseDto
 import paige.navic.data.remote.aurral.AurralAuthMeDto
+import paige.navic.data.remote.aurral.AurralDiscoveryCountDto
 import paige.navic.data.remote.aurral.AurralHealthDto
 import paige.navic.data.remote.aurral.AurralRequestDto
 import paige.navic.data.remote.aurral.AurralWeeklyFlowStatusDto
@@ -151,6 +152,33 @@ class AurralV3CompatibilityTest {
 		assertFalse(limited.accessFlow)
 		assertFalse(limited.changeMonitoring)
 		assertTrue(limited.addAlbum)
+	}
+
+	@Test
+	fun v3RecommendationCountComesFromPerUserDiscoverNotStaleHealth() = runTest {
+		val health = AURRAL_JSON.decodeFromString<AurralHealthDto>("""{"status":"ok","discovery":{"recommendationsCount":0}}""")
+		assertEquals(500, aurralServiceStatus(health, null, null, emptyList(), 2, AurralDiscoveryCountDto(recommendationCount = 500)).discoveryRecommendationsCount)
+		assertEquals(0, aurralServiceStatus(health, null, null, emptyList(), 1).discoveryRecommendationsCount)
+
+		for ((bootstrap, expected) in listOf(v3Bootstrap to 3, """{"status":"ok","appVersion":"2.13.0"}""" to 7)) {
+			val paths = mutableListOf<String>()
+			val engine = MockEngine { request ->
+				val path = request.url.encodedPath
+				paths += path
+				when {
+					path.endsWith("/api/health/bootstrap") -> respond(bootstrap, headers = json)
+					path.endsWith("/api/health") -> respond("""{"status":"ok","discovery":{"recommendationsCount":7}}""", headers = json)
+					path.endsWith("/api/discover") -> respond("""{"recommendations":[{"id":"a"},{"id":"b"},{"id":"c"}]}""", headers = json)
+					path.endsWith("/api/requests") -> respond("[]", headers = json)
+					else -> respond("{}", headers = json)
+				}
+			}
+			try {
+				val status = KtorAurralApiClient(NetworkClientFactory { engine }).fetchServiceStatus(baseUrl, emptyMap())
+				assertEquals(expected, status.discoveryRecommendationsCount, bootstrap)
+				assertEquals(expected == 3, paths.any { it.endsWith("/api/discover") }, bootstrap)
+			} finally { engine.close() }
+		}
 	}
 
 	@Test

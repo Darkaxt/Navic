@@ -20,6 +20,13 @@ internal data class AurralDiscoveryDto(
 	@SerialName("isUpdating") val isUpdating: Boolean = false
 )
 
+/** Only the count of a v3 per-user /api/discover response (health's discovery count is the stale global cache). */
+@Serializable
+internal data class AurralDiscoveryCountDto(
+	@SerialName("recommendationCount") val recommendationCount: Int? = null,
+	val recommendations: List<kotlinx.serialization.json.JsonElement> = emptyList()
+)
+
 @Serializable
 internal data class AurralDiscoveryResponseDto(
 	val recommendations: List<AurralDiscoverArtistDto> = emptyList(),

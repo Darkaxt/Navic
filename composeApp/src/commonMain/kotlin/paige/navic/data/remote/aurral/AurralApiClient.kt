@@ -292,14 +292,30 @@ internal class KtorAurralApiClient(
 		val authMe = fetchAuthMe(baseUrl, requestHeaders)
 		val weeklyFlow = fetchWeeklyFlowStatus(baseUrl, requestHeaders)
 		val requests = fetchRequests(baseUrl, requestHeaders)
+		val apiVersion = fetchApiVersion(baseUrl, requestHeaders)
+		val discovery = if (apiVersion >= 2) fetchDiscoveryCount(baseUrl, requestHeaders) else null
 
 		return aurralServiceStatus(
 			health = health,
 			authMe = authMe,
 			weeklyFlow = weeklyFlow,
 			requests = requests,
-			apiVersion = fetchApiVersion(baseUrl, requestHeaders)
+			apiVersion = apiVersion,
+			discovery = discovery
 		)
+	}
+
+	private suspend fun fetchDiscoveryCount(
+		baseUrl: String,
+		requestHeaders: Map<String, String>
+	): AurralDiscoveryCountDto? = runCatching {
+		val response = client.get(aurralEndpoint(baseUrl, "api/discover")) {
+			aurralJsonRequest(requestHeaders)
+		}
+		if (response.status.isSuccess()) response.body<AurralDiscoveryCountDto>() else null
+	}.getOrElse { error ->
+		if (error is kotlinx.coroutines.CancellationException) throw error
+		null
 	}
 
 	override suspend fun fetchActivityStatus(

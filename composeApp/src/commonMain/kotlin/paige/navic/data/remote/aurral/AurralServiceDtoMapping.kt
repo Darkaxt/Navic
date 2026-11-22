@@ -21,7 +21,8 @@ internal fun aurralServiceStatus(
 	authMe: AurralAuthMeDto?,
 	weeklyFlow: AurralWeeklyFlowStatusDto?,
 	requests: List<AurralRequestDto>,
-	apiVersion: Int = AURRAL_LEGACY_API_VERSION
+	apiVersion: Int = AURRAL_LEGACY_API_VERSION,
+	discovery: AurralDiscoveryCountDto? = null
 ): AurralServiceStatus {
 	val user = authMe?.user ?: health.user
 	val isAdmin = user?.role.equals("admin", ignoreCase = true)
@@ -44,7 +45,9 @@ internal fun aurralServiceStatus(
 		addAlbum = isAdmin || user?.permissions?.addAlbum == true,
 		changeMonitoring = isAdmin || user?.permissions?.changeMonitoring == true,
 		lidarrConfigured = health.lidarrConfigured || health.rootFolderConfigured,
-		discoveryRecommendationsCount = health.discovery?.recommendationsCount ?: 0,
+		// v3 keeps recommendations per user; its health count is the old global cache (stays 0).
+		discoveryRecommendationsCount = discovery?.let { it.recommendationCount ?: it.recommendations.size }
+			?: health.discovery?.recommendationsCount ?: 0,
 		discoveryUpdating = health.discovery?.isUpdating == true,
 		flowsCount = weeklyFlow?.flows.orEmpty().size,
 		enabledFlowsCount = weeklyFlow?.flows.orEmpty().count { it.enabled },
