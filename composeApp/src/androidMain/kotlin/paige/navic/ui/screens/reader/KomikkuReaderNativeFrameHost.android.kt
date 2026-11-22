@@ -50,6 +50,7 @@ import karacken.curl.PageChange
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
 import java.util.UUID
+import paige.navic.reader.ReaderBookPreparationProgress
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -353,6 +354,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
+	bookPreparationActive: Boolean,
+	bookPreparationRetryKey: Int,
+	onBookPreparationProgress: (ReaderBookPreparationProgress) -> Unit,
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
@@ -373,6 +377,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	val currentOnWhispersyncCueMapHoldOutcome by rememberUpdatedState(onWhispersyncCueMapHoldOutcome)
 	val currentOnWhispersyncCueMapSeekRequested by rememberUpdatedState(onWhispersyncCueMapSeekRequested)
 	val currentOnPagePreparationStateChange by rememberUpdatedState(onPagePreparationStateChange)
+	val currentOnBookPreparationProgress by rememberUpdatedState(onBookPreparationProgress)
 	val currentOnStartupShellPrepared by rememberUpdatedState(onStartupShellPrepared)
 	var rendererBusyFeedbackToken by remember { mutableLongStateOf(0L) }
 	var nativeFrameRoot by remember { mutableStateOf<KomikkuReaderNativeFrameRoot?>(null) }
@@ -473,6 +478,10 @@ actual fun KomikkuReaderNativeFrameHost(
 					setViewerLayerPaint(grayscaleEnabled, invertedColors)
 					setVerticalPageDragPreview(verticalPageDragPreview)
 					setPageTurnBitmapQuality(pageTurnBitmapQuality)
+					setBookPreparation(
+						if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
+					)
+					setBookPreparationRetryKey(bookPreparationRetryKey)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
@@ -523,6 +532,10 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				root.setVerticalPageDragPreview(verticalPageDragPreview)
 				root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
+				root.setBookPreparation(
+					if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
+				)
+				root.setBookPreparationRetryKey(bookPreparationRetryKey)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
@@ -778,6 +791,16 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		viewerContainer.setPageCacheOptions(scope, layouts)
+	}
+
+	/** #66: the reader stays awake while it prepares the whole book. */
+	fun setBookPreparation(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
+		keepScreenOn = listener != null
+		viewerContainer.setBookPreparation(listener)
+	}
+
+	fun setBookPreparationRetryKey(retryKey: Int) {
+		viewerContainer.setBookPreparationRetryKey(retryKey)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
@@ -1940,6 +1963,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	/** Background-preparation options (#57); host-only, so they never regenerate the layout. */
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		pageRasterPreparationController.updatePageCacheOptions(scope, layouts)
+	}
+
+	fun setBookPreparation(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
+		pageRasterPreparationController.setBookPreparationListener(listener)
+	}
+
+	private var bookPreparationRetryKey = 0
+
+	fun setBookPreparationRetryKey(retryKey: Int) {
+		if (retryKey == bookPreparationRetryKey) return
+		bookPreparationRetryKey = retryKey
+		pageRasterPreparationController.retryBookPreparation()
 	}
 
 	override fun acquireSettingsMutation(

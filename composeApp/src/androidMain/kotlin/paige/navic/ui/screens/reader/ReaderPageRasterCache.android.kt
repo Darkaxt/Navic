@@ -47,6 +47,11 @@ internal const val ReaderPageRasterFinishedBooksFileName = "finished-books.txt"
 
 private val ReaderPageRasterFinishedBookPattern = Regex("[A-Za-z0-9_-]{1,128}")
 
+/** Books prepared with "Prepare pages" (#66), one "publicationHash:paginationHash" per line. */
+internal const val ReaderPageRasterPreparedBooksFileName = "prepared-books.txt"
+
+private val ReaderPageRasterPreparedBookPattern = Regex("[A-Za-z0-9_-]{1,128}:[A-Za-z0-9_:-]{1,128}")
+
 /** Back matter (notes, acknowledgements) should not keep a book from counting as finished. */
 internal const val ReaderBookFinishedFraction = 0.97
 
@@ -679,6 +684,10 @@ internal class ReaderPageRasterCache<T : Any>(
 		val scheduled = mutableListOf<DecodedCacheOwner<T>>()
 		val removed = synchronized(this) {
 			val protection = encodedWindowProtection
+			// A prepared pagination (#66) keeps every chapter and is never pruned as superseded.
+			val preparedPaginations = readPreparedBooks()
+				.filter { line -> line.startsWith("$publicationHash:") }
+				.mapTo(mutableSetOf()) { line -> line.substringAfter(':') }
 			val keptPaginations = currentPaginationHash?.let { current ->
 				entries.values
 					.filter { it.key.publicationHash == publicationHash && it.key.paginationHash != current }
@@ -687,12 +696,12 @@ internal class ReaderPageRasterCache<T : Any>(
 					.entries
 					.sortedByDescending { it.value }
 					.take(ReaderPageRasterRetainedPreviousPaginations)
-					.mapTo(mutableSetOf(current)) { it.key }
+					.mapTo(mutableSetOf(current)) { it.key } + preparedPaginations
 			}
 			val discarded = entries.values.filter { entry ->
 				val key = entry.key
 				key.publicationHash == publicationHash &&
-					(key.spineIndex < currentSpineIndex - 1 ||
+					((key.spineIndex < currentSpineIndex - 1 && key.paginationHash !in preparedPaginations) ||
 						(keptPaginations != null && key.paginationHash !in keptPaginations)) &&
 					key.chapter != protectedChapter &&
 					!(decoded.containsKey(key.digest) &&
@@ -763,33 +772,55 @@ internal class ReaderPageRasterCache<T : Any>(
 		return removed
 	}
 
-	private fun finishedBooksFile(): File = root.resolve(ReaderPageRasterFinishedBooksFileName)
+	/**
+	 * "Prepare pages" (#66): records [paginationHash] as the prepared pagination of
+	 * [publicationHash], replacing an older one, so chapter retention keeps the whole book.
+	 */
+	fun markBookPrepared(publicationHash: String, paginationHash: String): Boolean {
+		if (!storageAvailable) return false
+		val line = "$publicationHash:$paginationHash"
+		if (!ReaderPageRasterPreparedBookPattern.matches(line)) return false
+		return synchronized(this) {
+			val books = readPreparedBooks()
+			books.removeAll { existing -> existing.startsWith("$publicationHash:") }
+			books += line
+			writeBookSet(ReaderPageRasterPreparedBooksFileName, books)
+		}
+	}
 
-	private fun readFinishedBooks(): MutableSet<String> {
-		val file = finishedBooksFile()
+	private fun readFinishedBooks(): MutableSet<String> =
+		readBookSet(ReaderPageRasterFinishedBooksFileName, ReaderPageRasterFinishedBookPattern)
+
+	private fun writeFinishedBooks(books: Set<String>) {
+		writeBookSet(ReaderPageRasterFinishedBooksFileName, books)
+	}
+
+	private fun readPreparedBooks(): MutableSet<String> =
+		readBookSet(ReaderPageRasterPreparedBooksFileName, ReaderPageRasterPreparedBookPattern)
+
+	private fun readBookSet(fileName: String, pattern: Regex): MutableSet<String> {
+		val file = root.resolve(fileName)
 		if (!file.isFile || Files.isSymbolicLink(file.toPath())) return mutableSetOf()
 		return runCatching { file.readLines() }.getOrDefault(emptyList())
 			.map(String::trim)
-			.filterTo(mutableSetOf()) { line -> ReaderPageRasterFinishedBookPattern.matches(line) }
+			.filterTo(mutableSetOf()) { line -> pattern.matches(line) }
 	}
 
-	private fun writeFinishedBooks(books: Set<String>) {
-		val file = finishedBooksFile()
-		if (Files.isSymbolicLink(file.toPath())) return
+	private fun writeBookSet(fileName: String, books: Set<String>): Boolean {
+		val file = root.resolve(fileName)
+		if (Files.isSymbolicLink(file.toPath())) return false
 		if (books.isEmpty()) {
 			file.delete()
-			return
+			return true
 		}
 		root.mkdirs()
-		val temporary = root.resolve("$ReaderPageRasterFinishedBooksFileName.tmp")
-		runCatching {
+		val temporary = root.resolve("$fileName.tmp")
+		val written = runCatching {
 			temporary.writeText(books.sorted().joinToString(separator = "\n", postfix = "\n"))
-			if (!temporary.renameTo(file)) {
-				file.delete()
-				temporary.renameTo(file)
-			}
-		}
+			temporary.renameTo(file) || (file.delete() && temporary.renameTo(file))
+		}.getOrDefault(false)
 		temporary.delete()
+		return written
 	}
 
 	fun protectDecodedPageIndices(pageIndices: Set<Int>) {

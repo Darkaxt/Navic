@@ -1496,6 +1496,34 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun preparedPaginationKeepsEveryChapterAndSurvivesPaginationPruning() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		val prepared = (0..6).map { spine -> chapterKey(spine, pagination = "navic-pagination-v1:1111") }
+		val other = (0..6).map { spine -> chapterKey(spine, pagination = "navic-pagination-v1:2222") }
+		(prepared + other).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+		}
+		assertTrue(fixture.cache.markBookPrepared("publication-1", "navic-pagination-v1:1111"))
+		assertFalse(fixture.cache.markBookPrepared("publication-1", "bad hash"))
+
+		// Real fingerprints are "version:hash". Only the unprepared pagination loses the chapters two or more behind.
+		assertEquals(5, fixture.cache.discardChaptersBehind("publication-1", 6))
+		prepared.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
+		other.filter { it.spineIndex <= 4 }.forEach { rasterKey -> assertFalse(fixture.cache.contains(rasterKey)) }
+
+		// The record survives a reopen, and preparing another pagination replaces it.
+		val reopened = reopenedCache(fixture, maxDiskBytes = Long.MAX_VALUE)
+		assertEquals(0, reopened.discardChaptersBehind("publication-1", 6))
+		assertTrue(reopened.markBookPrepared("publication-1", "navic-pagination-v1:2222"))
+		assertEquals(5, reopened.discardChaptersBehind("publication-1", 6))
+		prepared.filter { it.spineIndex <= 4 }.forEach { rasterKey -> assertFalse(reopened.contains(rasterKey)) }
+		assertEquals(
+			listOf("publication-1:navic-pagination-v1:2222"),
+			fixture.root.resolve(ReaderPageRasterPreparedBooksFileName).readLines()
+		)
+	}
+
+	@Test
 	fun supersededPaginationsBeyondTheMostRecentTwoAreDiscarded() {
 		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
 		var now = 1_000L

@@ -2289,6 +2289,30 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	/**
+	 * "Prepare pages" (#66): records the displayed pagination of this book as fully prepared, so
+	 * chapter retention keeps all of it. [onResult] runs on the main thread.
+	 */
+	fun markBookPrepared(onResult: (Boolean) -> Unit) {
+		val chapter = currentRetentionChapter
+			?.takeIf { candidate -> candidate.generation == activeGeneration }
+		val scheduler = rasterScheduler
+		if (closed || chapter == null || scheduler == null) {
+			onResult(false)
+			return
+		}
+		val job = rasterScope.launch {
+			val marked = !closed &&
+				scheduler.markBookPrepared(chapter.publicationHash, chapter.paginationHash)
+			Logger.i(
+				ReaderPageTurnBundleSourceTag,
+				"Page raster book prepared marked=$marked spine=${chapter.spineIndex}"
+			)
+			onResult(marked)
+		}
+		trackRasterPersistenceJob(job)
+	}
+
+	/**
 	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's rasters
 	 * two or more chapters behind it in every pagination, layout and quality, plus paginations
 	 * superseded by font/layout changes beyond the most recent few. The cache itself keeps

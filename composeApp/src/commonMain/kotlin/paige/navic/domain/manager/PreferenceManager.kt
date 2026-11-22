@@ -377,6 +377,8 @@ class PreferenceManager(
 	var readerVolumeKeyPageTurns by preference(false)
 	var readerWebContentsDebuggingEnabled by preference(false)
 	var readerBookSettingsJson by preference("")
+	/** #66: Bindery book ids whose pages were prepared with "Prepare pages", one per line. */
+	var readerPreparedBookIds by preference("")
 	var readerBookmarksJson by preference("")
 	var readerAnnotationsJson by preference("")
 	var readerReadingProgressJson by preference("")

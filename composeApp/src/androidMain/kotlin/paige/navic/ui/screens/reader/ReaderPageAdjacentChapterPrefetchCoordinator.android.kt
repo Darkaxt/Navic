@@ -43,6 +43,16 @@ internal data class ReaderPageAdjacentChapterPrefetchPlan(
 	val chapters: List<ReaderPageAdjacentChapterPrefetchChapter>
 )
 
+internal data class ReaderPageAdjacentChapterPrefetchProgress(
+	val durablePages: Int,
+	val plannedPages: Int,
+	val durableChapters: Int,
+	val plannedChapters: Int
+) {
+	val complete: Boolean
+		get() = plannedChapters > 0 && durableChapters == plannedChapters
+}
+
 internal data class ReaderPagePreparedActiveDeck(
 	val rasterProfileEpoch: Long,
 	val rasterEpoch: Long,
@@ -216,6 +226,19 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			}
 		}
 
+	/** Durable versus planned pages and chapters of the current plan (#66 progress). */
+	fun planProgress(): ReaderPageAdjacentChapterPrefetchProgress? {
+		val chapters = plan?.chapters ?: return null
+		return ReaderPageAdjacentChapterPrefetchProgress(
+			durablePages = chapters.sumOf { chapter ->
+				chapter.targets.count { target -> target.pageIndex in durablePageIndices }
+			},
+			plannedPages = chapters.sumOf { chapter -> chapter.targets.size },
+			durableChapters = durableChapterIdentities().size,
+			plannedChapters = chapters.size
+		)
+	}
+
 	private fun trySubmit() {
 		val currentPlan = plan ?: return
 		val deck = preparedActiveDeck ?: return
@@ -279,8 +302,10 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 					chapter.identity.chapterIndex == key.currentChapterIndex + 1
 				ReaderPageAdjacentChapterDirection.Previous ->
 					chapter.identity.chapterIndex == (key.currentChapterIndex - 1).coerceAtLeast(0)
+				// Whole-book preparation (#66) also plans the chapters before the previous one.
 				ReaderPageAdjacentChapterDirection.Later ->
-					chapter.identity.chapterIndex >= key.currentChapterIndex + 2
+					chapter.identity.chapterIndex >= key.currentChapterIndex + 2 ||
+						chapter.identity.chapterIndex <= key.currentChapterIndex - 2
 			}
 		)
 		require(chapter.identity.pageStartIndex >= 0)

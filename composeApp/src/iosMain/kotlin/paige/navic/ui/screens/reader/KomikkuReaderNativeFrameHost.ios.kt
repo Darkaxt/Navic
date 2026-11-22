@@ -3,6 +3,7 @@ package paige.navic.ui.screens.reader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import paige.navic.reader.ReaderBookPreparationProgress
 import paige.navic.reader.ReaderPageDragPreviewPhase
 import paige.navic.reader.ReaderPageOperationPolicy
 import paige.navic.reader.ReaderPagePreparationState
@@ -48,6 +49,9 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
+	bookPreparationActive: Boolean,
+	bookPreparationRetryKey: Int,
+	onBookPreparationProgress: (ReaderBookPreparationProgress) -> Unit,
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,

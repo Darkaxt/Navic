@@ -1,5 +1,7 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderBookPreparationPhase
+import paige.navic.reader.ReaderBookPreparationProgress
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
 import android.os.Looper
@@ -252,8 +254,12 @@ internal class ReaderPageRasterPreparationController(
 					!destroyed &&
 					!prewarmInProgress
 				) onCurrentLayoutSettledChanged(true)
+				onBookPreparationDrained()
 			},
-			onDisturbed = { onCurrentLayoutSettledChanged(false) }
+			onDisturbed = {
+				bookPreparationDrained = false
+				onCurrentLayoutSettledChanged(false)
+			}
 		)
 	private var backgroundPrefetchWebView: WebView? = null
 	private val backgroundPrefetchAttachmentListener =
@@ -580,6 +586,7 @@ internal class ReaderPageRasterPreparationController(
 		private set
 
 	private fun wholeBookPreparationAllowed(): Boolean =
+		bookPreparationListener != null ||
 		pageCacheScope == ReaderPageCacheScope.FullBook &&
 			runCatching {
 				host.context.getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode != true
@@ -588,6 +595,63 @@ internal class ReaderPageRasterPreparationController(
 	/** Reader "layouts" setting (#57); "Both" also prefetches the other orientation when idle. */
 	var pageCacheLayouts: ReaderPageCacheLayouts = ReaderPageCacheLayouts.Current
 		private set
+
+	/**
+	 * "Prepare pages" (#66): while a listener is set, the background plan covers every chapter of
+	 * the book (earlier ones too, even in battery saver) and its progress is reported. When the
+	 * plan drains with every chapter durable, the pagination is recorded as prepared.
+	 */
+	private var bookPreparationListener: ((ReaderBookPreparationProgress) -> Unit)? = null
+	private var bookPreparationDrained = false
+	private var bookPreparationRecorded = false
+	private var bookPreparationRecording = false
+
+	fun setBookPreparationListener(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
+		bookPreparationListener = listener
+	}
+
+	/** Lets an incomplete whole-book run try its missing chapters again. */
+	fun retryBookPreparation() {
+		if (bookPreparationListener == null) return
+		bookPreparationDrained = false
+		adjacentChapterPrefetchCoordinator.onPassiveAvailable()
+		reportBookPreparation()
+	}
+
+	private fun onBookPreparationDrained() {
+		if (bookPreparationListener == null || destroyed) return
+		bookPreparationDrained = true
+		val progress = adjacentChapterPrefetchCoordinator.planProgress()
+		if (progress?.complete == true && !bookPreparationRecorded && !bookPreparationRecording) {
+			bookPreparationRecording = true
+			bundleSource.markBookPrepared { marked ->
+				bookPreparationRecording = false
+				bookPreparationRecorded = marked
+				reportBookPreparation()
+			}
+		}
+		reportBookPreparation()
+	}
+
+	private fun reportBookPreparation() {
+		val listener = bookPreparationListener ?: return
+		val progress = adjacentChapterPrefetchCoordinator.planProgress()
+			?: return listener(ReaderBookPreparationProgress())
+		val phase = when {
+			progress.complete && bookPreparationRecorded -> ReaderBookPreparationPhase.Complete
+			bookPreparationDrained && !bookPreparationRecording -> ReaderBookPreparationPhase.Incomplete
+			else -> ReaderBookPreparationPhase.Preparing
+		}
+		listener(
+			ReaderBookPreparationProgress(
+				phase = phase,
+				preparedPages = progress.durablePages,
+				plannedPages = progress.plannedPages,
+				preparedChapters = progress.durableChapters,
+				plannedChapters = progress.plannedChapters
+			)
+		)
+	}
 
 	fun updatePageCacheOptions(scope: String?, layouts: String?) {
 		pageCacheScope = normalizeReaderPageCacheScope(scope)
@@ -1727,7 +1791,10 @@ internal class ReaderPageRasterPreparationController(
 				currentChapterIndex = plan.currentChapterIndex,
 				currentChapterPageStartIndex = plan.currentChapterPageStartIndex,
 				currentChapterPageCount = plan.currentChapterPageCount,
-				chapters = plan.adjacentChapterPrefetchChapters(wholeBook = wholeBookPreparationAllowed()),
+				chapters = plan.adjacentChapterPrefetchChapters(
+					wholeBook = wholeBookPreparationAllowed(),
+					earlierChapters = bookPreparationListener != null
+				),
 				generation = bundleSource.currentGeneration(),
 				preparationGeneration = preparationGeneration
 			)
@@ -2241,6 +2308,7 @@ internal class ReaderPageRasterPreparationController(
 		adjacentChapterPrefetchCoordinator.replaceDurablePlan(
 			prefetch.qualifiedPlan(profileEpoch)
 		)
+		reportBookPreparation()
 	}
 
 	private fun emitPrefetchDiagnostic(
@@ -2382,6 +2450,7 @@ internal class ReaderPageRasterPreparationController(
 					)
 				) {
 					durableRasterPageIndices += target.pageIndex
+					reportBookPreparation()
 				}
 			},
 			onProgress = { completed, required ->

@@ -1215,4 +1215,10 @@
 	<string name="info_audio_sync_detached">Playback detached from page turns</string>
 	<string name="info_narrated_by">Narrated by %1$s</string>
 
+	<string name="action_prepare_pages">Prepare pages</string>
+	<string name="info_reader_book_pages_prepared">Pages prepared</string>
+	<string name="info_reader_book_preparing">Preparing every page</string>
+	<string name="info_reader_book_preparation_progress">%1$d of %2$d pages · %3$d of %4$d chapters</string>
+	<string name="info_reader_book_preparation_incomplete">Some pages could not be prepared</string>
+	<string name="info_reader_book_preparation_hint">Keep Navic open. Pages are prepared for this orientation and these reader settings.</string>
 </resources>

@@ -34,6 +34,7 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.domain.manager.markReaderBookPrepared
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
@@ -1057,6 +1058,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.dispatch { closeDialog() })
+		},
+		onBookPrepared = {
+			preferenceManager.markReaderBookPrepared(reader.bookId)
+			processStateViewModel.clear()
+			backStack.performNavicBack()
+		},
+		onCancelBookPreparation = {
+			processStateViewModel.clear()
+			backStack.performNavicBack()
 		},
 		modifier = Modifier
 			.fillMaxSize()

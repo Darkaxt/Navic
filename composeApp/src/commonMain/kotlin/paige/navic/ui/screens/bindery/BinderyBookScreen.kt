@@ -54,6 +54,8 @@ import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_less
 import navic.composeapp.generated.resources.action_more
 import navic.composeapp.generated.resources.action_play
+import navic.composeapp.generated.resources.action_prepare_pages
+import navic.composeapp.generated.resources.info_reader_book_pages_prepared
 import navic.composeapp.generated.resources.action_open
 import navic.composeapp.generated.resources.ic_whispersync
 import navic.composeapp.generated.resources.info_bindery_no_versions
@@ -72,6 +74,8 @@ import paige.navic.LocalNavStack
 import paige.navic.LocalPlatformContext
 import paige.navic.domain.manager.BinderyReaderPrefetcher
 import paige.navic.domain.manager.PreferenceManager
+import paige.navic.reader.ReaderPublicationFormat
+import paige.navic.domain.manager.isReaderBookPrepared
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
@@ -81,6 +85,8 @@ import paige.navic.icons.Icons
 import paige.navic.icons.filled.Play
 import paige.navic.icons.outlined.Audiobooks
 import paige.navic.icons.outlined.Book
+import paige.navic.icons.outlined.Check
+import paige.navic.icons.outlined.CollectionBooks
 import paige.navic.icons.outlined.Download
 import paige.navic.icons.outlined.Info
 import paige.navic.ui.components.common.ContentUnavailable
@@ -583,6 +589,7 @@ private fun BinderyBookVersionListItem(
 	onDownloadResource: (BinderyBookVersionRow) -> Unit,
 	downloadInFlight: Boolean
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	val routingAction = row.routingAction()
 	val readerDestination = binderyReaderDestinationForVersionRow(
 		row = row,
@@ -710,6 +717,39 @@ private fun BinderyBookVersionListItem(
 						imageVector = Icons.Outlined.Audiobooks,
 						contentDescription = stringResource(Res.string.title_open_with_audiobook),
 						tint = MaterialTheme.colorScheme.primary
+					)
+				}
+			}
+			// #66 "Prepare pages": opens the reader only to prepare every page of the book.
+			if (
+				audiobookDestination == null &&
+				readerDestination != null &&
+				readerDestination.publicationFormat == ReaderPublicationFormat.Epub
+			) {
+				val prepared = preferenceManager.isReaderBookPrepared(bookId)
+				IconButton(
+					onClick = {
+						onOpenReader(
+							readerDestination.copy(
+								prepareBookPages = true,
+								skipNativeShellCover = true,
+								mediaOverlayEnabled = false,
+								whispersyncSidecarUrl = null,
+								whispersyncArtifactId = null,
+								whispersyncAudiobookId = null,
+								whispersyncAudiobookBookFileId = null,
+								whispersyncAudiobookTitle = null,
+								whispersyncWordSync = null
+							)
+						)
+					}
+				) {
+					Icon(
+						imageVector = if (prepared) Icons.Outlined.Check else Icons.Outlined.CollectionBooks,
+						contentDescription = stringResource(
+							if (prepared) Res.string.info_reader_book_pages_prepared else Res.string.action_prepare_pages
+						),
+						tint = if (prepared) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
 					)
 				}
 			}

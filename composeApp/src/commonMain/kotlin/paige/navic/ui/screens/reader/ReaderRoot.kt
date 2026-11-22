@@ -49,6 +49,8 @@ import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.reader.whispersyncAnchorAuthorityOverlayActive
+import paige.navic.reader.ReaderBookPreparationPhase
+import paige.navic.reader.ReaderBookPreparationProgress
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -107,12 +109,24 @@ internal fun KomikkuReaderRoot(
 	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
+	/** #66: the whole book was prepared and recorded. */
+	onBookPrepared: () -> Unit = {},
+	onCancelBookPreparation: () -> Unit = {},
 	modifier: Modifier = Modifier
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
 	val viewer = remember(viewerSlot, viewState) { viewerSlot.update(viewState) }
 	var pagePreparationState by remember { mutableStateOf(ReaderPagePreparationState()) }
 	var pagePreparationRetryKey by remember { mutableStateOf(0) }
+	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
+	var bookPreparationRetryKey by remember { mutableStateOf(0) }
+	val bookPreparationActive = reader.prepareBookPages
+	LaunchedEffect(bookPreparationActive, bookPreparationProgress.phase) {
+		if (bookPreparationActive && bookPreparationProgress.phase == ReaderBookPreparationPhase.Complete) {
+			kotlinx.coroutines.delay(800)
+			onBookPrepared()
+		}
+	}
 	val shellCoverUrl = viewer.shellCoverUrl
 	val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)
 	val mediaOverlayAvailable = controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
@@ -232,6 +246,9 @@ internal fun KomikkuReaderRoot(
 			pageOperationPolicy = pagePreparationState.operationPolicy,
 			pagePreparationRetryKey = pagePreparationRetryKey,
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
+			bookPreparationActive = bookPreparationActive,
+			bookPreparationRetryKey = bookPreparationRetryKey,
+			onBookPreparationProgress = { progress -> bookPreparationProgress = progress },
 			onStartupShellPrepared = {
 				onViewerAction(ReaderViewerAction.NativeShellPrepared)
 			},
@@ -338,6 +355,14 @@ internal fun KomikkuReaderRoot(
 					ReaderPagePreparationOverlay(
 						state = pagePreparationState,
 						onRetry = { pagePreparationRetryKey += 1 },
+						modifier = Modifier.matchParentSize()
+					)
+				}
+				if (bookPreparationActive) {
+					ReaderBookPreparationOverlay(
+						progress = bookPreparationProgress,
+						onRetry = { bookPreparationRetryKey += 1 },
+						onCancel = onCancelBookPreparation,
 						modifier = Modifier.matchParentSize()
 					)
 				}

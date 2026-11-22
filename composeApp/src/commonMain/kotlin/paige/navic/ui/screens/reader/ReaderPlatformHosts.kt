@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import paige.navic.domain.repositories.BinderyReadingProgress
+import paige.navic.reader.ReaderBookPreparationProgress
 import paige.navic.reader.ReaderEngineCommand
 import paige.navic.reader.ReaderEngineHostCommand
 import paige.navic.reader.ReaderEngineHostEvent
@@ -60,6 +61,10 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
+	/** #66 "Prepare pages": report whole-book preparation; [bookPreparationRetryKey] retries it. */
+	bookPreparationActive: Boolean = false,
+	bookPreparationRetryKey: Int = 0,
+	onBookPreparationProgress: (ReaderBookPreparationProgress) -> Unit = {},
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,

@@ -166,7 +166,9 @@ sealed interface Screen : NavKey {
 		val whispersyncAudiobookTitle: String? = null,
 		val whispersyncWordSync: BinderyWordSyncReference? = null,
 		val skipNativeShellCover: Boolean = false,
-		val fullscreenCoverUrl: String? = null
+		val fullscreenCoverUrl: String? = null,
+		/** #66: open only to prepare every page raster of the book, then close. */
+		val prepareBookPages: Boolean = false
 	) : Screen
 
 	// misc

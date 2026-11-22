@@ -196,14 +196,23 @@ internal fun ReaderPageRasterPreparationPlan.blockingTargetsOrNull():
  * prepared: retention would discard them again (#57).
  */
 internal fun ReaderPageRasterPreparationPlan.adjacentChapterPrefetchChapters(
-	wholeBook: Boolean = false
+	wholeBook: Boolean = false,
+	earlierChapters: Boolean = false
 ): List<ReaderPageAdjacentChapterPrefetchChapter> =
-	adjacentChapterPrefetchChaptersOnly() + if (wholeBook) laterChapterPrefetchChapters() else emptyList()
+	adjacentChapterPrefetchChaptersOnly() +
+		(if (wholeBook) laterChapterPrefetchChapters(laterChapterIndices()) else emptyList()) +
+		// "Prepare pages" (#66) covers the whole book, so it adds the chapters before the previous one.
+		if (earlierChapters) laterChapterPrefetchChapters(earlierChapterIndices()) else emptyList()
 
-private fun ReaderPageRasterPreparationPlan.laterChapterPrefetchChapters():
+private fun ReaderPageRasterPreparationPlan.laterChapterIndices(): IntRange =
+	if (currentChapterIndex < 0) IntRange.EMPTY else (currentChapterIndex + 2) until chapterRanges.size
+
+private fun ReaderPageRasterPreparationPlan.earlierChapterIndices(): IntRange =
+	if (currentChapterIndex < 2) IntRange.EMPTY else 0..(currentChapterIndex - 2)
+
+private fun ReaderPageRasterPreparationPlan.laterChapterPrefetchChapters(chapterIndices: IntRange):
 	List<ReaderPageAdjacentChapterPrefetchChapter> {
-	if (currentChapterIndex < 0) return emptyList()
-	return ((currentChapterIndex + 2) until chapterRanges.size).mapNotNull { chapterIndex ->
+	return chapterIndices.mapNotNull { chapterIndex ->
 		val range = chapterRanges[chapterIndex]
 		val identity = ReaderPageAdjacentChapterIdentity(
 			direction = ReaderPageAdjacentChapterDirection.Later,
