@@ -24,26 +24,34 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
+import navic.composeapp.generated.resources.action_done
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.info_reader_book_pages_prepared
 import navic.composeapp.generated.resources.info_reader_book_preparation_hint
 import navic.composeapp.generated.resources.info_reader_book_preparation_incomplete
 import navic.composeapp.generated.resources.info_reader_book_preparation_progress
+import navic.composeapp.generated.resources.info_reader_book_preparation_turn_landscape
+import navic.composeapp.generated.resources.info_reader_book_preparation_turn_portrait
 import navic.composeapp.generated.resources.info_reader_book_preparing
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.reader.ReaderBookPreparationPhase
 import paige.navic.reader.ReaderBookPreparationProgress
+import paige.navic.reader.ReaderPreparationOrientation
 
 /**
  * #66 "Prepare pages": covers the reader while it prepares the whole book and consumes every
- * gesture, so no page turn or menu interrupts the background batches.
+ * gesture, so no page turn or menu interrupts the background batches. #68: when "Both layouts"
+ * still lacks [awaitingOrientation] and the system did not rotate the reader (Android 16 ignores
+ * orientation requests on large screens), it asks the user to turn the device or finish with Done.
  */
 @Composable
 internal fun ReaderBookPreparationOverlay(
 	progress: ReaderBookPreparationProgress,
 	onRetry: () -> Unit,
 	onCancel: () -> Unit,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	awaitingOrientation: ReaderPreparationOrientation? = null,
+	onDone: () -> Unit = {}
 ) {
 	Box(
 		modifier = modifier
@@ -58,6 +66,7 @@ internal fun ReaderBookPreparationOverlay(
 				}
 			}
 	) {
+		val awaiting = awaitingOrientation.takeIf { progress.phase == ReaderBookPreparationPhase.Complete }
 		Surface(
 			shape = RoundedCornerShape(20.dp),
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
@@ -100,7 +109,13 @@ internal fun ReaderBookPreparationOverlay(
 					LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 				}
 				Text(
-					text = stringResource(Res.string.info_reader_book_preparation_hint),
+					text = stringResource(
+						when (awaiting) {
+							ReaderPreparationOrientation.Portrait -> Res.string.info_reader_book_preparation_turn_portrait
+							ReaderPreparationOrientation.Landscape -> Res.string.info_reader_book_preparation_turn_landscape
+							null -> Res.string.info_reader_book_preparation_hint
+						}
+					),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
@@ -111,7 +126,11 @@ internal fun ReaderBookPreparationOverlay(
 					if (progress.phase == ReaderBookPreparationPhase.Incomplete) {
 						TextButton(onClick = onRetry) { Text(stringResource(Res.string.action_retry)) }
 					}
-					TextButton(onClick = onCancel) { Text(stringResource(Res.string.action_cancel)) }
+					if (awaiting != null) {
+						TextButton(onClick = onDone) { Text(stringResource(Res.string.action_done)) }
+					} else {
+						TextButton(onClick = onCancel) { Text(stringResource(Res.string.action_cancel)) }
+					}
 				}
 			}
 		}

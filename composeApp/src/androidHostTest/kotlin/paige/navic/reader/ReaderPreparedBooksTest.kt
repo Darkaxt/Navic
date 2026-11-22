@@ -3,6 +3,7 @@ package paige.navic.reader
 import com.russhwolf.settings.MapSettings
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.Test
 import paige.navic.domain.manager.PreferenceManager
@@ -10,6 +11,7 @@ import paige.navic.domain.manager.isReaderBookPrepared
 import paige.navic.domain.manager.markReaderBookPrepared
 import paige.navic.domain.manager.readerPreparationOrientations
 import paige.navic.domain.manager.readerPreparedOrientations
+import paige.navic.domain.manager.recordReaderBookPrepared
 
 /** #68: "Prepare pages" records each orientation per pagination-affecting settings. */
 class ReaderPreparedBooksTest {
@@ -58,5 +60,18 @@ class ReaderPreparedBooksTest {
 		preferences.markReaderBookPrepared("book-1", bigger, landscape)
 		assertEquals(setOf(landscape), preferences.readerPreparedOrientations("book-1", bigger))
 		assertEquals(emptySet(), preferences.readerPreparedOrientations("book-1", settings))
+	}
+
+	/** #68 tablets: the overlay asks for the layout this returns, then finishes when it is null. */
+	@Test
+	fun recordingOneLayoutOfBothReportsTheOtherUntilBothArePrepared() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.setReaderDefaultSettings(ReaderSettings(pageCacheLayouts = ReaderPageCacheLayouts.Both.persistedValue))
+		assertEquals(portrait, preferences.recordReaderBookPrepared("book-1", landscape))
+		assertNull(preferences.recordReaderBookPrepared("book-1", portrait))
+		assertTrue(preferences.isReaderBookPrepared("book-1", preferences.readerDefaultSettings(), landscape))
+
+		preferences.setReaderDefaultSettings(ReaderSettings(pageCacheLayouts = "current"))
+		assertNull(preferences.recordReaderBookPrepared("book-2", landscape))
 	}
 }

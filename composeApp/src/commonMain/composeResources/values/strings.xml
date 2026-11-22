@@ -1220,5 +1220,7 @@
 	<string name="info_reader_book_preparing">Preparing every page</string>
 	<string name="info_reader_book_preparation_progress">%1$d of %2$d pages · %3$d of %4$d chapters</string>
 	<string name="info_reader_book_preparation_incomplete">Some pages could not be prepared</string>
-	<string name="info_reader_book_preparation_hint">Keep Navic open. Pages are prepared for these reader settings; with Both layouts the screen rotates to prepare the other orientation too.</string>
+	<string name="info_reader_book_preparation_hint">Keep Navic open. Pages are prepared for these reader settings.</string>
+	<string name="info_reader_book_preparation_turn_portrait">Turn the device to portrait to prepare that layout too, or tap Done to keep only this layout.</string>
+	<string name="info_reader_book_preparation_turn_landscape">Turn the device to landscape to prepare that layout too, or tap Done to keep only this layout.</string>
 </resources>

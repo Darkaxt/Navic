@@ -113,6 +113,8 @@ internal fun KomikkuReaderRoot(
 	/** #66, #68: the whole book was prepared and recorded in this orientation. */
 	onBookPrepared: (ReaderPreparationOrientation?) -> Unit = {},
 	onCancelBookPreparation: () -> Unit = {},
+	/** #68: the layout "Both layouts" still needs; the overlay asks the user to turn the device. */
+	bookPreparationAwaitingOrientation: ReaderPreparationOrientation? = null,
 	modifier: Modifier = Modifier
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
@@ -364,7 +366,9 @@ internal fun KomikkuReaderRoot(
 						progress = bookPreparationProgress,
 						onRetry = { bookPreparationRetryKey += 1 },
 						onCancel = onCancelBookPreparation,
-						modifier = Modifier.matchParentSize()
+						modifier = Modifier.matchParentSize(),
+						awaitingOrientation = bookPreparationAwaitingOrientation,
+						onDone = onCancelBookPreparation
 					)
 				}
 			}

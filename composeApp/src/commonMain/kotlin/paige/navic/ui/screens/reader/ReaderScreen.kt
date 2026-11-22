@@ -875,6 +875,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 
 	// #68: "Prepare pages" with Both layouts rotates the reader to prepare the other orientation.
 	var preparationOrientationOverride by remember { mutableStateOf<String?>(null) }
+	var preparationAwaitingOrientation by remember { mutableStateOf<ReaderPreparationOrientation?>(null) }
 	ReaderOrientationEffect(orientation = preparationOrientationOverride ?: settings.orientation)
 	ReaderSystemBarsEffect(
 		fullscreen = settings.fullscreen != false,
@@ -1071,9 +1072,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 				ReaderPreparationOrientation.Portrait -> ReaderOrientationPortrait
 				null -> null
 			}
-			// A reader that did not rotate when asked ends preparation instead of waiting forever.
+			// The rotation is only a request: Android 16 ignores it on large screens, so the overlay
+			// also asks the user to turn the device or finish with the layouts prepared so far.
 			if (nextOverride != null && nextOverride != preparationOrientationOverride) {
 				preparationOrientationOverride = nextOverride
+				preparationAwaitingOrientation = missing
 			} else {
 				processStateViewModel.clear()
 				backStack.performNavicBack()
@@ -1083,6 +1086,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 			processStateViewModel.clear()
 			backStack.performNavicBack()
 		},
+		bookPreparationAwaitingOrientation = preparationAwaitingOrientation,
 		modifier = Modifier
 			.fillMaxSize()
 			.focusRequester(readerFocusRequester)
