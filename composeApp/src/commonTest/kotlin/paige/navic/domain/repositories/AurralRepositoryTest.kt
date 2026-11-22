@@ -326,7 +326,7 @@ class AurralRepositoryTest {
 		assertEquals("admin", status.role)
 		assertTrue(status.accessFlow)
 		assertTrue(status.addArtist)
-		assertEquals(false, status.addAlbum)
+		assertTrue(status.addAlbum, "the server grants an admin every permission")
 		assertTrue(status.lidarrConfigured)
 		assertEquals(18, status.discoveryRecommendationsCount)
 		assertTrue(status.discoveryUpdating)

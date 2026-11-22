@@ -24,6 +24,7 @@ internal fun aurralServiceStatus(
 	apiVersion: Int = AURRAL_LEGACY_API_VERSION
 ): AurralServiceStatus {
 	val user = authMe?.user ?: health.user
+	val isAdmin = user?.role.equals("admin", ignoreCase = true)
 	val stats = weeklyFlow?.stats ?: AurralFlowStatsDto()
 	val flows = weeklyFlow?.flows.orEmpty().mapNotNull { flow ->
 		val id = flow.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
@@ -36,10 +37,12 @@ internal fun aurralServiceStatus(
 		authRequired = health.authRequired,
 		username = user?.username,
 		role = user?.role,
-		accessFlow = user?.permissions?.let { it.accessFlow || it.accessPlaylists } == true,
-		addArtist = user?.permissions?.addArtist == true,
-		addAlbum = user?.permissions?.addAlbum == true,
-		changeMonitoring = user?.permissions?.changeMonitoring == true,
+		// The server grants an admin every permission regardless of the stored flags (v3 admins
+		// carry no accessPlaylists/changeMonitoring), so mirror hasPermission().
+		accessFlow = isAdmin || user?.permissions?.let { it.accessFlow || it.accessPlaylists } == true,
+		addArtist = isAdmin || user?.permissions?.addArtist == true,
+		addAlbum = isAdmin || user?.permissions?.addAlbum == true,
+		changeMonitoring = isAdmin || user?.permissions?.changeMonitoring == true,
 		lidarrConfigured = health.lidarrConfigured || health.rootFolderConfigured,
 		discoveryRecommendationsCount = health.discovery?.recommendationsCount ?: 0,
 		discoveryUpdating = health.discovery?.isUpdating == true,

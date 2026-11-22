@@ -134,6 +134,26 @@ class AurralV3CompatibilityTest {
 	}
 
 	@Test
+	fun adminHasEveryPermissionLikeTheServer() {
+		// Production v3 admin payload: no accessPlaylists, changeMonitoring false.
+		val admin = AURRAL_JSON.decodeFromString<AurralAuthMeDto>(
+			"""{"user":{"username":"darka","role":"admin","permissions":{"addArtist":true,"addAlbum":true,"changeMonitoring":false,"deleteArtist":false,"deleteAlbum":false}}}"""
+		)
+		val status = aurralServiceStatus(AurralHealthDto(), admin, AurralWeeklyFlowStatusDto(), emptyList(), apiVersion = 2)
+		assertTrue(status.accessFlow)
+		assertTrue(status.changeMonitoring)
+		assertTrue(status.addArtist && status.addAlbum)
+
+		val user = AURRAL_JSON.decodeFromString<AurralAuthMeDto>(
+			"""{"user":{"username":"guest","role":"user","permissions":{"addAlbum":true}}}"""
+		)
+		val limited = aurralServiceStatus(AurralHealthDto(), user, AurralWeeklyFlowStatusDto(), emptyList(), apiVersion = 2)
+		assertFalse(limited.accessFlow)
+		assertFalse(limited.changeMonitoring)
+		assertTrue(limited.addAlbum)
+	}
+
+	@Test
 	fun artistSearchReadsUnifiedItemsAndTheLegacyArtistsField() {
 		for (body in listOf(
 			"""{"items":[{"id":"$mbid","name":"Koji Kondo"}],"count":1,"offset":0}""",
