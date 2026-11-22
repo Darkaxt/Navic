@@ -51,6 +51,7 @@ import paige.navic.reader.supportsReaderEngineCapability
 import paige.navic.reader.whispersyncAnchorAuthorityOverlayActive
 import paige.navic.reader.ReaderBookPreparationPhase
 import paige.navic.reader.ReaderBookPreparationProgress
+import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
@@ -109,8 +110,8 @@ internal fun KomikkuReaderRoot(
 	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
-	/** #66: the whole book was prepared and recorded. */
-	onBookPrepared: () -> Unit = {},
+	/** #66, #68: the whole book was prepared and recorded in this orientation. */
+	onBookPrepared: (ReaderPreparationOrientation?) -> Unit = {},
 	onCancelBookPreparation: () -> Unit = {},
 	modifier: Modifier = Modifier
 ) {
@@ -124,7 +125,7 @@ internal fun KomikkuReaderRoot(
 	LaunchedEffect(bookPreparationActive, bookPreparationProgress.phase) {
 		if (bookPreparationActive && bookPreparationProgress.phase == ReaderBookPreparationPhase.Complete) {
 			kotlinx.coroutines.delay(800)
-			onBookPrepared()
+			onBookPrepared(bookPreparationProgress.orientation)
 		}
 	}
 	val shellCoverUrl = viewer.shellCoverUrl

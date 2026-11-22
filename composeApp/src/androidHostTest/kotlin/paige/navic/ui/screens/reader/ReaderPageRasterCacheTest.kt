@@ -1503,23 +1503,32 @@ class ReaderPageRasterCacheTest {
 		(prepared + other).forEach { rasterKey ->
 			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
 		}
-		assertTrue(fixture.cache.markBookPrepared("publication-1", "navic-pagination-v1:1111"))
-		assertFalse(fixture.cache.markBookPrepared("publication-1", "bad hash"))
+		assertTrue(fixture.cache.markBookPrepared("publication-1", "landscape", "navic-pagination-v1:1111"))
+		assertFalse(fixture.cache.markBookPrepared("publication-1", "landscape", "bad hash"))
+		assertFalse(fixture.cache.markBookPrepared("publication-1", "sideways", "navic-pagination-v1:2222"))
 
 		// Real fingerprints are "version:hash". Only the unprepared pagination loses the chapters two or more behind.
 		assertEquals(5, fixture.cache.discardChaptersBehind("publication-1", 6))
 		prepared.forEach { rasterKey -> assertTrue(fixture.cache.contains(rasterKey)) }
 		other.filter { it.spineIndex <= 4 }.forEach { rasterKey -> assertFalse(fixture.cache.contains(rasterKey)) }
 
-		// The record survives a reopen, and preparing another pagination replaces it.
+		// #68: the record survives a reopen, and the other orientation is kept beside it.
 		val reopened = reopenedCache(fixture, maxDiskBytes = Long.MAX_VALUE)
 		assertEquals(0, reopened.discardChaptersBehind("publication-1", 6))
-		assertTrue(reopened.markBookPrepared("publication-1", "navic-pagination-v1:2222"))
+		assertTrue(reopened.markBookPrepared("publication-1", "portrait", "navic-pagination-v1:2222"))
+		assertEquals(0, reopened.discardChaptersBehind("publication-1", 6))
+		prepared.forEach { rasterKey -> assertTrue(reopened.contains(rasterKey)) }
+
+		// Preparing an orientation again replaces only that orientation's pagination.
+		assertTrue(reopened.markBookPrepared("publication-1", "landscape", "navic-pagination-v1:2222"))
 		assertEquals(5, reopened.discardChaptersBehind("publication-1", 6))
 		prepared.filter { it.spineIndex <= 4 }.forEach { rasterKey -> assertFalse(reopened.contains(rasterKey)) }
 		assertEquals(
-			listOf("publication-1:navic-pagination-v1:2222"),
-			fixture.root.resolve(ReaderPageRasterPreparedBooksFileName).readLines()
+			setOf(
+				"publication-1|portrait|navic-pagination-v1:2222",
+				"publication-1|landscape|navic-pagination-v1:2222"
+			),
+			fixture.root.resolve(ReaderPageRasterPreparedBooksFileName).readLines().toSet()
 		)
 	}
 

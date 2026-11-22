@@ -2,6 +2,7 @@ package paige.navic.ui.screens.reader
 
 import paige.navic.reader.ReaderBookPreparationPhase
 import paige.navic.reader.ReaderBookPreparationProgress
+import paige.navic.reader.ReaderPreparationOrientation
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
 import android.os.Looper
@@ -606,6 +607,12 @@ internal class ReaderPageRasterPreparationController(
 	private var bookPreparationRecorded = false
 	private var bookPreparationRecording = false
 
+	/**
+	 * The layout (raster profile epoch and viewport orientation) the record above belongs to. A
+	 * rotation or relayout plans a new layout, which is prepared and recorded on its own (#68).
+	 */
+	private var bookPreparationLayout: Pair<Long, ReaderPreparationOrientation>? = null
+
 	fun setBookPreparationListener(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
 		bookPreparationListener = listener
 	}
@@ -622,11 +629,17 @@ internal class ReaderPageRasterPreparationController(
 		if (bookPreparationListener == null || destroyed) return
 		bookPreparationDrained = true
 		val progress = adjacentChapterPrefetchCoordinator.planProgress()
-		if (progress?.complete == true && !bookPreparationRecorded && !bookPreparationRecording) {
+		val layout = bookPreparationLayout
+		if (
+			progress?.complete == true &&
+			layout != null &&
+			!bookPreparationRecorded &&
+			!bookPreparationRecording
+		) {
 			bookPreparationRecording = true
-			bundleSource.markBookPrepared { marked ->
+			bundleSource.markBookPrepared(layout.second) { marked ->
 				bookPreparationRecording = false
-				bookPreparationRecorded = marked
+				if (bookPreparationLayout == layout) bookPreparationRecorded = marked
 				reportBookPreparation()
 			}
 		}
@@ -648,7 +661,8 @@ internal class ReaderPageRasterPreparationController(
 				preparedPages = progress.durablePages,
 				plannedPages = progress.plannedPages,
 				preparedChapters = progress.durableChapters,
-				plannedChapters = progress.plannedChapters
+				plannedChapters = progress.plannedChapters,
+				orientation = bookPreparationLayout?.second
 			)
 		)
 	}
@@ -2305,6 +2319,12 @@ internal class ReaderPageRasterPreparationController(
 			return
 		}
 		observeBackgroundPrefetchWebView(prefetch.webView)
+		val layout = profileEpoch to prefetch.preparationOrientation
+		if (bookPreparationLayout != layout) {
+			bookPreparationLayout = layout
+			bookPreparationRecorded = false
+			bookPreparationDrained = false
+		}
 		adjacentChapterPrefetchCoordinator.replaceDurablePlan(
 			prefetch.qualifiedPlan(profileEpoch)
 		)
@@ -2844,3 +2864,12 @@ internal class ReaderPageRasterPreparationController(
 		)
 	}
 }
+
+/** The viewport's orientation; a single-column landscape page is still a landscape layout. */
+private val ReaderPageRasterBackgroundPrefetch.preparationOrientation: ReaderPreparationOrientation
+	get() = ReaderPreparationOrientation.forAspectRatio(
+		webView.width.takeIf { it > 0 && webView.height > 0 }?.let { it.toDouble() / webView.height }
+	) ?: when (kind) {
+		ReaderPageTurnTransitionKind.LandscapeSpreadSlide -> ReaderPreparationOrientation.Landscape
+		ReaderPageTurnTransitionKind.PortraitSlide -> ReaderPreparationOrientation.Portrait
+	}

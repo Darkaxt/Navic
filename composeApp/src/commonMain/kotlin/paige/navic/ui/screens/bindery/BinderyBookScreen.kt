@@ -76,6 +76,8 @@ import paige.navic.domain.manager.BinderyReaderPrefetcher
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.domain.manager.isReaderBookPrepared
+import paige.navic.reader.ReaderPreparationOrientation
+import paige.navic.reader.readerSettingsForBook
 import paige.navic.domain.models.queueTotalDurationLabel
 import paige.navic.domain.repositories.BinderyLink
 import paige.navic.domain.repositories.BinderyManifest
@@ -726,7 +728,12 @@ private fun BinderyBookVersionListItem(
 				readerDestination != null &&
 				readerDestination.publicationFormat == ReaderPublicationFormat.Epub
 			) {
-				val prepared = preferenceManager.isReaderBookPrepared(bookId)
+				val prepared = preferenceManager.isReaderBookPrepared(
+					bookId,
+					preferenceManager.readerSettingsForBook(bookId),
+					ReaderPreparationOrientation.forAspectRatio(readerLaunchTargetAspectRatio)
+						?: ReaderPreparationOrientation.Landscape
+				)
 				IconButton(
 					onClick = {
 						onOpenReader(

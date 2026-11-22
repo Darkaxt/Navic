@@ -1,5 +1,6 @@
 package paige.navic.ui.screens.reader
 
+import paige.navic.reader.ReaderPreparationOrientation
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
@@ -2292,7 +2293,7 @@ internal class ReaderPageTurnBundleSource(
 	 * "Prepare pages" (#66): records the displayed pagination of this book as fully prepared, so
 	 * chapter retention keeps all of it. [onResult] runs on the main thread.
 	 */
-	fun markBookPrepared(onResult: (Boolean) -> Unit) {
+	fun markBookPrepared(orientation: ReaderPreparationOrientation, onResult: (Boolean) -> Unit) {
 		val chapter = currentRetentionChapter
 			?.takeIf { candidate -> candidate.generation == activeGeneration }
 		val scheduler = rasterScheduler
@@ -2302,10 +2303,11 @@ internal class ReaderPageTurnBundleSource(
 		}
 		val job = rasterScope.launch {
 			val marked = !closed &&
-				scheduler.markBookPrepared(chapter.publicationHash, chapter.paginationHash)
+				scheduler.markBookPrepared(chapter.publicationHash, orientation.persistedValue, chapter.paginationHash)
 			Logger.i(
 				ReaderPageTurnBundleSourceTag,
-				"Page raster book prepared marked=$marked spine=${chapter.spineIndex}"
+				"Page raster book prepared marked=$marked orientation=${orientation.persistedValue} " +
+					"spine=${chapter.spineIndex}"
 			)
 			onResult(marked)
 		}

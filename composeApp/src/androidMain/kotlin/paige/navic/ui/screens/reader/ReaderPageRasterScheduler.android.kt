@@ -108,7 +108,7 @@ internal interface ReaderPageRasterStore<T : Any> {
 		currentPaginationHash: String? = null
 	): Int = 0
 	fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int = 0
-	fun markBookPrepared(publicationHash: String, paginationHash: String): Boolean = false
+	fun markBookPrepared(publicationHash: String, orientation: String, paginationHash: String): Boolean = false
 	fun encodedBytes(key: ReaderPageRasterKey): Long
 }
 
@@ -249,8 +249,8 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 	override fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int =
 		withOpen(0) { cache.retireFinishedBooks(publicationHash, finished) }
 
-	override fun markBookPrepared(publicationHash: String, paginationHash: String): Boolean =
-		withOpen(false) { cache.markBookPrepared(publicationHash, paginationHash) }
+	override fun markBookPrepared(publicationHash: String, orientation: String, paginationHash: String): Boolean =
+		withOpen(false) { cache.markBookPrepared(publicationHash, orientation, paginationHash) }
 
 	override fun encodedBytes(key: ReaderPageRasterKey): Long =
 		withOpen(0L) {
@@ -430,8 +430,8 @@ internal class ReaderPageRasterScheduler<T : Any>(
 	suspend fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int =
 		withContext(ioDispatcher) { store.retireFinishedBooks(publicationHash, finished) }
 
-	suspend fun markBookPrepared(publicationHash: String, paginationHash: String): Boolean =
-		withContext(ioDispatcher) { store.markBookPrepared(publicationHash, paginationHash) }
+	suspend fun markBookPrepared(publicationHash: String, orientation: String, paginationHash: String): Boolean =
+		withContext(ioDispatcher) { store.markBookPrepared(publicationHash, orientation, paginationHash) }
 
 	private suspend fun drain() {
 		while (true) {

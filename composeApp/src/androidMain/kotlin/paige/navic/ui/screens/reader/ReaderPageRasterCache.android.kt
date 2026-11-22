@@ -47,10 +47,14 @@ internal const val ReaderPageRasterFinishedBooksFileName = "finished-books.txt"
 
 private val ReaderPageRasterFinishedBookPattern = Regex("[A-Za-z0-9_-]{1,128}")
 
-/** Books prepared with "Prepare pages" (#66), one "publicationHash:paginationHash" per line. */
+/**
+ * Books prepared with "Prepare pages" (#66, #68): one "publicationHash|orientation|paginationHash"
+ * line per prepared orientation. Pagination fingerprints contain ':' ("navic-pagination-v1:<n>").
+ */
 internal const val ReaderPageRasterPreparedBooksFileName = "prepared-books.txt"
 
-private val ReaderPageRasterPreparedBookPattern = Regex("[A-Za-z0-9_-]{1,128}:[A-Za-z0-9_:-]{1,128}")
+private val ReaderPageRasterPreparedBookPattern =
+	Regex("[A-Za-z0-9_-]{1,128}\\|(landscape|portrait)\\|[A-Za-z0-9_:-]{1,128}")
 
 /** Back matter (notes, acknowledgements) should not keep a book from counting as finished. */
 internal const val ReaderBookFinishedFraction = 0.97
@@ -686,8 +690,8 @@ internal class ReaderPageRasterCache<T : Any>(
 			val protection = encodedWindowProtection
 			// A prepared pagination (#66) keeps every chapter and is never pruned as superseded.
 			val preparedPaginations = readPreparedBooks()
-				.filter { line -> line.startsWith("$publicationHash:") }
-				.mapTo(mutableSetOf()) { line -> line.substringAfter(':') }
+				.filter { line -> line.startsWith("$publicationHash|") }
+				.mapTo(mutableSetOf()) { line -> line.substringAfterLast('|') }
 			val keptPaginations = currentPaginationHash?.let { current ->
 				entries.values
 					.filter { it.key.publicationHash == publicationHash && it.key.paginationHash != current }
@@ -773,16 +777,17 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	/**
-	 * "Prepare pages" (#66): records [paginationHash] as the prepared pagination of
-	 * [publicationHash], replacing an older one, so chapter retention keeps the whole book.
+	 * "Prepare pages" (#66, #68): records [paginationHash] as the prepared [orientation] pagination
+	 * of [publicationHash], replacing that orientation's older one, so chapter retention keeps the
+	 * whole book in each prepared orientation.
 	 */
-	fun markBookPrepared(publicationHash: String, paginationHash: String): Boolean {
+	fun markBookPrepared(publicationHash: String, orientation: String, paginationHash: String): Boolean {
 		if (!storageAvailable) return false
-		val line = "$publicationHash:$paginationHash"
+		val line = "$publicationHash|$orientation|$paginationHash"
 		if (!ReaderPageRasterPreparedBookPattern.matches(line)) return false
 		return synchronized(this) {
 			val books = readPreparedBooks()
-			books.removeAll { existing -> existing.startsWith("$publicationHash:") }
+			books.removeAll { existing -> existing.startsWith("$publicationHash|$orientation|") }
 			books += line
 			writeBookSet(ReaderPageRasterPreparedBooksFileName, books)
 		}

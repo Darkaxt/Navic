@@ -34,7 +34,10 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.markReaderBookPrepared
+import paige.navic.domain.manager.recordReaderBookPrepared
+import paige.navic.reader.ReaderOrientationLandscape
+import paige.navic.reader.ReaderOrientationPortrait
+import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
@@ -870,7 +873,9 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	)
 
-	ReaderOrientationEffect(orientation = settings.orientation)
+	// #68: "Prepare pages" with Both layouts rotates the reader to prepare the other orientation.
+	var preparationOrientationOverride by remember { mutableStateOf<String?>(null) }
+	ReaderOrientationEffect(orientation = preparationOrientationOverride ?: settings.orientation)
 	ReaderSystemBarsEffect(
 		fullscreen = settings.fullscreen != false,
 		systemBarsVisible = controllerState.menuVisible || settings.fullscreen == false
@@ -1059,10 +1064,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 		onDismissDialog = {
 			applyCoordinatorStep(coordinator.dispatch { closeDialog() })
 		},
-		onBookPrepared = {
-			preferenceManager.markReaderBookPrepared(reader.bookId)
-			processStateViewModel.clear()
-			backStack.performNavicBack()
+		onBookPrepared = { orientation ->
+			val missing = orientation?.let { preferenceManager.recordReaderBookPrepared(reader.bookId, it) }
+			val nextOverride = when (missing) {
+				ReaderPreparationOrientation.Landscape -> ReaderOrientationLandscape
+				ReaderPreparationOrientation.Portrait -> ReaderOrientationPortrait
+				null -> null
+			}
+			// A reader that did not rotate when asked ends preparation instead of waiting forever.
+			if (nextOverride != null && nextOverride != preparationOrientationOverride) {
+				preparationOrientationOverride = nextOverride
+			} else {
+				processStateViewModel.clear()
+				backStack.performNavicBack()
+			}
 		},
 		onCancelBookPreparation = {
 			processStateViewModel.clear()
