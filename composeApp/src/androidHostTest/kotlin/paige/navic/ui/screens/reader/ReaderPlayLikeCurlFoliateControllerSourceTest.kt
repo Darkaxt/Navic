@@ -3902,8 +3902,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(contentCancel, "suppressViewerContentPointerStream(source)")
 		assertContains(viewerSuppression, "viewerContentContainer.dispatchTouchEvent(cancel)")
 		assertFalse(viewerSuppression.contains("super.dispatchTouchEvent(cancel)"))
-		assertContains(apply, "ReaderPagePointerRoute.Consume -> true")
-		assertContains(apply, "ReaderPagePointerRoute.Ignore -> true")
+		val consumed = apply.substringAfter("ReaderPagePointerRoute.Consume,\n\t\tReaderPagePointerRoute.Ignore -> {")
+			.substringBefore("\n\t\t}")
+		assertContains(consumed, "trackLayoutReviewMenuTap(event)")
+		assertContains(consumed, "true")
+		assertFalse(consumed.contains("dispatchTouchEvent(event)"), "consumed streams never reach content")
 
 		val cancelIndex = claimCurl.indexOf("dispatchContentCancel(event)")
 		val downIndex = claimCurl.indexOf("originalDown,")

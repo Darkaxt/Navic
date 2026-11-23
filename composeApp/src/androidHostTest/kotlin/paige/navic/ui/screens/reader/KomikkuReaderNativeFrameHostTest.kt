@@ -220,6 +220,19 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun aMenuTapStillTogglesTheMenuWhileTheLayoutAwaitsReview() {
+		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
+		val routes = source.substringAfter("private fun applyPointerRoute(").substringBefore("private fun trackLayoutReviewMenuTap(")
+		val terminal = routes.substringAfter("is ReaderPagePointerRoute.Terminal -> {").substringBefore("ReaderPagePointerRoute.Consume,")
+		assertContains(terminal, "layoutReviewHold &&")
+		assertContains(terminal, "route.outcome == ReaderPageGestureTerminalOutcome.RejectedPreparing")
+		assertContains(routes.substringAfter("ReaderPagePointerRoute.Consume,"), "trackLayoutReviewMenuTap(event)")
+		val track = source.substringAfter("private fun trackLayoutReviewMenuTap(").substringBefore("\n\t}\n")
+		assertContains(track, "if (!withinSlop || !layoutReviewHold")
+		assertContains(track, "if (action == KomikkuNavigationRegion.MENU) onAction(action)")
+	}
+
+	@Test
 	fun settingsPutBackToTheOriginalLayoutNeedNoReview() {
 		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
 		val change = source.substringAfter("fun setPageTurnSnapshotKey(snapshotKey: Int) {\n\t\tif (pageTurnSnapshotKey == snapshotKey) return")

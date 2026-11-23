@@ -3011,10 +3011,49 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			dispatchContentCancel(event)
 			recycleRetainedContentDown()
 			playLikeCurlGestureOwned = false
+			layoutReviewMenuTapDown = if (
+				event.actionMasked == MotionEvent.ACTION_DOWN &&
+				layoutReviewHold &&
+				route.outcome == ReaderPageGestureTerminalOutcome.RejectedPreparing
+			) {
+				event.x to event.y
+			} else {
+				null
+			}
 			true
 		}
-		ReaderPagePointerRoute.Consume -> true
-		ReaderPagePointerRoute.Ignore -> true
+		ReaderPagePointerRoute.Consume,
+		ReaderPagePointerRoute.Ignore -> {
+			trackLayoutReviewMenuTap(event)
+			true
+		}
+		}
+	}
+
+	// The layout review keeps the live page up while turns are rejected; a tap still toggles the menu
+	// so the reader can see the whole page.
+	private var layoutReviewMenuTapDown: Pair<Float, Float>? = null
+
+	private fun trackLayoutReviewMenuTap(event: MotionEvent) {
+		val (downX, downY) = layoutReviewMenuTapDown ?: return
+		val slop = ViewConfiguration.get(context).scaledTouchSlop
+		val withinSlop = abs(event.x - downX) <= slop && abs(event.y - downY) <= slop
+		when (event.actionMasked) {
+			MotionEvent.ACTION_MOVE -> if (!withinSlop) layoutReviewMenuTapDown = null
+			MotionEvent.ACTION_UP -> {
+				layoutReviewMenuTapDown = null
+				if (!withinSlop || !layoutReviewHold || width <= 0 || height <= 0) return
+				val action = navigator.getAction(
+					KomikkuPoint(
+						x = (event.x / width.toFloat()).coerceIn(0f, 1f),
+						y = (event.y / height.toFloat()).coerceIn(0f, 1f)
+					)
+				)
+				logReaderTapAction(action)
+				if (action == KomikkuNavigationRegion.MENU) onAction(action)
+			}
+			MotionEvent.ACTION_CANCEL,
+			MotionEvent.ACTION_POINTER_DOWN -> layoutReviewMenuTapDown = null
 		}
 	}
 
