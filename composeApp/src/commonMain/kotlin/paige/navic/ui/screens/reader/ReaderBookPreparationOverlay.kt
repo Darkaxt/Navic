@@ -30,8 +30,8 @@ import navic.composeapp.generated.resources.info_reader_book_pages_prepared
 import navic.composeapp.generated.resources.info_reader_book_preparation_hint
 import navic.composeapp.generated.resources.info_reader_book_preparation_incomplete
 import navic.composeapp.generated.resources.info_reader_book_preparation_progress
-import navic.composeapp.generated.resources.info_reader_book_preparation_turn_landscape
-import navic.composeapp.generated.resources.info_reader_book_preparation_turn_portrait
+import navic.composeapp.generated.resources.info_reader_book_preparation_landscape_unavailable
+import navic.composeapp.generated.resources.info_reader_book_preparation_portrait_unavailable
 import navic.composeapp.generated.resources.info_reader_book_preparing
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.reader.ReaderBookPreparationPhase
@@ -40,9 +40,9 @@ import paige.navic.reader.ReaderPreparationOrientation
 
 /**
  * #66 "Prepare pages": covers the reader while it prepares the whole book and consumes every
- * gesture, so no page turn or menu interrupts the background batches. #68: when "Both layouts"
- * still lacks [awaitingOrientation] and the system did not rotate the reader (Android 16 ignores
- * orientation requests on large screens), it asks the user to turn the device or finish with Done.
+ * gesture, so no page turn or menu interrupts the background batches. #70: "Both layouts"
+ * prepares the other orientation in place, without rotating; when that is unavailable or
+ * incomplete, [awaitingOrientation] names it and Done finishes with the layouts prepared so far.
  */
 @Composable
 internal fun ReaderBookPreparationOverlay(
@@ -66,7 +66,10 @@ internal fun ReaderBookPreparationOverlay(
 				}
 			}
 	) {
-		val awaiting = awaitingOrientation.takeIf { progress.phase == ReaderBookPreparationPhase.Complete }
+		val awaiting = awaitingOrientation.takeIf {
+			progress.phase == ReaderBookPreparationPhase.Complete ||
+				progress.phase == ReaderBookPreparationPhase.Incomplete
+		}
 		Surface(
 			shape = RoundedCornerShape(20.dp),
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
@@ -111,8 +114,8 @@ internal fun ReaderBookPreparationOverlay(
 				Text(
 					text = stringResource(
 						when (awaiting) {
-							ReaderPreparationOrientation.Portrait -> Res.string.info_reader_book_preparation_turn_portrait
-							ReaderPreparationOrientation.Landscape -> Res.string.info_reader_book_preparation_turn_landscape
+							ReaderPreparationOrientation.Portrait -> Res.string.info_reader_book_preparation_portrait_unavailable
+							ReaderPreparationOrientation.Landscape -> Res.string.info_reader_book_preparation_landscape_unavailable
 							null -> Res.string.info_reader_book_preparation_hint
 						}
 					),

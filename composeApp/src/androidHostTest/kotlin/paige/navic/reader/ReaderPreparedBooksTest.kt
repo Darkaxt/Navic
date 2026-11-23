@@ -62,7 +62,7 @@ class ReaderPreparedBooksTest {
 		assertEquals(emptySet(), preferences.readerPreparedOrientations("book-1", settings))
 	}
 
-	/** #68 tablets: the overlay asks for the layout this returns, then finishes when it is null. */
+	/** #70: the reader prepares the layout this returns in place, then finishes when it is null. */
 	@Test
 	fun recordingOneLayoutOfBothReportsTheOtherUntilBothArePrepared() {
 		val preferences = PreferenceManager(MapSettings())

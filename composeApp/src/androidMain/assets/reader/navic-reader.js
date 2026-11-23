@@ -254,6 +254,9 @@ class NavicReaderRuntime {
   paginationProfile = null
   paginationFingerprint = null
   paginationProfileTaskToken = 0
+  alternatePaginationProfileTaskToken = 0
+  alternatePaginationProfileTaskKey = ''
+  alternatePaginationProfileStatusValue = Object.freeze({ state: 'idle', reason: '' })
   paginationProfileMeasurementInProgress = false
   observedChapterPageCounts = new Map()
   committedRelocateDetail = null
@@ -1606,6 +1609,12 @@ window.NavicReaderBridge = {
   pageTurnAlternatePassiveRasterDescriptor: ordinal => runtime.pageTurnAlternatePassiveRasterDescriptor(ordinal),
   pageTurnAlternatePassiveRasterManifestInputs: (ordinal, epoch, generation) =>
     runtime.pageTurnAlternatePassiveRasterManifestInputs(ordinal, epoch, generation),
+  // #70: starts (or joins) the other orientation's profile build; returns its status at once.
+  ensureAlternatePaginationProfile: () => {
+    void runtime.ensureAlternatePaginationProfile()
+    return runtime.alternatePaginationProfileStatus()
+  },
+  alternatePaginationProfileStatus: () => runtime.alternatePaginationProfileStatus(),
   pageTurnTransitionPlan: (physicalDirection, currentPageIndexOverride = null) =>
     runtime.pageTurnTransitionPlan(physicalDirection, currentPageIndexOverride),
   exposePageTurnPreviewFinal: (token, foregroundMutationGeneration) =>

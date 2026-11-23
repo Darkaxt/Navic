@@ -2315,6 +2315,34 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	/**
+	 * #70 "Prepare pages" without rotation: records the other orientation's pagination, named by
+	 * [descriptor] (a page persisted by [persistAlternateLayoutRaster]), as prepared for this book.
+	 * [onResult] runs on the main thread.
+	 */
+	fun markAlternateBookPrepared(
+		orientation: ReaderPreparationOrientation,
+		descriptor: ReaderPageRasterDescriptor,
+		onResult: (Boolean) -> Unit
+	) {
+		val scheduler = rasterScheduler
+		if (closed || scheduler == null) {
+			onResult(false)
+			return
+		}
+		val key = descriptor.key(bitmapQuality)
+		val job = rasterScope.launch {
+			val marked = !closed &&
+				scheduler.markBookPrepared(key.publicationHash, orientation.persistedValue, key.paginationHash)
+			Logger.i(
+				ReaderPageTurnBundleSourceTag,
+				"Page raster alternate book prepared marked=$marked orientation=${orientation.persistedValue}"
+			)
+			onResult(marked)
+		}
+		trackRasterPersistenceJob(job)
+	}
+
+	/**
 	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's rasters
 	 * two or more chapters behind it in every pagination, layout and quality, plus paginations
 	 * superseded by font/layout changes beyond the most recent few. The cache itself keeps

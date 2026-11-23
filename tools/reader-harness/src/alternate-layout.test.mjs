@@ -18,7 +18,7 @@ globalThis.localStorage = {
 globalThis.getComputedStyle ??= () => ({ getPropertyValue: () => '' })
 
 const reader = new URL('../../../composeApp/src/androidMain/assets/reader/', import.meta.url)
-const { NavicReaderAlternateLayoutMethods, ReaderLayoutViewportKeyPrefix } =
+const { NavicReaderAlternateLayoutMethods, ReaderLayoutViewportKeyPrefix, readerPredictedLayoutViewport } =
   await import(new URL('navic-reader-alternate-layout.js', reader))
 const { readerViewportSize } = await import(new URL('navic-reader-helpers.js', reader))
 
@@ -61,6 +61,9 @@ const runtime = (overrides = {}) => {
     ...NavicReaderAlternateLayoutMethods,
     publicationUrl: 'https://example.invalid/book.epub',
     readerSettings: { flowMode: 'paged' },
+    alternatePaginationProfileTaskToken: 0,
+    alternatePaginationProfileTaskKey: '',
+    alternatePaginationProfileStatusValue: Object.freeze({ state: 'idle', reason: '' }),
     paginationProfile: landscape,
     paginationFingerprint: landscape.fingerprint,
     currentPagePosition: { pageIndex: 49, pageCount: 60 },
@@ -137,7 +140,8 @@ test('the alternate plan centres on the same chapter anchor and plans the other 
   storage.clear()
   setLiveViewport(1280, 752)
   const { self, calls, profiles } = runtime()
-  assert.deepEqual(self.pageTurnAlternateLayoutPlan(), { failureReason: 'no-remembered-viewport' })
+  // #70: the swapped viewport is predicted, so only its profile is missing.
+  assert.deepEqual(self.pageTurnAlternateLayoutPlan(), { failureReason: 'no-alternate-profile' })
   self.rememberReaderLayoutViewport(portrait)
   profiles.delete(portrait.fingerprint)
   assert.deepEqual(self.pageTurnAlternateLayoutPlan(), { failureReason: 'no-alternate-profile' })
@@ -176,4 +180,102 @@ test('alternate manifest inputs and descriptors pass the layout through (#57)', 
     ['descriptor', 7],
   ])
   assert.ok(seen.every(entry => entry.at(-1)?.profile === portrait))
+})
+
+test('the other orientation is the remembered viewport, else the current one swapped (#70)', () => {
+  const remembered = { width: 800, height: 1232, devicePixelRatio: 2.5 }
+  const live = { width: 1280, height: 752 }
+  assert.deepEqual(readerPredictedLayoutViewport('portrait', live, null, 2.5), {
+    width: 752,
+    height: 1280,
+    devicePixelRatio: 2.5,
+  })
+  assert.equal(readerPredictedLayoutViewport('portrait', live, remembered, 2.5), remembered)
+  assert.deepEqual(
+    readerPredictedLayoutViewport('portrait', live, remembered, 3),
+    { width: 752, height: 1280, devicePixelRatio: 3 },
+    'a viewport remembered at another density is not used'
+  )
+  assert.equal(readerPredictedLayoutViewport('landscape', live, null, 2.5), null, 'not the current orientation')
+
+  storage.clear()
+  setLiveViewport(2960, 1848, 2)
+  const { self } = runtime()
+  assert.deepEqual(self.readerAlternateLayoutViewport(), { width: 1848, height: 2960, devicePixelRatio: 2 })
+  storage.set(`navic-reader-layout-viewport:portrait`, JSON.stringify({ width: 1820, height: 2960, devicePixelRatio: 2 }))
+  assert.deepEqual(
+    self.readerAlternateLayoutViewport(),
+    { width: 1848, height: 2960, devicePixelRatio: 2 },
+    'viewports remembered before the edge-to-edge reader are ignored'
+  )
+})
+
+test('the alternate profile is built quietly in the swapped viewport and cached (#70)', async () => {
+  storage.clear()
+  setLiveViewport(1280, 752)
+  const predicted = completeProfile({
+    width: 752,
+    height: 1280,
+    pageCount: 150,
+    chapters: [{ spineIndex: 2, href: 'a.xhtml', pageStartIndex: 0, pageCount: 150 }],
+  })
+  const builds = []
+  const { self, profiles } = runtime({
+    paginationProfileTaskToken: 7,
+    async buildCompletePaginationProfileInProfilerView(options) {
+      builds.push({ ...options, liveViewport: readerViewportSize(), current: options.isCurrent() })
+      return predicted
+    },
+    writeCachedPaginationProfile(profile) {
+      profiles.set(profile.fingerprint, profile)
+      return profile
+    },
+  })
+  assert.equal(self.alternatePaginationProfileStatus().state, 'idle')
+  const building = self.ensureAlternatePaginationProfile()
+  assert.equal(self.alternatePaginationProfileStatus().state, 'building')
+  assert.deepEqual(await building, { state: 'ready', reason: '' })
+  assert.equal(builds.length, 1)
+  const [build] = builds
+  assert.equal(build.fingerprint, 'fp-752x1280')
+  assert.deepEqual(build.viewport, { width: 752, height: 1280, devicePixelRatio: 2.5 })
+  assert.equal(build.quiet, true)
+  assert.equal(build.current, true)
+  assert.notEqual(build.token, 7, 'never the live profile task token')
+  assert.equal(self.paginationProfileTaskToken, 7, 'the live profile task is not invalidated')
+  assert.deepEqual(build.liveViewport, { width: 1280, height: 752 }, 'no override leaks into the async build')
+  assert.deepEqual(JSON.parse(storage.get(`${ReaderLayoutViewportKeyPrefix}portrait`)), {
+    width: 752,
+    height: 1280,
+    devicePixelRatio: 2.5,
+  })
+  assert.equal(self.readerAlternateLayout()?.profile, predicted)
+  assert.deepEqual(await self.ensureAlternatePaginationProfile(), { state: 'ready', reason: '' })
+  assert.equal(builds.length, 1, 'a cached alternate profile is not rebuilt')
+})
+
+test('a stale or failed alternate build reports why (#70)', async () => {
+  storage.clear()
+  setLiveViewport(1280, 752)
+  let fail = false
+  const { self } = runtime({
+    async buildCompletePaginationProfileInProfilerView() {
+      if (fail) throw new Error('Pagination profiler could not commit section 4')
+      setLiveViewport(1300, 752) // a relayout while measuring
+      return null
+    },
+    writeCachedPaginationProfile: profile => profile,
+  })
+  assert.deepEqual(await self.ensureAlternatePaginationProfile(), { state: 'failed', reason: 'superseded' })
+  setLiveViewport(1280, 752)
+  fail = true
+  assert.deepEqual(await self.ensureAlternatePaginationProfile(), {
+    state: 'failed',
+    reason: 'Pagination profiler could not commit section 4',
+  })
+  const scrolled = runtime({ readerSettings: { flowMode: 'scrolled' } }).self
+  assert.deepEqual(await scrolled.ensureAlternatePaginationProfile(), {
+    state: 'failed',
+    reason: 'alternate-layout-unsupported',
+  })
 })

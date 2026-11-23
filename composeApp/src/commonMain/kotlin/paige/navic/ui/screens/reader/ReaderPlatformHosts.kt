@@ -14,6 +14,7 @@ import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
+import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.reader.ReaderPublicationKind
 import paige.navic.reader.ReaderRawTextProvenanceDescriptor
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -61,9 +62,13 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageOperationPolicy: ReaderPageOperationPolicy,
 	pagePreparationRetryKey: Int,
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
-	/** #66 "Prepare pages": report whole-book preparation; [bookPreparationRetryKey] retries it. */
+	/**
+	 * #66 "Prepare pages": report whole-book preparation; [bookPreparationRetryKey] retries it.
+	 * #70: [bookPreparationAlternate] prepares that other orientation without rotating.
+	 */
 	bookPreparationActive: Boolean = false,
 	bookPreparationRetryKey: Int = 0,
+	bookPreparationAlternate: ReaderPreparationOrientation? = null,
 	onBookPreparationProgress: (ReaderBookPreparationProgress) -> Unit = {},
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,

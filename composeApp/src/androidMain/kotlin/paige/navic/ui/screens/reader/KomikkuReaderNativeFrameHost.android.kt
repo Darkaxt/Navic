@@ -51,6 +51,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
 import java.util.UUID
 import paige.navic.reader.ReaderBookPreparationProgress
+import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPublicationCachePathPrefix
 import paige.navic.reader.ReaderPageDragPreviewPhase
@@ -356,6 +357,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	onPagePreparationStateChange: (ReaderPagePreparationState) -> Unit,
 	bookPreparationActive: Boolean,
 	bookPreparationRetryKey: Int,
+	bookPreparationAlternate: ReaderPreparationOrientation?,
 	onBookPreparationProgress: (ReaderBookPreparationProgress) -> Unit,
 	onStartupShellPrepared: () -> Unit,
 	onViewerAction: (KomikkuNavigationRegion) -> Unit,
@@ -482,6 +484,7 @@ actual fun KomikkuReaderNativeFrameHost(
 						if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
 					)
 					setBookPreparationRetryKey(bookPreparationRetryKey)
+					setBookPreparationAlternate(bookPreparationAlternate)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
@@ -536,6 +539,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
 				)
 				root.setBookPreparationRetryKey(bookPreparationRetryKey)
+				root.setBookPreparationAlternate(bookPreparationAlternate)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
@@ -801,6 +805,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setBookPreparationRetryKey(retryKey: Int) {
 		viewerContainer.setBookPreparationRetryKey(retryKey)
+	}
+
+	fun setBookPreparationAlternate(orientation: ReaderPreparationOrientation?) {
+		viewerContainer.setBookPreparationAlternate(orientation)
 	}
 
 	fun setPageTurnSnapshotKey(snapshotKey: Int) {
@@ -1965,8 +1973,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		pageRasterPreparationController.updatePageCacheOptions(scope, layouts)
 	}
 
+	private var bookPreparationListener: ((ReaderBookPreparationProgress) -> Unit)? = null
+
+	/** While the other orientation is prepared (#70), it alone reports the book's progress. */
 	fun setBookPreparation(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
-		pageRasterPreparationController.setBookPreparationListener(listener)
+		bookPreparationListener = listener
+		pageRasterPreparationController.setBookPreparationListener(
+			listener?.let { current ->
+				{ progress: ReaderBookPreparationProgress ->
+					if (!alternateLayoutPreparation.bookPreparationActive) current(progress)
+				}
+			}
+		)
+		if (listener == null) setBookPreparationAlternate(null)
 	}
 
 	private var bookPreparationRetryKey = 0
@@ -1974,7 +1993,25 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	fun setBookPreparationRetryKey(retryKey: Int) {
 		if (retryKey == bookPreparationRetryKey) return
 		bookPreparationRetryKey = retryKey
-		pageRasterPreparationController.retryBookPreparation()
+		if (!alternateLayoutPreparation.retryBook()) pageRasterPreparationController.retryBookPreparation()
+	}
+
+	private var bookPreparationAlternate: ReaderPreparationOrientation? = null
+
+	/**
+	 * #70 "Both layouts": once the current orientation is prepared, the other one is prepared in
+	 * the background without rotating the device; null stops it.
+	 */
+	fun setBookPreparationAlternate(orientation: ReaderPreparationOrientation?) {
+		val listener = bookPreparationListener
+		val requested = orientation?.takeIf { listener != null }
+		if (requested == bookPreparationAlternate) return
+		bookPreparationAlternate = requested
+		if (requested == null || listener == null) {
+			alternateLayoutPreparation.stopBook()
+		} else {
+			alternateLayoutPreparation.prepareBook(requested) { progress -> bookPreparationListener?.invoke(progress) }
+		}
 	}
 
 	override fun acquireSettingsMutation(

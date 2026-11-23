@@ -27,6 +27,7 @@ import paige.navic.reader.ReaderEngineHostEvent
 import paige.navic.reader.ReaderEngineViewState
 import paige.navic.reader.ReaderFlowPagedVertical
 import paige.navic.reader.ReaderListeningSettings
+import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPageCurlTurnPhase
@@ -56,6 +57,19 @@ import paige.navic.ui.navigation.Screen
 import paige.navic.util.core.Logger
 
 private const val KomikkuReaderRootTag = "KomikkuReaderRoot"
+
+/**
+ * #70: the orientation the overlay offers to finish without (Done): the one still missing when
+ * it cannot be prepared in place, or when its in-place preparation ended incomplete.
+ */
+internal fun readerBookPreparationAwaiting(
+	missing: ReaderPreparationOrientation?,
+	alternate: ReaderPreparationOrientation?,
+	progress: ReaderBookPreparationProgress
+): ReaderPreparationOrientation? = missing?.takeIf {
+	alternate == null ||
+		(progress.orientation == missing && progress.phase == ReaderBookPreparationPhase.Incomplete)
+}
 
 @Composable
 internal fun KomikkuReaderRoot(
@@ -110,11 +124,15 @@ internal fun KomikkuReaderRoot(
 	onRepairWhispersyncMismatch: () -> Unit,
 	onDismissDialog: () -> Unit,
 	onListeningSettingsChange: (ReaderListeningSettings) -> Unit,
-	/** #66, #68: the whole book was prepared and recorded in this orientation. */
-	onBookPrepared: (ReaderPreparationOrientation?) -> Unit = {},
+	/**
+	 * #66, #68: the whole book was prepared in this orientation; records it and returns the
+	 * orientation "Both layouts" still needs, or null when the book is prepared.
+	 */
+	onBookPrepared: (ReaderPreparationOrientation?) -> ReaderPreparationOrientation? = { null },
+	/** Leaves the reader: Cancel, Done, or a moment after the whole book is prepared. */
 	onCancelBookPreparation: () -> Unit = {},
-	/** #68: the layout "Both layouts" still needs; the overlay asks the user to turn the device. */
-	bookPreparationAwaitingOrientation: ReaderPreparationOrientation? = null,
+	/** #70: whether the other orientation can be prepared without rotating the device. */
+	bookPreparationAlternateAvailable: Boolean = true,
 	modifier: Modifier = Modifier
 ) {
 	val viewerSlot = remember { ReaderViewerLifecycleSlot() }
@@ -124,12 +142,27 @@ internal fun KomikkuReaderRoot(
 	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
 	var bookPreparationRetryKey by remember { mutableStateOf(0) }
 	val bookPreparationActive = reader.prepareBookPages
-	LaunchedEffect(bookPreparationActive, bookPreparationProgress.phase) {
+	// #70: the orientation still missing after the current one is prepared. The reader prepares
+	// it in place when it can; otherwise (or when that fails) the overlay offers Done.
+	var bookPreparationMissing by remember { mutableStateOf<ReaderPreparationOrientation?>(null) }
+	val bookPreparationAlternate = bookPreparationMissing.takeIf { bookPreparationAlternateAvailable }
+	LaunchedEffect(bookPreparationActive, bookPreparationProgress.phase, bookPreparationProgress.orientation) {
 		if (bookPreparationActive && bookPreparationProgress.phase == ReaderBookPreparationPhase.Complete) {
-			kotlinx.coroutines.delay(800)
-			onBookPrepared(bookPreparationProgress.orientation)
+			// Recorded at once: the other orientation's progress replaces this report right away.
+			val missing = onBookPrepared(bookPreparationProgress.orientation)
+			if (missing == null) {
+				kotlinx.coroutines.delay(800)
+				onCancelBookPreparation()
+			} else {
+				bookPreparationMissing = missing
+			}
 		}
 	}
+	val bookPreparationAwaiting = readerBookPreparationAwaiting(
+		missing = bookPreparationMissing,
+		alternate = bookPreparationAlternate,
+		progress = bookPreparationProgress
+	)
 	val shellCoverUrl = viewer.shellCoverUrl
 	val shellCoverTitle = shellCoverTitleFor(reader, controllerState, viewer)
 	val mediaOverlayAvailable = controllerState.supportsReaderEngineCapability(ReaderEngineCapability.MediaOverlay)
@@ -251,6 +284,7 @@ internal fun KomikkuReaderRoot(
 			onPagePreparationStateChange = { state -> pagePreparationState = state },
 			bookPreparationActive = bookPreparationActive,
 			bookPreparationRetryKey = bookPreparationRetryKey,
+			bookPreparationAlternate = bookPreparationAlternate,
 			onBookPreparationProgress = { progress -> bookPreparationProgress = progress },
 			onStartupShellPrepared = {
 				onViewerAction(ReaderViewerAction.NativeShellPrepared)
@@ -362,12 +396,22 @@ internal fun KomikkuReaderRoot(
 					)
 				}
 				if (bookPreparationActive) {
+					// A failed page preparation stops the book run, and this overlay covers that
+					// failure's Retry card, so it reports the run incomplete and offers that retry.
+					val pagePreparationFailed = pagePreparationState.phase == ReaderPagePreparationPhase.Failed &&
+						pagePreparationState.retryable
 					ReaderBookPreparationOverlay(
-						progress = bookPreparationProgress,
-						onRetry = { bookPreparationRetryKey += 1 },
+						progress = if (pagePreparationFailed) {
+							bookPreparationProgress.copy(phase = ReaderBookPreparationPhase.Incomplete)
+						} else {
+							bookPreparationProgress
+						},
+						onRetry = {
+							if (pagePreparationFailed) pagePreparationRetryKey += 1 else bookPreparationRetryKey += 1
+						},
 						onCancel = onCancelBookPreparation,
 						modifier = Modifier.matchParentSize(),
-						awaitingOrientation = bookPreparationAwaitingOrientation,
+						awaitingOrientation = bookPreparationAwaiting,
 						onDone = onCancelBookPreparation
 					)
 				}

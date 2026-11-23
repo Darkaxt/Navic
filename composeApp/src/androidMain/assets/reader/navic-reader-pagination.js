@@ -129,6 +129,7 @@ import {
   classifyReaderParagraphBlocks,
   setStylesImportant,
   readerViewportSize,
+  withReaderViewportOverride,
   readerAdaptiveFoliatePageBox,
   readerStartLocatorHasPosition,
   flattenReaderNavigationItems,
@@ -651,8 +652,21 @@ function startCompletePaginationProfileReplacementAfterLayout(_reason = 'layout-
   return true
 }
 
-async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, settings, token }) {
+// `viewport` measures another orientation without a rotation (#70 "Both layouts"): the profiler
+// view is sized to it and the render metadata describes it. That build passes its own `isCurrent`
+// and is `quiet`, so it neither shares the live task token nor posts live profile status.
+async function buildCompletePaginationProfileInProfilerView({
+  url,
+  fingerprint,
+  settings,
+  token,
+  viewport = null,
+  isCurrent = null,
+  quiet = false,
+}) {
   const task = { token, url, fingerprint }
+  const taskIsCurrent = () => (isCurrent ? isCurrent() : this.paginationProfileTaskIsCurrent(task))
+  const inViewport = compute => (viewport ? withReaderViewportOverride(viewport, compute) : compute())
   const flowMode = readerFlowMode(settings)
   if (
     !url ||
@@ -660,7 +674,7 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
     this.view?.isFixedLayout === true ||
     flowMode === ReaderFlowScrolled ||
     flowMode === ReaderFlowScrolledGaps ||
-    !this.paginationProfileTaskIsCurrent(task)
+    !taskIsCurrent()
   ) return null
   const profileView = document.createElement('foliate-view')
   profileView.dataset.navicPaginationProfiler = 'true'
@@ -671,10 +685,10 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
   })
   readerRoot.append(profileView)
   try {
-    this.applyReaderViewportLayoutToProfilerView(profileView, settings)
+    inViewport(() => this.applyReaderViewportLayoutToProfilerView(profileView, settings))
     await profileView.open(url)
     if (
-      !this.paginationProfileTaskIsCurrent(task) ||
+      !taskIsCurrent() ||
       profileView?.isFixedLayout === true
     ) return null
     const sections = Array.from(profileView?.book?.sections || [])
@@ -684,8 +698,8 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         readerSectionIsReadable(section) && !this.sectionTargetsCover(section, index)
       )
     if (!readableEntries.length) return null
-    if (!this.paginationProfileTaskIsCurrent(task)) return null
-    this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
+    if (!taskIsCurrent()) return null
+    if (!quiet) this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
       fingerprint,
       completedSections: 0,
       totalSections: readableEntries.length,
@@ -696,9 +710,9 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
       let transactionAttempts = 0
       while (
         transactionAttempts < ReaderPaginationProfileMaximumCommitTransactionAttempts &&
-        this.paginationProfileTaskIsCurrent(task)
+        taskIsCurrent()
       ) {
-        this.applyReaderViewportLayoutToProfilerView(profileView, settings)
+        inViewport(() => this.applyReaderViewportLayoutToProfilerView(profileView, settings))
         const result = await readerCommitRenderedDestination(
           profileView.renderer,
           index,
@@ -706,7 +720,7 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
           'pagination-profile'
         )
         transactionAttempts += 1
-        if (!this.paginationProfileTaskIsCurrent(task)) return null
+        if (!taskIsCurrent()) return null
         const receiptIsValid = readerRenderedDestinationCommitIsValid(
           profileView.renderer,
           result
@@ -728,15 +742,15 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
         throw new Error(`Pagination profiler could not commit section ${index}`)
       }
       measuredPageCounts.set(index, committedPosition.pageCount)
-      if (!this.paginationProfileTaskIsCurrent(task)) return null
-      this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
+      if (!taskIsCurrent()) return null
+      if (!quiet) this.postPaginationProfileStatus(ReaderPaginationProfileStatusMeasuring, {
         fingerprint,
         completedSections: measuredPageCounts.size,
         totalSections: readableEntries.length,
         sectionPageCount: committedPosition.pageCount,
       })
     }
-    if (!this.paginationProfileTaskIsCurrent(task)) return null
+    if (!taskIsCurrent()) return null
     const chapters = sections.map((section, index) => {
       const pageCount = measuredPageCounts.get(index) || 0
       return {
@@ -751,7 +765,7 @@ async function buildCompletePaginationProfileInProfilerView({ url, fingerprint, 
       readerBuildPaginationProfile({
         fingerprint,
         chapters,
-        render: this.readerPaginationRenderMetadata(),
+        render: inViewport(() => this.readerPaginationRenderMetadata()),
       })
     )
   } finally {

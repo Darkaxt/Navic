@@ -35,9 +35,6 @@ import org.koin.compose.viewmodel.koinViewModel
 import paige.navic.LocalNavStack
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.recordReaderBookPrepared
-import paige.navic.reader.ReaderOrientationLandscape
-import paige.navic.reader.ReaderOrientationPortrait
-import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderChromeState
@@ -873,10 +870,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	)
 
-	// #68: "Prepare pages" with Both layouts rotates the reader to prepare the other orientation.
-	var preparationOrientationOverride by remember { mutableStateOf<String?>(null) }
-	var preparationAwaitingOrientation by remember { mutableStateOf<ReaderPreparationOrientation?>(null) }
-	ReaderOrientationEffect(orientation = preparationOrientationOverride ?: settings.orientation)
+	ReaderOrientationEffect(orientation = settings.orientation)
 	ReaderSystemBarsEffect(
 		fullscreen = settings.fullscreen != false,
 		systemBarsVisible = controllerState.menuVisible || settings.fullscreen == false
@@ -1066,27 +1060,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 			applyCoordinatorStep(coordinator.dispatch { closeDialog() })
 		},
 		onBookPrepared = { orientation ->
-			val missing = orientation?.let { preferenceManager.recordReaderBookPrepared(reader.bookId, it) }
-			val nextOverride = when (missing) {
-				ReaderPreparationOrientation.Landscape -> ReaderOrientationLandscape
-				ReaderPreparationOrientation.Portrait -> ReaderOrientationPortrait
-				null -> null
-			}
-			// The rotation is only a request: Android 16 ignores it on large screens, so the overlay
-			// also asks the user to turn the device or finish with the layouts prepared so far.
-			if (nextOverride != null && nextOverride != preparationOrientationOverride) {
-				preparationOrientationOverride = nextOverride
-				preparationAwaitingOrientation = missing
-			} else {
-				processStateViewModel.clear()
-				backStack.performNavicBack()
-			}
+			orientation?.let { preferenceManager.recordReaderBookPrepared(reader.bookId, it) }
 		},
 		onCancelBookPreparation = {
 			processStateViewModel.clear()
 			backStack.performNavicBack()
 		},
-		bookPreparationAwaitingOrientation = preparationAwaitingOrientation,
+		// #70: the other orientation is predicted by swapping the viewport, which is exact only
+		// for the edge-to-edge (fullscreen) reader.
+		bookPreparationAlternateAvailable = settings.fullscreen != false,
 		modifier = Modifier
 			.fillMaxSize()
 			.focusRequester(readerFocusRequester)

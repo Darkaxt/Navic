@@ -189,7 +189,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_LANDSCAPE")
 		assertContains(orientationEffectText, "SCREEN_ORIENTATION_REVERSE_PORTRAIT")
 		assertContains(orientationEffectText, "activity.requestedOrientation = previousOrientation")
-		assertContains(readerScreenText, "ReaderOrientationEffect(orientation = preparationOrientationOverride ?: settings.orientation)")
+		assertContains(readerScreenText, "ReaderOrientationEffect(orientation = settings.orientation)")
 		assertContains(settingsDialogText, "KomikkuSettingsTab.General -> KomikkuGeneralSettingsPage(")
 		assertContains(generalPageText, "internal fun KomikkuGeneralSettingsPage(")
 		assertContains(generalPageText, "Rotation")

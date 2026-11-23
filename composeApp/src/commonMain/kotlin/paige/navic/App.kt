@@ -258,12 +258,16 @@ fun App(initialScreenOverride: Screen? = null) {
 						isBackEnabled = scrollManager.isTriggered || canNavigateBack(backStack),
 						onBackCompleted = handleNavicBack
 					)
+					// The reader is edge to edge (#70): with no side cutout inset, its other
+					// orientation is exactly the current viewport swapped, so "Both layouts"
+					// prepares it without rotating the device.
+					val readerOnTop = backStack.lastOrNull() is Screen.Reader
 					NavDisplay(
 						modifier = Modifier
 							.padding(
-								start = contentPadding
+								start = if (readerOnTop) 0.dp else contentPadding
 									.calculateStartPadding(layoutDirection),
-								end = contentPadding
+								end = if (readerOnTop) 0.dp else contentPadding
 									.calculateEndPadding(layoutDirection)
 							)
 							.fillMaxSize()
