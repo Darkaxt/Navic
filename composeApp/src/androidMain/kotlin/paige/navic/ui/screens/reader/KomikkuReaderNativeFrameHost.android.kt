@@ -1804,6 +1804,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var regeneratingReadableLayout = false
 	// A settings change of a readable page holds preparation until the reader keeps the layout.
 	private var layoutReviewHold = false
+	private var layoutReviewOriginSnapshotKey = Int.MIN_VALUE
 	private var lastPublishedPagePreparationPresentation = ReaderPagePreparationPresentation.Cover
 
 	// A settings mutation reflows the live page and posts relocations before it commits, so the
@@ -2067,7 +2068,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		beginReadableLayoutRegeneration()
-		if (regeneratingReadableLayout) layoutReviewHold = true
+		if (regeneratingReadableLayout) {
+			if (!layoutReviewHold) layoutReviewOriginSnapshotKey = pageTurnSnapshotKey
+			// Settings put back to the layout the reader already had: nothing left to review.
+			val wasHeld = layoutReviewHold
+			layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey
+			if (wasHeld && !layoutReviewHold) publishMergedPagePreparationState()
+		}
 		pageTurnSnapshotKey = snapshotKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
 		pageRasterPreparationController.invalidate(

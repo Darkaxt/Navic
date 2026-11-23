@@ -220,6 +220,18 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun settingsPutBackToTheOriginalLayoutNeedNoReview() {
+		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
+		val change = source.substringAfter("fun setPageTurnSnapshotKey(snapshotKey: Int) {\n\t\tif (pageTurnSnapshotKey == snapshotKey) return")
+			.substringBefore("\n\t}")
+		val origin = change.indexOf("if (!layoutReviewHold) layoutReviewOriginSnapshotKey = pageTurnSnapshotKey")
+		val hold = change.indexOf("layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey")
+		assertTrue(origin >= 0 && hold > origin, "the first change of a review remembers the layout it started from")
+		assertTrue(change.indexOf("pageTurnSnapshotKey = snapshotKey") > hold, "the origin is read before the key moves on")
+		assertContains(change, "if (wasHeld && !layoutReviewHold) publishMergedPagePreparationState()")
+	}
+
+	@Test
 	fun aSettingsChangeTakesTheLiveClaimFromTheCurlReAnchor() {
 		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
 		val acquire = source.substringAfter("override fun acquireSettingsMutation(").substringBefore("\n\t}")
