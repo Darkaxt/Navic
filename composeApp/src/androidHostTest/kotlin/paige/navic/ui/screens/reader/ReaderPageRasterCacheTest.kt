@@ -27,6 +27,25 @@ class ReaderPageRasterCacheTest {
 		File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPageRasterCache.android.kt")
 
 	@Test
+	fun keyIdentityIsByteIdenticalToTheManifestJsonEncoding() {
+		val keys = listOf(
+			key(),
+			key(chapterPageIndex = 0).copy(visualPageOrdinal = -1, pageCount = 412),
+			key().copy(quality = ReaderPageBitmapQuality.Native, spineIndex = 0),
+			key().copy(hrefHash = "quote\"back\\slash"),
+			key().copy(layoutHash = "tab\tnew\nline\u0001"),
+			key().copy(decorationHash = "acentuación-ü")
+		)
+		keys.forEach { candidate ->
+			assertEquals(
+				candidate.encodedIdentityForTest(),
+				readerPageRasterKeyIdentity(candidate)
+			)
+			assertEquals(candidate.encodedIdentityForTest(), candidate.identity)
+		}
+	}
+
+	@Test
 	fun rasterEncodingAndDiskSyncHappenBeforeTheAtomicCacheCommitLock() {
 		val source = cacheSourceFile.readText()
 		val write = source

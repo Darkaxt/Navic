@@ -534,7 +534,8 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		if (!isPreparationGenerationCurrent(batch) || !batchIsCurrent(batch)) return
 		val hydrateAfterCommit = inputs.canonicalCommit.profileAuthority ==
 			ReaderPassiveRasterProfileAuthority.PassiveRealized
-		if (!hydrateAfterCommit) batch.onHydrationMiss(target)
+		// Any capture is a miss of the stored page, including one that is hydrated after commit.
+		batch.onHydrationMiss(target)
 		val liveCommit = manifestIssuer.replaceCanonicalCommit(inputs.canonicalCommit)
 		val manifest = manifestIssuer.issue(
 			liveCommit = liveCommit,

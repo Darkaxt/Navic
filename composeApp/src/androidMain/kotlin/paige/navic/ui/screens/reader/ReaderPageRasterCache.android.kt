@@ -7,6 +7,7 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.IdentityHashMap
+import paige.navic.util.core.Logger
 
 /** No implicit ceiling: production passes the Cache manager limit, which defaults to "No limit" (#57). */
 internal const val ReaderPageRasterDiskMaxBytes = Long.MAX_VALUE
@@ -148,7 +149,10 @@ internal class ReaderPageRasterCache<T : Any>(
 		if (storageAvailable) {
 			root.mkdirs()
 			cleanupTemporaryAndSymlinkFiles()
-			manifest.read().forEach { entry ->
+			val openStartedAt = System.nanoTime()
+			val stored = manifest.read()
+			val readAt = System.nanoTime()
+			stored.forEach { entry ->
 				val path = root.resolve(entry.rasterFileName)
 				if (entry.key.schemaVersion == ReaderPageRasterSchemaVersion &&
 					path.isRegularRaster(entry.byteSize)
@@ -165,7 +169,20 @@ internal class ReaderPageRasterCache<T : Any>(
 			entries.clear()
 			retained.forEach { entry -> entries[entry.key.digest] = entry }
 			deleteOrphanRasters()
-			persistManifest()
+			val indexedAt = System.nanoTime()
+			if (indexedAt - openStartedAt >= ReaderPageRasterManifestSlowWriteNanos) {
+				Logger.i(
+					"ReaderPageRasterCache",
+					"Cache open entries=${stored.size} retained=${retained.size} " +
+						"readMs=${(readAt - openStartedAt) / 1_000_000L} " +
+						"indexMs=${(indexedAt - readAt) / 1_000_000L}"
+				)
+			}
+			// Rewriting an unchanged manifest of every stored page costs about a second on each
+			// book open; only a pruned or refreshed entry, or an obsolete/unreadable file, needs it.
+			if (retained.toSet() != stored.toSet() || (stored.isEmpty() && manifest.file.isFile)) {
+				persistManifest()
+			}
 			assertDiskBoundLocked()
 		}
 	}

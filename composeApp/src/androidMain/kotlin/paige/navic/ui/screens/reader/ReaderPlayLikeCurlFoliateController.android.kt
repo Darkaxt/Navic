@@ -3378,10 +3378,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val request = ++requestGeneration
 		val centerExpression = expectedCenterOrdinal.toString()
 		logActivationState("refresh-requested", "request=$request center=$centerExpression")
+		val planRequestedAtNanos = System.nanoTime()
 		webView.evaluateJavascript(
 			"JSON.stringify(window.NavicReaderBridge?.pageTurnRasterPreparationPlan?.(" +
 				"$centerExpression) ?? null)"
 		) { encoded ->
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"refresh plan returned request=$request " +
+					"elapsedMs=${(System.nanoTime() - planRequestedAtNanos) / 1_000_000L}"
+			)
 			if (!isRequestActive(request, webView)) {
 				logActivationState("refresh-gated", "stale-request=$request")
 				return@evaluateJavascript

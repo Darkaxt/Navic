@@ -331,6 +331,9 @@ internal class ReaderPageRasterPreparationController(
 	// A layout-only change of a readable chapter, or a jump into another chapter (#63): turns
 	// resume once the deck window is stored.
 	private var relayoutEarlyRelease = false
+	// Reopening a chapter whose pages are all stored: the cover lifts once the deck window is
+	// hydrated from disk. The first page that must be captured restores the whole-chapter wait.
+	private var storedPagesEarlyRelease = false
 	private var prewarmAcquisitionTriggerClassified = false
 	private var activeAcquisitionTrigger =
 		ReaderPageRasterAcquisitionTrigger.InitialPreparation
@@ -552,6 +555,7 @@ internal class ReaderPageRasterPreparationController(
 		// readiness again when its profile lands, which must not cost the release (#63).
 		if (!hasPreparedBefore) return
 		relayoutEarlyRelease = false
+		storedPagesEarlyRelease = false
 		hasPreparedBefore = false
 		logLoadingEvent(
 			event = "cover-restored",
@@ -1565,6 +1569,7 @@ internal class ReaderPageRasterPreparationController(
 		prewarmRetryAttempt = newRetryAttempt(pendingPrewarmRetryCount)
 		pendingPrewarmRetryCount = 0
 		prewarmInProgress = true
+		storedPagesEarlyRelease = !hasPreparedBefore && !relayoutEarlyRelease && !retryPreparationInProgress
 		rasterProofPreparationGeneration = null
 		readyPreparationGeneration = null
 		pendingReadyBackgroundPrefetch = null
@@ -1909,7 +1914,7 @@ internal class ReaderPageRasterPreparationController(
 		}
 		// Pages already stored for this generation are not rendered again. A relayout renders the
 		// deck window first so turns can resume before the rest of the chapter.
-		val releaseWindow = if (relayoutEarlyRelease) {
+		val releaseWindow = if (relayoutEarlyRelease || storedPagesEarlyRelease) {
 			readerPageRasterBlockingWindow(
 				centerPageIndex = plan.centerPageIndex,
 				step = plan.step,
@@ -1998,7 +2003,9 @@ internal class ReaderPageRasterPreparationController(
 					publishPreparationState(ReaderPagePreparationPhase.Preparing)
 				}
 			},
-			onHydrationMiss = {},
+			onHydrationMiss = {
+				if (isBatchCurrent()) storedPagesEarlyRelease = false
+			},
 			onTargetDurable = { target ->
 				if (isBatchCurrent()) {
 					durableRasterPageIndices += target.pageIndex
@@ -2071,11 +2078,16 @@ internal class ReaderPageRasterPreparationController(
 	 * Early release: a chapter that was readable before a layout-only change (font, size,
 	 * direction, quality, rotation), or a chapter entered by a jump from a readable one (TOC,
 	 * link, search; #63), becomes turnable as soon as the curl deck's window is stored. The
-	 * session continues as background preparation for the rest of the chapter. First open
-	 * never takes this path and still prepares the whole chapter.
+	 * session continues as background preparation for the rest of the chapter. A first open
+	 * takes this path only while every page comes from disk; a page that must be captured
+	 * keeps the whole-chapter preparation.
 	 */
 	private fun releaseRelayoutOnceDeckWindowIsDurable() {
-		if (!relayoutEarlyRelease || hasPreparedBefore || retryPreparationInProgress) return
+		if (
+			(!relayoutEarlyRelease && !storedPagesEarlyRelease) ||
+			hasPreparedBefore ||
+			retryPreparationInProgress
+		) return
 		val centerPageIndex = currentVisualPageIndex ?: return
 		val window = readerPageRasterBlockingWindow(
 			centerPageIndex = centerPageIndex,
@@ -2084,7 +2096,9 @@ internal class ReaderPageRasterPreparationController(
 			radius = ReaderPageRasterRelayoutReleaseRadius
 		)
 		if (window.isEmpty() || !window.all(durableRasterPageIndices::contains)) return
+		val releaseSource = if (relayoutEarlyRelease) "relayout" else "stored-pages"
 		relayoutEarlyRelease = false
+		storedPagesEarlyRelease = false
 		hasPreparedBefore = true
 		preparedChapterRange = candidateChapterRange ?: preparedChapterRange
 		preparedPageCount = candidatePageCount
@@ -2092,7 +2106,7 @@ internal class ReaderPageRasterPreparationController(
 		preparedRepairPageIndices = candidateRepairPageIndices
 		logLoadingEvent(
 			event = "relayout-released",
-			detail = "page=$centerPageIndex window=${window.sorted()} " +
+			detail = "page=$centerPageIndex window=${window.sorted()} source=$releaseSource " +
 				"generation=${bundleSource.currentGeneration()}"
 		)
 		publishPreparationState(ReaderPagePreparationPhase.Preparing)
@@ -2111,6 +2125,7 @@ internal class ReaderPageRasterPreparationController(
 		// failure keeps the chapter readable and any missing page goes through repair.
 		val backgroundSession = hasPreparedBefore && !retryPreparationInProgress
 		relayoutEarlyRelease = false
+		storedPagesEarlyRelease = false
 		fun failUnlessBackground(error: String) {
 			if (!backgroundSession) {
 				failCurrentPreparationGeneration(error)

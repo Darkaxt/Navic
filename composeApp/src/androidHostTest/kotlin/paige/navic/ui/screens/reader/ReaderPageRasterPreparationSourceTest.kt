@@ -306,7 +306,8 @@ class ReaderPageRasterPreparationSourceTest {
 			hydration.indexOf("session.onHydrationMiss(target)") <
 				hydration.indexOf("session.missingTargets += target")
 		)
-		assertContains(foreground, "onHydrationMiss = {}")
+		// A miss changes no presentation; it only disarms the stored-pages early release.
+		assertContains(foreground, "if (isBatchCurrent()) storedPagesEarlyRelease = false")
 		assertFalse(foreground.contains("enterBlockingPreparation(\"required-cache-miss"))
 	}
 
@@ -543,7 +544,8 @@ class ReaderPageRasterPreparationSourceTest {
 			endDelimiter = "private fun isPrewarmSessionActive("
 		)
 		assertContains(batch, "releaseRelayoutOnceDeckWindowIsDurable()")
-		assertContains(release, "if (!relayoutEarlyRelease || hasPreparedBefore || retryPreparationInProgress) return")
+		assertContains(release, "(!relayoutEarlyRelease && !storedPagesEarlyRelease) ||")
+		assertContains(release, "hasPreparedBefore ||\n\t\t\tretryPreparationInProgress\n\t\t) return")
 		assertContains(release, "radius = ReaderPageRasterRelayoutReleaseRadius")
 		assertContains(release, "!window.all(durableRasterPageIndices::contains)) return")
 		assertContains(release, "publishPreparationState(ReaderPagePreparationPhase.Preparing)")
@@ -587,6 +589,17 @@ class ReaderPageRasterPreparationSourceTest {
 		assertContains(followUp, "totalRequired = blockingTargets.size")
 		assertContains(finish, "hasPreparedBefore = candidateBlockingPageIndices.isNotEmpty()")
 		assertContains(finish, "durableRasterPageIndices += candidateBlockingPageIndices")
+		// A reopen whose pages are all stored releases like a relayout; the first capture disarms it.
+		assertContains(
+			source,
+			"storedPagesEarlyRelease = !hasPreparedBefore && !relayoutEarlyRelease && !retryPreparationInProgress"
+		)
+		assertContains(followUp, "if (relayoutEarlyRelease || storedPagesEarlyRelease)")
+		assertContains(finish, "storedPagesEarlyRelease = false")
+		assertTrue(blocking.indexOf("storedPagesEarlyRelease = false") > blocking.indexOf("if (!hasPreparedBefore) return"))
+		val adapter = readerSource("ReaderPassiveRasterPreparationAdapter.android.kt")
+		val capture = adapter.substringAfter("private fun captureTarget(").substringBefore("val liveCommit =")
+		assertContains(capture, "\t\tbatch.onHydrationMiss(target)\n")
 	}
 
 	@Test

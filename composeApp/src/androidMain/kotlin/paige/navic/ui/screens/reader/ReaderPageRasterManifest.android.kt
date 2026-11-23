@@ -86,7 +86,7 @@ internal data class ReaderPageRasterKey(
 
 	// Computed once per key: the manifest sorts and the cache looks up entries by digest, and
 	// recomputing it per comparison cost ~5 s per page write at 1.3k entries.
-	val identity: String by lazy(LazyThreadSafetyMode.PUBLICATION) { toJson().toString() }
+	val identity: String by lazy(LazyThreadSafetyMode.PUBLICATION) { readerPageRasterKeyIdentity(this) }
 
 	val digest: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
 		MessageDigest.getInstance("SHA-256")
@@ -138,7 +138,7 @@ internal data class ReaderPageRasterManifestEntry(
 	val aliasToken: String? = null
 )
 
-private const val ReaderPageRasterManifestSlowWriteNanos = 50_000_000L
+internal const val ReaderPageRasterManifestSlowWriteNanos = 50_000_000L
 
 internal class ReaderPageRasterManifest(
 	private val root: File
@@ -216,6 +216,44 @@ internal fun readerPageRasterPromote(source: File, target: File) {
 		Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
 	}
 }
+
+/**
+ * The key's identity is exactly its manifest JSON text. Opening the cache digests every stored
+ * key, and the generic JSON encoder made that cost seconds per open at 1.3k entries, so plain
+ * strings are written directly; anything that would need escaping takes the encoder.
+ */
+internal fun readerPageRasterKeyIdentity(key: ReaderPageRasterKey): String {
+	val quality = key.quality.persistedValue
+	val strings = arrayOf(
+		key.publicationHash,
+		key.paginationHash,
+		key.hrefHash,
+		key.layoutHash,
+		key.decorationHash,
+		quality
+	)
+	if (strings.any { value -> value.any { char -> char < ' ' || char == '"' || char == '\\' } }) {
+		return key.toJson().toString()
+	}
+	return buildString(256) {
+		append("{\"publicationHash\":\"").append(key.publicationHash)
+		append("\",\"paginationHash\":\"").append(key.paginationHash)
+		append("\",\"spineIndex\":").append(key.spineIndex)
+		append(",\"hrefHash\":\"").append(key.hrefHash)
+		append("\",\"chapterPageIndex\":").append(key.chapterPageIndex)
+		append(",\"visualPageOrdinal\":").append(key.visualPageOrdinal)
+		append(",\"viewportWidth\":").append(key.viewportWidth)
+		append(",\"viewportHeight\":").append(key.viewportHeight)
+		append(",\"layoutHash\":\"").append(key.layoutHash)
+		append("\",\"decorationHash\":\"").append(key.decorationHash)
+		append("\",\"quality\":\"").append(quality)
+		append("\",\"pageCount\":").append(key.pageCount)
+		append(",\"schemaVersion\":").append(key.schemaVersion)
+		append('}')
+	}
+}
+
+internal fun ReaderPageRasterKey.encodedIdentityForTest(): String = toJson().toString()
 
 private fun ReaderPageRasterKey.toJson(): JsonObject = buildJsonObject {
 	put("publicationHash", publicationHash)
