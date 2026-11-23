@@ -1734,12 +1734,20 @@ internal class ReaderPageTurnBundleSource(
 		val failedCompletion = ReaderPageRasterPublicationCompletion(
 			ReaderPageRasterPublicationResult.Failed
 		)
+		// Every unpublished capture names its cause: a stopped preparation run is otherwise opaque.
+		fun dropped(reason: String) {
+			Logger.w(
+				"ReaderPageTurnBundleSource",
+				"Passive raster not published page=$pageIndex reason=$reason"
+			)
+			onPublished(failedCompletion)
+		}
 		if (!runCatching {
 				isPreparationGenerationCurrent(preparationGeneration)
 			}.getOrDefault(false)
 		) {
 			capture.raster?.release()
-			onPublished(failedCompletion)
+			dropped("preparation-generation-stale")
 			return
 		}
 		if (
@@ -1749,7 +1757,7 @@ internal class ReaderPageTurnBundleSource(
 			descriptor.decorationFingerprint != commit.decorationFingerprint
 		) {
 			capture.raster?.release()
-			onPublished(failedCompletion)
+			dropped("descriptor-mismatch")
 			return
 		}
 		val generation = commit.rasterGeneration
@@ -1777,8 +1785,9 @@ internal class ReaderPageTurnBundleSource(
 			capture = capture
 		)
 		if (admitted !is ReaderPassiveRasterAdmission.Admitted) {
-			onRejected((admitted as ReaderPassiveRasterAdmission.Rejected).reason)
-			onPublished(failedCompletion)
+			val rejection = (admitted as ReaderPassiveRasterAdmission.Rejected).reason
+			onRejected(rejection)
+			dropped("rejected-$rejection")
 			return
 		}
 		val publicationDescriptor = when (commit.profileAuthority) {
@@ -1799,12 +1808,15 @@ internal class ReaderPageTurnBundleSource(
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
 			admitted.releaseRaster()
-			onPublished(failedCompletion)
+			dropped(
+				"superseded closed=$closed pageMatches=${pageIndex == inputs.visualPageOrdinal} " +
+					"generationCurrent=$generationIsCurrent"
+			)
 			return
 		}
 		val bitmap = admitted.transferRaster()
 		if (bitmap == null) {
-			onPublished(failedCompletion)
+			dropped("raster-transfer-empty")
 			return
 		}
 		val snapshot = readerPassiveRasterSnapshot(
@@ -1835,7 +1847,14 @@ internal class ReaderPageTurnBundleSource(
 		) {
 			snapshot?.releaseCacheOwnership()
 				?: bitmap.takeUnless { it.isRecycled }?.recycle()
-			onPublished(failedCompletion)
+			dropped(
+				"physical-layout snapshot=${snapshot != null} " +
+					"layoutMatches=${physicalLayout != null && referenceLayout != null &&
+						physicalLayout.matches(referenceLayout)} " +
+					"epochCurrent=${physicalLayoutEpoch != null &&
+						physicalLayoutEpoch == rasterPhysicalLayoutEpoch.get()} " +
+					"generationCurrent=${generation == activeGeneration}"
+			)
 			return
 		}
 		val exactRasterIdentity = publicationDescriptor
@@ -1873,6 +1892,13 @@ internal class ReaderPageTurnBundleSource(
 				onPublished(completion)
 			} else {
 				snapshot.releaseCacheOwnership()
+				if (!publicationCurrent) {
+					Logger.w(
+						"ReaderPageTurnBundleSource",
+						"Passive raster not published page=$pageIndex reason=superseded-during-write " +
+							"result=${completion.result}"
+					)
+				}
 				onPublished(
 					if (publicationCurrent) completion
 					else ReaderPageRasterPublicationCompletion(
