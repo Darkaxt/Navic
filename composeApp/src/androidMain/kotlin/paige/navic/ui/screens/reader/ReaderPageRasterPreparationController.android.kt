@@ -2378,7 +2378,7 @@ internal class ReaderPageRasterPreparationController(
 				submission,
 				ReaderPagePrefetchDiagnosticState.Cancelled
 			)
-			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission, haltRun = true)
 			return
 		}
 		logLoadingEvent(
@@ -2454,7 +2454,7 @@ internal class ReaderPageRasterPreparationController(
 				detail = "session=${submission.sessionId} reason=reference-unavailable " +
 					"chapter=${submission.chapter.identity.chapterIndex} generation=${prefetch.generation}"
 			)
-			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission, haltRun = true)
 			return
 		}
 		backgroundBatchSubmission = submission
@@ -2506,7 +2506,14 @@ internal class ReaderPageRasterPreparationController(
 				if (backgroundBatchSubmission != submission) return@backgroundComplete
 				backgroundBatchSubmission = null
 				val batchAccepted =
-					adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+					adjacentChapterPrefetchCoordinator.onBatchFinished(
+						submission,
+						// A full or failing page cache stops the whole run; a render failure (a
+						// page turn relocating the live view) only sets its chapter aside.
+						haltRun = outcome is ReaderPageRasterBatchOutcome.CapacityReached ||
+							(outcome is ReaderPageRasterBatchOutcome.Failed &&
+								outcome.stage == "persistent-publication")
+					)
 				if (!batchAccepted) return@backgroundComplete
 				emitPrefetchDiagnostic(
 					submission,
@@ -2540,7 +2547,7 @@ internal class ReaderPageRasterPreparationController(
 				submission,
 				ReaderPagePrefetchDiagnosticState.Failed
 			)
-			adjacentChapterPrefetchCoordinator.onBatchFinished(submission)
+			adjacentChapterPrefetchCoordinator.onBatchFinished(submission, haltRun = true)
 		}
 	}
 

@@ -88,6 +88,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	private var activeSubmission: ReaderPageAdjacentChapterPrefetchSubmission? = null
 	private val durablePageIndices = linkedSetOf<Int>()
 	private val attemptedChapterIdentities = linkedSetOf<ReaderPageAdjacentChapterIdentity>()
+	private var drainedReported = false
 	private var nextSessionId = 0L
 	private var suspended = false
 	private var hostAvailable = true
@@ -221,12 +222,18 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		return true
 	}
 
+	/**
+	 * [haltRun] stops the rest of the plan too (the page cache is full), until the next deck,
+	 * availability change or retry; any other unfinished batch only sets its own chapter aside.
+	 */
 	fun onBatchFinished(
-		submission: ReaderPageAdjacentChapterPrefetchSubmission
+		submission: ReaderPageAdjacentChapterPrefetchSubmission,
+		haltRun: Boolean = false
 	): Boolean {
 		if (activeSubmission != submission) return false
 		activeSubmission = null
 		attemptedChapterIdentities += submission.chapter.identity
+		if (haltRun) plan?.chapters?.mapTo(attemptedChapterIdentities) { chapter -> chapter.identity }
 		trySubmit()
 		return true
 	}
@@ -264,12 +271,24 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			!planServesDeck(currentPlan.key, deck) ||
 			activeSubmission != null
 		) return
+		// A chapter whose batch failed is tried again on the next deck or availability change; it
+		// must not stop the chapters after it. A transient failure while a page turn relocates the
+		// live view otherwise drained a "Prepare pages" run half way (#71 tablet). Run-wide
+		// failures (a full or failing page cache) halt the plan through onBatchFinished(haltRun).
 		val chapter = currentPlan.chapters.firstOrNull { candidate ->
-			candidate.targets.any { target -> target.pageIndex !in durablePageIndices }
+			candidate.identity !in attemptedChapterIdentities &&
+				candidate.targets.any { target -> target.pageIndex !in durablePageIndices }
 		}
-		if (chapter == null || chapter.identity in attemptedChapterIdentities) {
+		if (chapter == null) {
+			drainedReported = true
 			onDrained()
 			return
+		}
+		// Work found after a drain (a retry, or a turn that cleared the attempts) un-settles the
+		// layout again, so "Some pages could not be prepared" does not outlive the resumed run.
+		if (drainedReported) {
+			drainedReported = false
+			onDisturbed()
 		}
 		val missingTargets = chapter.targets.filter { target ->
 			target.pageIndex !in durablePageIndices

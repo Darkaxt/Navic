@@ -183,11 +183,15 @@ class ReaderPageAdjacentChapterPrefetchTest {
 		val retired = submissions.single()
 
 		assertTrue(coordinator.onBatchFinished(retired))
-		assertEquals(1, submissions.size)
+		assertEquals(2, submissions.size, "the next chapter still runs")
+		val next = submissions.last()
+		next.targets.forEach { target -> coordinator.onTargetDurable(next, target.pageIndex) }
+		assertTrue(coordinator.onBatchFinished(next))
+		assertEquals(2, submissions.size, "the retired chapter waits for a retry")
 
 		coordinator.onPassiveAvailable()
 
-		assertEquals(2, submissions.size)
+		assertEquals(3, submissions.size)
 		assertEquals(
 			retired.targets.map { target -> target.pageIndex },
 			submissions.last().targets.map { target -> target.pageIndex }
@@ -265,6 +269,44 @@ class ReaderPageAdjacentChapterPrefetchTest {
 			preparedDeck(rasterEpoch = 12L, sourceCenterPageIndex = 12, generationId = 43L)
 		)
 		assertEquals(42L, submissions.last().activeDeckGenerationId, "other raster epochs still wait")
+	}
+
+	@Test
+	fun aFailedChapterDoesNotDrainTheRunBeforeTheChaptersAfterIt() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		var drained = 0
+		var disturbed = 0
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {},
+			onDrained = { drained++ },
+			onDisturbed = { disturbed++ }
+		)
+		coordinator.retainDurablePagesAcrossPlans = true
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		// The first chapter's batch fails (a page turn relocated the live view under it).
+		val failed = submissions.last()
+		assertTrue(coordinator.onBatchFinished(failed))
+		assertEquals(0, drained, "the chapters after the failed one still run")
+		val next = submissions.last()
+		assertTrue(next.chapter.identity != failed.chapter.identity)
+		next.targets.forEach { target -> coordinator.onTargetDurable(next, target.pageIndex) }
+		assertTrue(coordinator.onBatchFinished(next))
+		assertEquals(1, drained, "only the failed chapter is missing now")
+		assertEquals(false, coordinator.planProgress()?.complete)
+
+		// A retry finds the failed chapter again: the drained run is disturbed, so the book card
+		// shows it preparing rather than "Some pages could not be prepared".
+		val disturbedBeforeRetry = disturbed
+		coordinator.onPassiveAvailable()
+		assertEquals(disturbedBeforeRetry + 1, disturbed)
+		val retry = submissions.last()
+		assertEquals(failed.chapter.identity, retry.chapter.identity)
+		retry.targets.forEach { target -> coordinator.onTargetDurable(retry, target.pageIndex) }
+		assertTrue(coordinator.onBatchFinished(retry))
+		assertEquals(2, drained)
+		assertEquals(true, coordinator.planProgress()?.complete)
 	}
 
 	@Test
