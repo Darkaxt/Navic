@@ -1617,6 +1617,7 @@ internal class ReaderPageTurnBundleSource(
 			descriptor.decorationFingerprint != commit.decorationFingerprint ||
 			!runCatching(isStillCurrent).getOrDefault(false)
 		) {
+			Logger.i(ReaderPageTurnBundleSourceTag, "Alternate layout raster page=${inputs.visualPageOrdinal} rejected reason=precondition webView=${webView != null} closed=$closed authority=${commit.profileAuthority}")
 			capture.raster?.release()
 			onPersisted(false)
 			return
@@ -1643,6 +1644,7 @@ internal class ReaderPageTurnBundleSource(
 			capture = capture
 		)
 		if (admitted !is ReaderPassiveRasterAdmission.Admitted) {
+			Logger.i(ReaderPageTurnBundleSourceTag, "Alternate layout raster page=${inputs.visualPageOrdinal} rejected reason=admission-${(admitted as? ReaderPassiveRasterAdmission.Rejected)?.reason}")
 			onPersisted(false)
 			return
 		}
@@ -1655,6 +1657,7 @@ internal class ReaderPageTurnBundleSource(
 			readerAlternateLayoutRaster(bitmap, commit.viewportAndCaptureGeometry, layout, bitmapQuality)
 		}
 		if (raster == null) {
+			Logger.i(ReaderPageTurnBundleSourceTag, "Alternate layout raster page=${inputs.visualPageOrdinal} rejected reason=crop-rejected")
 			onPersisted(false)
 			return
 		}

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.webkit.WebView
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
@@ -170,6 +171,9 @@ private fun ReaderPageTurnPixelRect.toAlternateRasterRect() = ReaderPageRasterRe
 	bottom = bottom
 )
 
+private const val ReaderAlternateLayoutPageAttempts = 5
+private const val ReaderAlternateLayoutPageRetryMillis = 750L
+
 /**
  * Renders alternate-layout pages one at a time in a dedicated passive WebView and persists each
  * receipt-verified raster with its planned-descriptor alias. A page already aliased is skipped.
@@ -191,6 +195,10 @@ internal class ReaderAlternateLayoutRasterPrefetcher(
 	) {
 		var index = 0
 		var persisted = 0
+		var pageAttempts = 0
+		var pageStartedAt = 0L
+		var committedAt = 0L
+		var capturedAt = 0L
 		var descriptor: ReaderPageRasterDescriptor? = null
 	}
 
@@ -223,12 +231,12 @@ internal class ReaderAlternateLayoutRasterPrefetcher(
 			return
 		}
 		val ordinal = target.ordinals[target.index]
+		target.pageStartedAt = SystemClock.elapsedRealtime()
 		manifestPort.request(ordinal, captureEpoch, rasterGeneration, 0L) { resolution ->
 			if (!isCurrent(target)) return@request
 			val inputs = (resolution as? ReaderPassiveRasterManifestResolution.Available)?.inputs
 			if (inputs == null) {
-				Logger.i(ReaderAlternateLayoutTag, "Alternate layout manifest page=$ordinal stopped=$resolution")
-				finish(target, finished = false)
+				fail(target, "manifest-$resolution")
 				return@request
 			}
 			bundleSource.lookupPassiveRasterAlias(inputs.rasterDescriptor) { lookup ->
@@ -254,20 +262,22 @@ internal class ReaderAlternateLayoutRasterPrefetcher(
 				committed?.release()
 				return@committed
 			}
+			target.committedAt = SystemClock.elapsedRealtime()
 			if (committed == null || !committed.capture { result -> onCaptured(target, result) }) {
 				committed?.release()
-				finish(target, finished = false)
+				fail(target, if (committed == null) "commit-failed" else "capture-refused")
 			}
 		}
-		if (!committing) finish(target, finished = false)
+		if (!committing) fail(target, if (manifest == null) "manifest-not-issued" else "commit-refused")
 	}
 
 	private fun onCaptured(target: Run, result: ReaderPassiveRasterCaptureResult<Bitmap>?) {
 		if (!isCurrent(target) || result == null) {
 			result?.raster?.release()
-			if (isCurrent(target)) finish(target, finished = false)
+			if (isCurrent(target)) fail(target, "capture-failed")
 			return
 		}
+		target.capturedAt = SystemClock.elapsedRealtime()
 		val ordinal = result.manifest.visualPageOrdinal
 		// The capture is admitted against a freshly issued manifest, so a page turn or relayout
 		// since the commit fails admission instead of storing a stale raster.
@@ -275,7 +285,7 @@ internal class ReaderAlternateLayoutRasterPrefetcher(
 			val inputs = (resolution as? ReaderPassiveRasterManifestResolution.Available)?.inputs
 			if (!isCurrent(target) || inputs == null) {
 				result.raster?.release()
-				if (isCurrent(target)) finish(target, finished = false)
+				if (isCurrent(target)) fail(target, "admission-manifest-$resolution")
 				return@request
 			}
 			bundleSource.persistAlternateLayoutRaster(
@@ -291,25 +301,63 @@ internal class ReaderAlternateLayoutRasterPrefetcher(
 				mainHandler.post {
 					if (!isCurrent(target)) return@post
 					if (persisted) {
+						val now = SystemClock.elapsedRealtime()
+						Logger.i(
+							ReaderAlternateLayoutTag,
+							"Alternate layout page=$ordinal timing commit=${target.committedAt - target.pageStartedAt} " +
+								"capture=${target.capturedAt - target.committedAt} " +
+								"persist=${now - target.capturedAt} total=${now - target.pageStartedAt}"
+						)
 						target.descriptor = inputs.rasterDescriptor
 						advance(target, persisted = true)
 					} else {
-						finish(target, finished = false)
+						fail(target, "persist-failed")
 					}
 				}
 			}
 		}
 	}
 
+	/**
+	 * A page that fails is tried again a few times before the run stops (#70, #71): a page turn
+	 * in the live reader changes the commit a page was issued against, and a chapter opening
+	 * can still be settling, so one miss is not a reason to abandon the whole book.
+	 */
+	private fun fail(target: Run, reason: String) {
+		if (!isCurrent(target)) return
+		if (target.pageAttempts >= ReaderAlternateLayoutPageAttempts) {
+			finish(target, finished = false, reason = reason)
+			return
+		}
+		target.pageAttempts += 1
+		Logger.i(
+			ReaderAlternateLayoutTag,
+			"Alternate layout page=${target.ordinals.getOrNull(target.index)} retry=${target.pageAttempts} " +
+				"reason=${reason.take(200)}"
+		)
+		mainHandler.postDelayed(
+			{ if (isCurrent(target)) next(target) },
+			ReaderAlternateLayoutPageRetryMillis * target.pageAttempts
+		)
+	}
+
 	private fun advance(target: Run, persisted: Boolean) {
 		if (persisted) target.persisted += 1
+		target.pageAttempts = 0
 		target.index += 1
 		target.onProgress(target.index)
 		if (isCurrent(target)) next(target)
 	}
 
-	private fun finish(target: Run, finished: Boolean) {
+	private fun finish(target: Run, finished: Boolean, reason: String? = null) {
 		if (run !== target) return
+		if (!finished) {
+			Logger.i(
+				ReaderAlternateLayoutTag,
+				"Alternate layout page=${target.ordinals.getOrNull(target.index)} index=${target.index} " +
+					"stopped reason=${reason?.take(200)}"
+			)
+		}
 		run = null
 		target.onComplete(target.persisted, finished, target.descriptor)
 	}

@@ -44,10 +44,60 @@ import {
 import { throwIfOperationAborted } from './bounded-operation-runtime.js'
 import { requiredString } from './synthetic-raster-foliate-session.js'
 
-const MaximumExactCommitAttempts = 4
+const MaximumExactCommitAttempts = 12
 const MaximumStableObservationFrames = 90
+const MaximumContentImageWaitMillis = 4000
 
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve))
+
+// A chapter that opens with an illustration relayouts as its images load and decode, which
+// invalidates a commit made in the meantime (#70). Retries wait for those images to settle.
+const waitForContentImages = async view => {
+  const images = []
+  const fonts = []
+  for (const content of view?.renderer?.getContents?.() || []) {
+    const doc = content?.doc
+    if (!doc) continue
+    images.push(...doc.querySelectorAll('img, image'))
+    if (doc.fonts?.ready) fonts.push(doc.fonts.ready.catch(() => {}))
+  }
+  const pending = fonts.concat(images.map(image => {
+    if (typeof image.decode === 'function' && image.complete !== false) {
+      return image.decode().catch(() => {})
+    }
+    if (image.complete !== false) return Promise.resolve()
+    return new Promise(resolve => {
+      image.addEventListener('load', resolve, { once: true })
+      image.addEventListener('error', resolve, { once: true })
+    })
+  }))
+  if (pending.length === 0) return
+  await Promise.race([
+    Promise.all(pending),
+    new Promise(resolve => setTimeout(resolve, MaximumContentImageWaitMillis)),
+  ])
+}
+
+// #70 diagnostics: the laid-out geometry of a renderer's current section, for comparing the
+// alternate-orientation profiler with the passive capture view. Sizes only, no document text.
+const readerSectionLayoutMetrics = renderer => {
+  try {
+    const content = renderer?.getContents?.()?.[0]
+    const doc = content?.doc
+    const win = doc?.defaultView
+    const rect = element => {
+      const box = element?.getBoundingClientRect?.()
+      return box ? `${Math.round(box.width)}x${Math.round(box.height)}` : '-'
+    }
+    const heading = doc?.querySelector?.('[data-navic-chapter-opening-margin-capped]')
+    return `size=${renderer?.size} pages=${renderer?.pages} host=${rect(renderer)} ` +
+      `win=${win?.innerWidth}x${win?.innerHeight} html=${rect(doc?.documentElement)} ` +
+      `body=${rect(doc?.body)} scroll=${doc?.documentElement?.scrollWidth}x${doc?.documentElement?.scrollHeight} ` +
+      `cap=${heading?.dataset?.navicChapterOpeningMarginCap ?? '-'} top=${window.innerWidth}x${window.innerHeight}`
+  } catch (error) {
+    return `metrics-failed ${error?.name}`
+  }
+}
 
 const parsedProductionTarget = opaqueCaptureTarget => {
   let target
@@ -227,7 +277,9 @@ const renderPassivePageNumbers = async (target, settings) => {
   await document.fonts?.load?.(`${presentation.fontSize} ${presentation.fontFamily}`, sample)
 }
 
-const applyPassiveProfile = async (view, target) => {
+// Returns true when the layout was (re)applied, which relayouts every loaded chapter; pages
+// of one book under the same settings skip it, so consecutive pages do not move (#71).
+const applyPassiveProfile = async (view, target, appliedLayoutKey) => {
   const renderer = view.renderer
   if (!renderer) throw new Error('passive-renderer-unavailable')
   const settings = target.readerSettings && typeof target.readerSettings === 'object'
@@ -237,6 +289,24 @@ const applyPassiveProfile = async (view, target) => {
   const pageBox = render.adaptivePageBox && typeof render.adaptivePageBox === 'object'
     ? render.adaptivePageBox
     : {}
+  // Only what applyPassiveLayout reads: per-page decoration data must not defeat the reuse.
+  const layoutKey = JSON.stringify([
+    settings, pageBox, render.maxColumnCount, render.columnThreshold, render.topMargin,
+    render.bottomMargin, target.viewportWidth, target.viewportHeight,
+  ])
+  if (layoutKey !== appliedLayoutKey) {
+    applyPassiveLayout(view, target, settings, render, pageBox)
+  }
+  renderPassiveDecorations(view, target)
+  await renderPassivePageNumbers(target, settings)
+  if (!await waitForReaderRasterAssets(document)) {
+    throw new Error('passive-raster-assets-unavailable')
+  }
+  return layoutKey
+}
+
+const applyPassiveLayout = (view, target, settings, render, pageBox) => {
+  const renderer = view.renderer
   renderer.setAttribute('flow', readerFoliateFlow(readerFlowMode(settings)))
   renderer.setAttribute('max-inline-size', String(pageBox.maxInlineSize || `${target.viewportWidth}px`))
   renderer.setAttribute('max-block-size', String(pageBox.maxBlockSize || `${target.viewportHeight}px`))
@@ -262,11 +332,6 @@ const applyPassiveProfile = async (view, target) => {
     })
   }
   renderer.render?.()
-  renderPassiveDecorations(view, target)
-  await renderPassivePageNumbers(target, settings)
-  if (!await waitForReaderRasterAssets(document)) {
-    throw new Error('passive-raster-assets-unavailable')
-  }
 }
 
 const passiveObservation = (view, target, opaqueCaptureTarget, profileKey) => {
@@ -328,6 +393,8 @@ export class ProductionRasterFoliateSessionCore {
     this.publicationUrl = null
     this.openTask = null
     this.activeTarget = null
+    this.appliedLayoutKey = null
+    this.lastSpineIndex = null
     this.view = null
     this.replaceView()
   }
@@ -349,6 +416,8 @@ export class ProductionRasterFoliateSessionCore {
   }
 
   replaceView() {
+    this.appliedLayoutKey = null
+    this.lastSpineIndex = null
     this.view = this.createView()
     this.host.replaceChildren(this.view)
     return this.view
@@ -393,14 +462,26 @@ export class ProductionRasterFoliateSessionCore {
 
   async commitOpaqueTarget(opaqueCaptureTarget, profileKey, signal = null) {
     throwIfOperationAborted(signal)
+    const startedAt = performance.now()
     const target = parsedProductionTarget(opaqueCaptureTarget)
     if (!target) throw new TypeError('Invalid production capture target')
     const requiredProfileKey = requiredString(profileKey, 'profileKey')
     this.activeTarget = target
     await this.open(target.publicationUrl)
     throwIfOperationAborted(signal)
-    await applyPassiveProfile(this.view, target)
+    const previousLayoutKey = this.appliedLayoutKey
+    this.appliedLayoutKey = null
+    const layoutKey = await applyPassiveProfile(this.view, target, previousLayoutKey)
+    this.appliedLayoutKey = layoutKey
+    const profiledAt = performance.now()
     throwIfOperationAborted(signal)
+    const spineIndex = Math.floor(Number(target.spineIndex))
+    // A page of the chapter just captured, under unchanged layout, has nothing left to load:
+    // one confirming frame is enough. A new chapter or layout still waits for fonts, images
+    // and a settled layout before it is captured.
+    const settledChapter = layoutKey === previousLayoutKey && spineIndex === this.lastSpineIndex
+    this.lastSpineIndex = null
+    const requiredStableFrames = settledChapter ? 1 : 7
     const renderer = this.view.renderer
     const commitRenderedDestination = renderer.commitRenderedDestination ?? renderer.commitTextPage
     const validateRenderedDestinationCommit =
@@ -409,18 +490,44 @@ export class ProductionRasterFoliateSessionCore {
       typeof commitRenderedDestination !== 'function' ||
       typeof validateRenderedDestinationCommit !== 'function'
     ) throw new Error('rendered-destination-commit-unavailable')
+    let lastOutcome = 'none'
+    let settleMillis = 0
+    let commitMillis = 0
     for (let attempt = 0; attempt < MaximumExactCommitAttempts; attempt += 1) {
       throwIfOperationAborted(signal)
+      const settleStartedAt = performance.now()
+      if (attempt > 0 || !settledChapter) {
+        if (attempt === 0) {
+          // Navigating loads the chapter; its fonts and images are awaited before committing.
+          await renderer.goTo?.({ index: spineIndex })?.catch?.(() => {})
+          throwIfOperationAborted(signal)
+        }
+        await waitForContentImages(this.view)
+        await nextFrame()
+        throwIfOperationAborted(signal)
+      }
+      const commitStartedAt = performance.now()
+      settleMillis += commitStartedAt - settleStartedAt
       const result = await commitRenderedDestination.call(
         renderer,
-        Math.floor(Number(target.spineIndex)),
+        spineIndex,
         Math.floor(Number(target.chapterPageIndex)),
         'navigation',
       )
       throwIfOperationAborted(signal)
-      if (result?.status === 'invalidated') continue
+      const committedAt = performance.now()
+      commitMillis += committedAt - commitStartedAt
+      const at = result?.position
+      if (result?.status === 'mismatch' && attempt === 0) {
+        console.info(`[NavicPassive] mismatch section=${spineIndex} want=${target.chapterPageIndex}/` +
+          `${target.chapterPageCount} ${readerSectionLayoutMetrics(renderer)}`)
+      }
+      lastOutcome = `${result?.status ?? 'none'}/${result?.reason ?? ''}` +
+        (at ? ` at ${at.index}.${at.pageIndex}/${at.pageCount} want ${spineIndex}.` +
+          `${Math.floor(Number(target.chapterPageIndex))}` : '')
       if (result?.status !== 'committed' ||
           validateRenderedDestinationCommit.call(renderer, result.receipt) !== true) continue
+      lastOutcome = 'unobserved'
       let previousKey = null
       let stableFrames = 0
       for (let frame = 0; frame < MaximumStableObservationFrames; frame += 1) {
@@ -434,12 +541,26 @@ export class ProductionRasterFoliateSessionCore {
         )
         const key = observation ? JSON.stringify(observation) : null
         stableFrames = key && key === previousKey ? stableFrames + 1 : 0
-        if (observation && stableFrames >= 7) return observation
+        if (observation && stableFrames >= requiredStableFrames) {
+          if (!settledChapter) {
+            console.info(`[NavicPassive] committed section=${spineIndex} page=${target.chapterPageIndex}/` +
+              `${target.chapterPageCount} ${readerSectionLayoutMetrics(renderer)}`)
+          }
+          this.lastSpineIndex = spineIndex
+          // Per-step cost of one passive page (all in milliseconds): open + layout/decorations,
+          // waiting for content, the foliate commit and the stable-frame observation.
+          const ms = value => Math.round(value)
+          console.info(`[NavicPassiveTiming] section=${spineIndex} page=${target.chapterPageIndex} ` +
+            `attempts=${attempt + 1} frames=${frame + 1} profile=${ms(profiledAt - startedAt)} ` +
+            `settle=${ms(settleMillis)} commit=${ms(commitMillis)} ` +
+            `observe=${ms(performance.now() - committedAt)} total=${ms(performance.now() - startedAt)}`)
+          return observation
+        }
         previousKey = key
         await nextFrame()
         throwIfOperationAborted(signal)
       }
     }
-    throw new Error('passive-target-not-committed')
+    throw new Error(`passive-target-not-committed ${lastOutcome}`)
   }
 }

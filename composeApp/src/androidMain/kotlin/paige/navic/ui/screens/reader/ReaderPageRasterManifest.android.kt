@@ -20,6 +20,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.normalizeReaderPageBitmapQuality
+import paige.navic.util.core.Logger
 
 // 7: rasters carry their page-number labels, so the total page count is part of the key (#31).
 internal const val ReaderPageRasterSchemaVersion = 8
@@ -83,13 +84,27 @@ internal data class ReaderPageRasterKey(
 			hrefHash = hrefHash
 		)
 
-	val identity: String
-		get() = toJson().toString()
+	// Computed once per key: the manifest sorts and the cache looks up entries by digest, and
+	// recomputing it per comparison cost ~5 s per page write at 1.3k entries.
+	val identity: String by lazy(LazyThreadSafetyMode.PUBLICATION) { toJson().toString() }
 
-	val digest: String
-		get() = MessageDigest.getInstance("SHA-256")
+	val digest: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+		MessageDigest.getInstance("SHA-256")
 			.digest(identity.encodeToByteArray())
-			.joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+			.toLowerHex()
+	}
+}
+
+private val LowerHexDigits = "0123456789abcdef".toCharArray()
+
+private fun ByteArray.toLowerHex(): String {
+	val chars = CharArray(size * 2)
+	forEachIndexed { index, byte ->
+		val value = byte.toInt() and 0xff
+		chars[index * 2] = LowerHexDigits[value ushr 4]
+		chars[index * 2 + 1] = LowerHexDigits[value and 0x0f]
+	}
+	return String(chars)
 }
 
 internal data class ReaderPageRasterRect(
@@ -123,6 +138,8 @@ internal data class ReaderPageRasterManifestEntry(
 	val aliasToken: String? = null
 )
 
+private const val ReaderPageRasterManifestSlowWriteNanos = 50_000_000L
+
 internal class ReaderPageRasterManifest(
 	private val root: File
 ) {
@@ -144,13 +161,25 @@ internal class ReaderPageRasterManifest(
 	}
 
 	fun write(entries: Collection<ReaderPageRasterManifestEntry>): Boolean {
+		val startedAt = System.nanoTime()
 		val payload = buildJsonObject {
 			put("schemaVersion", ReaderPageRasterSchemaVersion)
 			put("entries", buildJsonArray {
 				entries.sortedBy { entry -> entry.key.digest }.forEach { entry -> add(entry.toJson()) }
 			})
 		}.toString().encodeToByteArray()
-		return readerPageRasterAtomicWrite(file) { output -> output.write(payload) }
+		val serializedAt = System.nanoTime()
+		val written = readerPageRasterAtomicWrite(file) { output -> output.write(payload) }
+		val finishedAt = System.nanoTime()
+		if (finishedAt - startedAt >= ReaderPageRasterManifestSlowWriteNanos) {
+			Logger.i(
+				"ReaderPageRasterCache",
+				"Manifest write entries=${entries.size} bytes=${payload.size} " +
+					"serializeMs=${(serializedAt - startedAt) / 1_000_000L} " +
+					"writeSyncMs=${(finishedAt - serializedAt) / 1_000_000L}"
+			)
+		}
+		return written
 	}
 }
 

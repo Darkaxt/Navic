@@ -214,6 +214,70 @@ class ReaderPageAdjacentChapterPrefetchTest {
 		assertFalse(coordinator.onBatchFinished(stale))
 		assertTrue(coordinator.durableChapterIdentities().isEmpty())
 	}
+
+	@Test
+	fun bookPreparationKeepsDurablePagesAcrossRePlansUntilTheEpochsChange() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {}
+		)
+		coordinator.retainDurablePagesAcrossPlans = true
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		val submission = submissions.last()
+		submission.targets.forEach { target -> coordinator.onTargetDurable(submission, target.pageIndex) }
+		val prepared = coordinator.planProgress()!!.durablePages
+		assertTrue(prepared > 0)
+
+		// #71: a page turn into another chapter re-plans; the prepared pages stay counted.
+		coordinator.beginBlockingSession()
+		coordinator.replaceDurablePlan(adjacentPlan())
+		assertEquals(prepared, coordinator.planProgress()!!.durablePages)
+
+		coordinator.replaceDurablePlan(adjacentPlan(profileEpoch = 9L, rasterEpoch = 12L))
+		assertEquals(0, coordinator.planProgress()!!.durablePages, "new raster epochs invalidate them")
+	}
+
+	@Test
+	fun bookPreparationContinuesAfterATurnIntoAnotherPreparedChapter() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {}
+		)
+		coordinator.retainDurablePagesAcrossPlans = true
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		val before = submissions.size
+		assertTrue(before > 0)
+
+		// #71: the reader turned out of the planned current chapter (pages 4..7) and the
+		// chapter it reached was already prepared, so no new plan arrives.
+		coordinator.onInteractionActiveChanged(true)
+		coordinator.onPreparedActiveDeckChanged(preparedDeck(sourceCenterPageIndex = 12, generationId = 42L))
+		coordinator.onInteractionActiveChanged(false)
+		assertTrue(submissions.size > before, "the book run resumes under the same plan")
+		assertEquals(42L, submissions.last().activeDeckGenerationId)
+		assertEquals(12, submissions.last().activeDeckCenterPageIndex, "it references the live deck")
+
+		coordinator.onPreparedActiveDeckChanged(
+			preparedDeck(rasterEpoch = 12L, sourceCenterPageIndex = 12, generationId = 43L)
+		)
+		assertEquals(42L, submissions.last().activeDeckGenerationId, "other raster epochs still wait")
+	}
+
+	@Test
+	fun adjacentPrefetchStillWaitsForAPlanOfTheChapterBeingRead() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {}
+		)
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck(sourceCenterPageIndex = 12))
+		assertTrue(submissions.isEmpty())
+	}
 }
 
 private fun adjacentPlan(

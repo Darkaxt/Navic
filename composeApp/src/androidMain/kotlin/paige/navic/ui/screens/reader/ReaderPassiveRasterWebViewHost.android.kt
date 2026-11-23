@@ -367,6 +367,7 @@ internal class ReaderPassiveRasterWebViewHost(
 		onCommitted: (ReaderPassiveRasterCaptureReceipt?) -> Unit
 	) {
 		if (!isReady || activeCommit != null) {
+			Logger.i("ReaderPassiveRaster", "Passive commit refused ready=$isReady active=${activeCommit != null}")
 			onCommitted(null)
 			return
 		}
@@ -388,6 +389,7 @@ internal class ReaderPassiveRasterWebViewHost(
 				if (!commitIsCurrent(commit)) return@evaluateJavascript
 				val operationId = readerPassiveRasterOperationId(encoded)
 				if (operationId == null) {
+					Logger.i("ReaderPassiveRaster", "Passive commit not started result=${encoded?.take(200)}")
 					finishCommit(commit, null)
 					return@evaluateJavascript
 				}
@@ -479,14 +481,22 @@ internal class ReaderPassiveRasterWebViewHost(
 							runtimeObservedGeometry = observedGeometry
 						)
 					}
-					finishCommit(
-						commit,
-						captureGeometry?.let { geometry ->
-							readerPassiveRasterReceipt(result.value, geometry)
-						}
-					)
+					val receipt = captureGeometry?.let { geometry ->
+						readerPassiveRasterReceipt(result.value, geometry)
+					}
+					if (receipt == null) {
+						Logger.i(
+							"ReaderPassiveRaster",
+							"Passive commit receipt rejected observed=$runtimeObservedGeometry " +
+								"configured=$viewportGeometry measured=${webView.width}x${webView.height}"
+						)
+					}
+					finishCommit(commit, receipt)
 				}
-				ReaderPassiveRasterOperationResult.Failed -> finishCommit(commit, null)
+				ReaderPassiveRasterOperationResult.Failed -> {
+					Logger.i("ReaderPassiveRaster", "Passive commit failed result=${encoded?.take(300)}")
+					finishCommit(commit, null)
+				}
 			}
 		}
 	}

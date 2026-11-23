@@ -385,9 +385,14 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize()
 					)
 				}
+				// The book card reports a chapter preparation's progress and failure itself, so the
+				// compact chapter card would only peek out behind it (#71). A page that is not ready
+				// is still covered.
 				if (
 					controllerState.errorMessage == null &&
-						controllerState.paginationProfile.status != "measuring"
+						controllerState.paginationProfile.status != "measuring" &&
+						!(bookPreparationActive &&
+							pagePreparationState.presentation == ReaderPagePreparationPresentation.Compact)
 				) {
 					ReaderPagePreparationOverlay(
 						state = pagePreparationState,

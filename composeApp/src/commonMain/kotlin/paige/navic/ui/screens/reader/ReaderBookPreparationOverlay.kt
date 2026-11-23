@@ -1,8 +1,5 @@
 package paige.navic.ui.screens.reader
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +17,6 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_cancel
@@ -39,8 +35,8 @@ import paige.navic.reader.ReaderBookPreparationProgress
 import paige.navic.reader.ReaderPreparationOrientation
 
 /**
- * #66 "Prepare pages": covers the reader while it prepares the whole book and consumes every
- * gesture, so no page turn or menu interrupts the background batches. #70: "Both layouts"
+ * #66 "Prepare pages": a small card at the bottom of the reader while it prepares the whole book.
+ * #71: it no longer blocks the reader; turns and menus keep working while pages are prepared. #70: "Both layouts"
  * prepares the other orientation in place, without rotating; when that is unavailable or
  * incomplete, [awaitingOrientation] names it and Done finishes with the layouts prepared so far.
  */
@@ -53,19 +49,7 @@ internal fun ReaderBookPreparationOverlay(
 	awaitingOrientation: ReaderPreparationOrientation? = null,
 	onDone: () -> Unit = {}
 ) {
-	Box(
-		modifier = modifier
-			.background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
-			.pointerInput(Unit) {
-				awaitEachGesture {
-					awaitFirstDown(requireUnconsumed = false).consume()
-					do {
-						val event = awaitPointerEvent()
-						event.changes.forEach { change -> change.consume() }
-					} while (event.changes.any { change -> change.pressed })
-				}
-			}
-	) {
+	Box(modifier = modifier) {
 		val awaiting = awaitingOrientation.takeIf {
 			progress.phase == ReaderBookPreparationPhase.Complete ||
 				progress.phase == ReaderBookPreparationPhase.Incomplete
@@ -74,13 +58,14 @@ internal fun ReaderBookPreparationOverlay(
 			shape = RoundedCornerShape(20.dp),
 			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
 			contentColor = MaterialTheme.colorScheme.onSurface,
-			modifier = Modifier.align(Alignment.Center).padding(20.dp)
+			shadowElevation = 6.dp,
+			modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp)
 		) {
 			Column(
 				modifier = Modifier
-					.widthIn(min = 260.dp, max = 440.dp)
-					.padding(horizontal = 20.dp, vertical = 16.dp),
-				verticalArrangement = Arrangement.spacedBy(10.dp)
+					.widthIn(min = 260.dp, max = 400.dp)
+					.padding(horizontal = 16.dp, vertical = 10.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
 			) {
 				Text(
 					text = stringResource(
@@ -91,7 +76,7 @@ internal fun ReaderBookPreparationOverlay(
 							ReaderBookPreparationPhase.Preparing -> Res.string.info_reader_book_preparing
 						}
 					),
-					style = MaterialTheme.typography.titleMedium
+					style = MaterialTheme.typography.titleSmall
 				)
 				if (progress.plannedPages > 0) {
 					LinearProgressIndicator(

@@ -615,7 +615,12 @@ internal class ReaderPageRasterPreparationController(
 
 	fun setBookPreparationListener(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
 		bookPreparationListener = listener
+		adjacentChapterPrefetchCoordinator.retainDurablePagesAcrossPlans = listener != null
+		if (listener == null) lastBookPreparationProgress = null
 	}
+
+	/** Shown while a page turn re-plans (#71), so the progress never blanks or goes back to 0. */
+	private var lastBookPreparationProgress: ReaderBookPreparationProgress? = null
 
 	/** Lets an incomplete whole-book run try its missing chapters again. */
 	fun retryBookPreparation() {
@@ -649,22 +654,22 @@ internal class ReaderPageRasterPreparationController(
 	private fun reportBookPreparation() {
 		val listener = bookPreparationListener ?: return
 		val progress = adjacentChapterPrefetchCoordinator.planProgress()
-			?: return listener(ReaderBookPreparationProgress())
+			?: return listener(lastBookPreparationProgress ?: ReaderBookPreparationProgress())
 		val phase = when {
 			progress.complete && bookPreparationRecorded -> ReaderBookPreparationPhase.Complete
 			bookPreparationDrained && !bookPreparationRecording -> ReaderBookPreparationPhase.Incomplete
 			else -> ReaderBookPreparationPhase.Preparing
 		}
-		listener(
-			ReaderBookPreparationProgress(
-				phase = phase,
-				preparedPages = progress.durablePages,
-				plannedPages = progress.plannedPages,
-				preparedChapters = progress.durableChapters,
-				plannedChapters = progress.plannedChapters,
-				orientation = bookPreparationLayout?.second
-			)
+		val reported = ReaderBookPreparationProgress(
+			phase = phase,
+			preparedPages = progress.durablePages,
+			plannedPages = progress.plannedPages,
+			preparedChapters = progress.durableChapters,
+			plannedChapters = progress.plannedChapters,
+			orientation = bookPreparationLayout?.second
 		)
+		lastBookPreparationProgress = reported
+		listener(reported)
 	}
 
 	fun updatePageCacheOptions(scope: String?, layouts: String?) {
@@ -2427,7 +2432,18 @@ internal class ReaderPageRasterPreparationController(
 			return
 		}
 		emitPrefetchDiagnostic(submission, ReaderPagePrefetchDiagnosticState.Running)
-		val reference = retainedSnapshot(prefetch.centerPageIndex, prefetch.kind)
+		// A "Prepare pages" plan outlives page turns (#71): its plan-time center page is no longer
+		// retained or live after a turn, so the batch references the deck it was submitted for.
+		val referencePageIndex =
+			if (
+				adjacentChapterPrefetchCoordinator.retainDurablePagesAcrossPlans &&
+				submission.activeDeckCenterPageIndex >= 0
+			) {
+				submission.activeDeckCenterPageIndex
+			} else {
+				prefetch.centerPageIndex
+			}
+		val reference = retainedSnapshot(referencePageIndex, prefetch.kind)
 		if (reference == null) {
 			emitPrefetchDiagnostic(
 				submission,

@@ -199,8 +199,10 @@ internal class ReaderPageRasterCache<T : Any>(
 			}
 			root.mkdirs()
 			val temporary = root.resolve("${key.digest}.${System.nanoTime()}.tmp")
+			val encodeStartedAt = System.nanoTime()
 			val encoded = runCatching { codec.encode(value, temporary) }
 				.getOrDefault(false)
+			val encodedAt = System.nanoTime()
 			if (!encoded || !temporary.isFile || temporary.length() <= 0L) {
 				temporary.delete()
 				return@withDecodedEncodeAdmission writeFailed(key, "encode-failed")
@@ -225,6 +227,13 @@ internal class ReaderPageRasterCache<T : Any>(
 			}
 			val contentDigest = temporary.sha256().take(16)
 			val lockRequestedAt = System.nanoTime()
+			if (lockRequestedAt - encodeStartedAt >= 100_000_000L) {
+				onDiagnostic(
+					"write-encode key=${key.digest.take(12)} bytes=$byteSize " +
+						"encodeMs=${elapsedMillis(encodeStartedAt) - elapsedMillis(encodedAt)} " +
+						"syncDigestMs=${elapsedMillis(encodedAt)}"
+				)
+			}
 			val result = try {
 				commitFence.commit {
 					commitWrite(

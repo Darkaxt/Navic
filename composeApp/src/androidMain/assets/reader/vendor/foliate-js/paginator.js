@@ -274,8 +274,10 @@ const normalizeFrameSize = (size, fallback = 1000) => {
     return Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 1000
 }
 
-const visibleViewport = rect => {
-    const visualViewport = globalThis.visualViewport
+// Navic #70: a detached (off-screen profiler) paginator lays out at its own size; the window's
+// visual viewport belongs to the live reader and may be in the other orientation.
+const visibleViewport = (rect, detached = false) => {
+    const visualViewport = detached ? null : globalThis.visualViewport
     const rectWidth = normalizeFrameSize(rect.width)
     const rectHeight = normalizeFrameSize(rect.height, 2000)
     const visualWidth = visualViewport ? normalizeFrameSize(visualViewport.width, rectWidth) : rectWidth
@@ -1080,7 +1082,7 @@ export class Paginator extends HTMLElement {
     #currentContainerLayoutSignature() {
         const hostRect = this.getBoundingClientRect()
         const containerRect = this.#container.getBoundingClientRect()
-        const viewport = visibleViewport(hostRect)
+        const viewport = visibleViewport(hostRect, this.hasAttribute('detached-viewport'))
         const rounded = value => Math.round(value * 1000) / 1000
         return JSON.stringify([
             rounded(hostRect.width),
@@ -1105,7 +1107,7 @@ export class Paginator extends HTMLElement {
     }
     #applyVisibleViewport() {
         const rect = this.getBoundingClientRect()
-        const viewport = visibleViewport(rect)
+        const viewport = visibleViewport(rect, this.hasAttribute('detached-viewport'))
         this.#top.style.width = `${viewport.width}px`
         this.#top.style.height = `${viewport.height}px`
         console.info(

@@ -66,7 +66,9 @@ internal data class ReaderPageAdjacentChapterPrefetchSubmission(
 	val key: ReaderPageAdjacentChapterPrefetchKey,
 	val activeDeckGenerationId: Long,
 	val chapter: ReaderPageAdjacentChapterPrefetchChapter,
-	val targets: List<ReaderPageRasterBatchTarget>
+	val targets: List<ReaderPageRasterBatchTarget>,
+	/** Center page of the prepared deck this batch was submitted for: the live reference page. */
+	val activeDeckCenterPageIndex: Int = -1
 )
 
 /**
@@ -90,6 +92,13 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	private var suspended = false
 	private var hostAvailable = true
 	private var interactionActive = false
+	private var durableEpochs: Pair<Long, Long>? = null
+
+	/**
+	 * "Prepare pages" (#71): the reader stays usable, so a page turn into another chapter
+	 * re-plans; pages already durable under the same raster epochs stay counted.
+	 */
+	var retainDurablePagesAcrossPlans = false
 
 	fun replaceDurablePlan(value: ReaderPageAdjacentChapterPrefetchPlan) {
 		require(value.key.currentChapterIndex >= 0)
@@ -118,7 +127,9 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		cancelActive()
 		onDisturbed()
 		plan = value
-		durablePageIndices.clear()
+		val epochs = value.key.rasterProfileEpoch to value.key.rasterEpoch
+		if (!retainDurablePagesAcrossPlans || durableEpochs != epochs) durablePageIndices.clear()
+		durableEpochs = epochs
 		attemptedChapterIdentities.clear()
 		suspended = false
 		trySubmit()
@@ -128,7 +139,10 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		cancelActive()
 		onDisturbed()
 		plan = null
-		durablePageIndices.clear()
+		if (!retainDurablePagesAcrossPlans) {
+			durablePageIndices.clear()
+			durableEpochs = null
+		}
 		attemptedChapterIdentities.clear()
 		suspended = false
 	}
@@ -139,6 +153,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		plan = null
 		preparedActiveDeck = null
 		durablePageIndices.clear()
+		durableEpochs = null
 		attemptedChapterIdentities.clear()
 		suspended = false
 	}
@@ -246,7 +261,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			suspended ||
 			!hostAvailable ||
 			interactionActive ||
-			!currentPlan.key.matches(deck) ||
+			!planServesDeck(currentPlan.key, deck) ||
 			activeSubmission != null
 		) return
 		val chapter = currentPlan.chapters.firstOrNull { candidate ->
@@ -264,7 +279,8 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			key = currentPlan.key,
 			activeDeckGenerationId = deck.generationId,
 			chapter = chapter,
-			targets = missingTargets
+			targets = missingTargets,
+			activeDeckCenterPageIndex = deck.sourceCenterPageIndex
 		)
 		activeSubmission = submission
 		onSubmit(submission)
@@ -279,8 +295,23 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			hostAvailable &&
 			!interactionActive &&
 			currentPlan.key == submission.key &&
-			currentPlan.key.matches(deck) &&
+			planServesDeck(currentPlan.key, deck) &&
 			deck.generationId == submission.activeDeckGenerationId
+	}
+
+	/**
+	 * An adjacent-chapter plan is relative to the chapter being read. A "Prepare pages" plan
+	 * (#71) names every page of the book by its absolute index, so a page turn into another
+	 * chapter does not make it stale: only new raster epochs do. Otherwise the run stalls when
+	 * the reader turns into an already prepared chapter, which builds no new plan.
+	 */
+	private fun planServesDeck(
+		key: ReaderPageAdjacentChapterPrefetchKey,
+		deck: ReaderPagePreparedActiveDeck
+	): Boolean = if (retainDurablePagesAcrossPlans) {
+		deck.rasterProfileEpoch == key.rasterProfileEpoch && deck.rasterEpoch == key.rasterEpoch
+	} else {
+		key.matches(deck)
 	}
 
 	private fun cancelActive() {

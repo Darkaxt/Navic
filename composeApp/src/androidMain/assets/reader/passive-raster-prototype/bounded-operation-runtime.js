@@ -8,6 +8,13 @@ const safeFailure = failure => {
   return name === 'TypeError' ? 'invalid-input' : 'runtime-unavailable'
 }
 
+// Only the runtime's own reason codes ("passive-…", "rendered-…") are reported; other messages
+// may carry document text or URLs.
+const failureDetail = failure => {
+  const message = typeof failure?.message === 'string' ? failure.message : ''
+  return /^(passive|rendered)-[a-z-]+( [a-z0-9/. -]{1,160})?$/.test(message) ? message : null
+}
+
 const abortFailure = () => new DOMException('Operation cancelled', 'AbortError')
 
 export const throwIfOperationAborted = signal => {
@@ -70,9 +77,11 @@ export const createBoundedOperationRuntime = () => {
           return
         }
         operationFailures = incrementBounded(operationFailures)
+        const detail = failureDetail(failure)
         finish(operationId, operation, {
           state: 'failed',
           failure: safeFailure(failure),
+          ...(detail ? { detail } : {}),
         })
       })
     return Object.freeze({ operationId })

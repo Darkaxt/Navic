@@ -377,7 +377,11 @@ class ReaderRuntimeShellProgressTest {
 		assertTrue(
 			Regex(
 				"""if\s*\(\s*controllerState\.errorMessage == null &&\s*""" +
-					"""controllerState\.paginationProfile\.status != "measuring"\s*\)\s*\{\s*""" +
+					"""controllerState\.paginationProfile\.status != "measuring" &&\s*""" +
+					// #71: the compact chapter card stays hidden behind the book preparation card.
+					"""!\(bookPreparationActive &&\s*""" +
+					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Compact\)\s*""" +
+					"""\)\s*\{\s*""" +
 					"""ReaderPagePreparationOverlay\("""
 			).containsMatchIn(readerRootText)
 		)

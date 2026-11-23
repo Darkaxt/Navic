@@ -1622,6 +1622,20 @@ class ReaderRuntimeAssetsTest {
 	}
 
 	@Test
+	fun offscreenProfilerIsNotClippedToTheLiveWindowViewport() {
+		// #70: an 800x1280 portrait profiler inside a 1280x800 landscape window was clipped to
+		// the window's visual viewport and measured 660px-tall pages instead of 1140px ones.
+		val viewport = readerAssetRoot().resolve("navic-reader-viewport.js").readText()
+			.substringAfter("function applyReaderViewportLayoutToProfilerView(")
+		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
+
+		assertContains(viewport, "renderer.setAttribute('detached-viewport', '')")
+		assertContains(paginator, "const visibleViewport = (rect, detached = false) => {")
+		assertContains(paginator, "const visualViewport = detached ? null : globalThis.visualViewport")
+		assertEquals(2, paginator.split(", this.hasAttribute('detached-viewport'))").size - 1)
+	}
+
+	@Test
 	fun paginationProfilerPublishesOnlyValidatedCurrentCommitReceipts() {
 		val pagination = readerAssetRoot().resolve("navic-reader-pagination.js").readText()
 		val build = pagination
@@ -1631,7 +1645,7 @@ class ReaderRuntimeAssetsTest {
 			.substringAfter("async function ensureCompletePaginationProfile(")
 			.substringBefore("function shouldUseFreshPaginationProfile(")
 
-		assertContains(pagination, "runtimeVersion: 'navic-reader-pagination-profile-5'")
+		assertContains(pagination, "runtimeVersion: 'navic-reader-pagination-profile-7'")
 		assertContains(pagination, "const ReaderPaginationProfileAuthorityCommitReceipt = 'paginator-commit-receipt'")
 		assertContains(pagination, "const ReaderPaginationProfileMaximumCommitTransactionAttempts = 3")
 		assertContains(pagination, "function paginationProfileTaskIsCurrent(")

@@ -201,6 +201,8 @@ function applyReaderViewportLayoutToProfilerView(profileView, settings = this.re
     overflow: 'hidden',
   })
   if (renderer) {
+    // The profiler is never on screen: it must not be clipped to the live window (#70).
+    renderer.setAttribute('detached-viewport', '')
     renderer.setAttribute('max-inline-size', pageBox.maxInlineSize)
     renderer.setAttribute('max-block-size', pageBox.maxBlockSize)
     renderer.setAttribute('max-column-count', pageBox.maxColumnCount)

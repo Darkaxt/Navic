@@ -1465,7 +1465,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				observedHostLifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
 			) {
 				alternateLayoutPreparation.onCurrentLayoutSettled()
-			} else if (!settled) {
+			} else if (!settled && !alternateLayoutPreparation.bookPreparationActive) {
+				// #71: a whole-book run keeps going while the reader is used; its pages retry
+				// after a page turn instead of the run being cancelled.
 				alternateLayoutPreparation.cancel("current-layout-busy")
 			}
 		},
