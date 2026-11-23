@@ -144,12 +144,31 @@ public class Gles2RendererSourceTest {
                 "private void completeSettlement(Settlement settlement, SettlementContext context)");
 
         int activation = settlement.indexOf(
-                "queueEvent(() -> renderer.activateDeck(promoted.getGenerationId()))");
+                "renderer.activateDeck(promoted.getGenerationId())");
         int render = settlement.indexOf("requestRender()");
         int completion = settlement.indexOf("onSettlementCompleted(");
         assertTrue(activation >= 0);
         assertTrue(render > activation);
         assertTrue(completion > render);
+    }
+
+    @Test
+    public void promotedSettlementFlattensTheModelOnTheGlThreadWithTheDeckSwap() throws IOException {
+        String source = source("PageSurfaceView.java");
+        String settlement = methodBody(
+                source,
+                "private void completeSettlement(Settlement settlement, SettlementContext context)");
+
+        int promotion = settlement.indexOf("deckCoordinator.completeSettlement()");
+        int queued = settlement.indexOf("queueEvent(() -> {");
+        int flatten = settlement.indexOf("settledModel.completeSettlement(settlement);", queued);
+        int activation = settlement.indexOf("renderer.activateDeck(promoted.getGenerationId())");
+        assertTrue(promotion >= 0);
+        assertTrue(queued > promotion);
+        assertTrue(flatten > queued);
+        assertTrue(activation > flatten);
+        // No main-thread flattening before the promotion decision.
+        assertTrue(settlement.lastIndexOf(".completeSettlement(settlement)", promotion) < 0);
     }
 
     @Test

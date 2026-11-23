@@ -2247,12 +2247,10 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     private void completeSettlement(Settlement settlement, SettlementContext context) {
+        // Resolve the settled model before promotion changes which deck is active.
         LandscapeSpreadModel spread = landscapeModelOrNull();
-        if (spread != null) {
-            spread.completeSettlement(settlement);
-        } else {
-            interactionModelOrNull().completeSettlement(settlement);
-        }
+        PlayLikeCurlModel settledModel =
+                spread != null ? spread.getMotionModel() : interactionModelOrNull();
         settlementRunning = false;
         settlementAnimator = null;
         activeSettlementContext = null;
@@ -2263,9 +2261,18 @@ public class PageSurfaceView extends GLSurfaceView {
         PageDeck<Bitmap> promoted = promotion.getActivatedDeck();
         if (promoted != null) {
             markPromotionRelease(promotion);
-            queueEvent(() -> renderer.activateDeck(promoted.getGenerationId()));
-        } else if (settlement.getPageChange() != PageChange.NONE) {
-            preparedGenerations.remove(context.generationId);
+            // The renderer reads the model on the GL thread: flattening it here while the old
+            // deck is still active lets one frame draw the source spread flat (the page the
+            // turn just left flashes after the curl). Flatten and swap in one GL-thread step.
+            queueEvent(() -> {
+                settledModel.completeSettlement(settlement);
+                renderer.activateDeck(promoted.getGenerationId());
+            });
+        } else {
+            settledModel.completeSettlement(settlement);
+            if (settlement.getPageChange() != PageChange.NONE) {
+                preparedGenerations.remove(context.generationId);
+            }
         }
         requestRender();
 
