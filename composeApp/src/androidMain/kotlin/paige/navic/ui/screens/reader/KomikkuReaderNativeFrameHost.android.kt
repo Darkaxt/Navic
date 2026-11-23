@@ -290,6 +290,23 @@ internal fun readerLayoutRegenerationPreparationState(
 		state
 	}
 
+/**
+ * While a layout change awaits review the live page stays visible with the "Keep layout" card
+ * and no preparation runs; turns stay blocked until the reader keeps it.
+ */
+internal fun readerLayoutReviewPreparationState(
+	state: ReaderPagePreparationState,
+	layoutReviewHold: Boolean
+): ReaderPagePreparationState =
+	if (layoutReviewHold && state.phase != ReaderPagePreparationPhase.Failed) {
+		state.copy(
+			presentation = ReaderPagePreparationPresentation.Compact,
+			layoutReviewPending = true
+		)
+	} else {
+		state
+	}
+
 internal fun readerNativePresentationLayerVisibility(
 	shellCoverVisible: Boolean,
 	pagePreparationCoverVisible: Boolean,
@@ -1785,6 +1802,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	// #50: set by layout-only changes while the page was readable; cleared once readable again.
 	private var regeneratingReadableLayout = false
+	// A settings change of a readable page holds preparation until the reader keeps the layout.
+	private var layoutReviewHold = false
 	private var lastPublishedPagePreparationPresentation = ReaderPagePreparationPresentation.Cover
 
 	// A settings mutation reflows the live page and posts relocations before it commits, so the
@@ -1821,7 +1840,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun publishMergedPagePreparationState() {
-		val merged = readerLayoutRegenerationPreparationState(
+		val regenerated = readerLayoutRegenerationPreparationState(
 			state = readerMergedPagePreparationState(
 				pageTurnCanvasEnabled = pageTurnCanvasEnabled,
 				pageTurnContentReady = pageTurnContentReadyKey != null,
@@ -1830,6 +1849,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			),
 			regeneratingReadableLayout = regeneratingReadableLayout
 		)
+		val merged = readerLayoutReviewPreparationState(regenerated, layoutReviewHold)
 		if (
 			(merged.presentation == ReaderPagePreparationPresentation.Hidden && !settingsMutationInFlight) ||
 			merged.phase == ReaderPagePreparationPhase.Failed
@@ -2032,6 +2052,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		requestId: Long,
 		onReadiness: (ReaderSettingsWebViewMutationReadiness) -> Unit
 	) {
+		// The curl's live re-anchor holds the same exclusive WebView claim; a settings change from the
+		// reader outranks it (two quick changes used to crash with "exclusive claim already exists").
+		playLikeCurlController.yieldInitialLivePresentationAuthority()
 		settingsWebViewMutationCoordinator.acquireSettingsMutation(
 			requestId,
 			onReadiness
@@ -2044,6 +2067,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		beginReadableLayoutRegeneration()
+		if (regeneratingReadableLayout) layoutReviewHold = true
 		pageTurnSnapshotKey = snapshotKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
 		pageRasterPreparationController.invalidate(
@@ -2182,6 +2206,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (!visible) resetShellCoverSwipeOffset()
 		if (visible) {
 			regeneratingReadableLayout = false
+			layoutReviewHold = false
 			removePageTurnPrewarmLayoutListener()
 			playLikeCurlController.invalidate("shell-cover-visible")
 			pageRasterPreparationController.invalidate("shell-cover-visible")
@@ -2205,6 +2230,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		val shouldRetry = pagePreparationRetryKey != Int.MIN_VALUE && retryKey > pagePreparationRetryKey
 		pagePreparationRetryKey = retryKey
 		if (!shouldRetry) return
+		if (layoutReviewHold) {
+			// "Keep layout": the relayout session starts now.
+			layoutReviewHold = false
+			publishMergedPagePreparationState()
+			requestPageTurnPrewarmWhenReady()
+			return
+		}
 		val webView = viewerContentContainer.findDescendantWebView()
 		observeEngineWebView(webView)
 		if (passiveRasterPreparationAdapter?.isAvailable != true && webView != null) {
@@ -2360,6 +2392,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private fun requestPageTurnPrewarmWhenReady() {
 		// One session per relayout: it starts when the settings mutation finishes.
 		if (settingsMutationInFlight) return
+		// The reader is still checking a new layout on the live page: nothing is prepared yet.
+		if (layoutReviewHold) return
 		if (
 			task4ResourceTeardownStarted ||
 			!pageTurnCanvasEnabled ||

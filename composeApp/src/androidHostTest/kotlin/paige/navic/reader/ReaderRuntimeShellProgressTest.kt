@@ -380,8 +380,11 @@ class ReaderRuntimeShellProgressTest {
 					"""controllerState\.paginationProfile\.status != "measuring" &&\s*""" +
 					// #71: the compact chapter card stays hidden behind the book preparation card.
 					"""!\(bookPreparationActive &&\s*""" +
-					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Compact\)\s*""" +
+					"""pagePreparationState\.presentation == ReaderPagePreparationPresentation\.Compact &&\s*""" +
+					// The Keep layout card is the only way out of a layout review, so it is never hidden.
+					"""!pagePreparationState\.layoutReviewPending\)\s*""" +
 					"""\)\s*\{\s*""" +
+					"""(//[^\n]*\n\s*)?val reviewAboveMenu = [^\n]*\n\s*""" +
 					"""ReaderPagePreparationOverlay\("""
 			).containsMatchIn(readerRootText)
 		)

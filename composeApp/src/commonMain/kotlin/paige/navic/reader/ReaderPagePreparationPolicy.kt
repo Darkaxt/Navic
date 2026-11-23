@@ -41,7 +41,9 @@ data class ReaderPagePreparationState(
 	val operationPolicy: ReaderPageOperationPolicy = readerPageOperationPolicy(readiness),
 	val progress: Float = 0f,
 	val presentation: ReaderPagePreparationPresentation = ReaderPagePreparationPresentation.Hidden,
-	val gestureDisposition: ReaderPagePreparationGestureDisposition = ReaderPagePreparationGestureDisposition.Allow
+	val gestureDisposition: ReaderPagePreparationGestureDisposition = ReaderPagePreparationGestureDisposition.Allow,
+	/** A layout change waits for the reader to check the live page before pages are prepared again. */
+	val layoutReviewPending: Boolean = false
 ) {
 	val interactiveReady: Boolean
 		get() = operationPolicy.newPointer is ReaderPageNewPointerDecision.Accept

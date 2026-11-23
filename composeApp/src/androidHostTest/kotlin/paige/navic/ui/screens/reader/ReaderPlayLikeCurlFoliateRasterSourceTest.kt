@@ -25,6 +25,11 @@ class ReaderPlayLikeCurlFoliateRasterSourceTest {
 		assertEquals(0xFF, cover ushr 24)
 		assertTrue(green > red && green > blue, "a green cover gives green strips, not paper")
 		assertNotEquals(paper, cover)
+		// #72: matches the settled strip's body (cover darkened toward the ink, ~86% over paper),
+		// not the bare 90% cover tint that stepped in shade at the curl hand-off.
+		val sepia = 0xFFF3EAD7.toInt()
+		val body = assertNotNull(readerPlayLikeCurlBackCoverColorArgb("#46A07C", sepia))
+		assertEquals(listOf(92, 160, 128), listOf(body ushr 16 and 0xFF, body ushr 8 and 0xFF, body and 0xFF))
 	}
 
 	@Test

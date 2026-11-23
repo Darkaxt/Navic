@@ -19,7 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_reader_keep_layout
 import navic.composeapp.generated.resources.action_retry
+import navic.composeapp.generated.resources.info_reader_layout_review
+import navic.composeapp.generated.resources.info_reader_layout_review_detail
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
 import navic.composeapp.generated.resources.info_reader_preparing_pages
 import org.jetbrains.compose.resources.stringResource
@@ -34,6 +37,11 @@ internal fun ReaderPagePreparationOverlay(
 	modifier: Modifier = Modifier
 ) {
 	if (state.presentation == ReaderPagePreparationPresentation.Hidden) return
+
+	if (state.layoutReviewPending) {
+		ReaderLayoutReviewCard(onKeep = onRetry, modifier = modifier)
+		return
+	}
 
 	Box(modifier = modifier) {
 		Surface(
@@ -101,6 +109,43 @@ internal fun ReaderPagePreparationOverlay(
 					TextButton(onClick = onRetry, modifier = Modifier.align(Alignment.End)) {
 						Text(stringResource(Res.string.action_retry))
 					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * After a layout change the live page already shows the new layout; pages are prepared again
+ * only once the reader keeps it, so repeated tweaks never restart a whole relayout.
+ */
+@Composable
+private fun ReaderLayoutReviewCard(onKeep: () -> Unit, modifier: Modifier = Modifier) {
+	Box(modifier = modifier) {
+		Surface(
+			shape = RoundedCornerShape(16.dp),
+			color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp).copy(alpha = 0.92f),
+			contentColor = MaterialTheme.colorScheme.onSurface,
+			modifier = Modifier
+				.align(Alignment.BottomCenter)
+				.padding(horizontal = 20.dp, vertical = 20.dp)
+		) {
+			Column(
+				modifier = Modifier
+					.widthIn(min = 220.dp, max = 420.dp)
+					.padding(horizontal = 18.dp, vertical = 14.dp),
+				verticalArrangement = Arrangement.spacedBy(8.dp)
+			) {
+				Text(
+					text = stringResource(Res.string.info_reader_layout_review),
+					style = MaterialTheme.typography.titleSmall
+				)
+				Text(
+					text = stringResource(Res.string.info_reader_layout_review_detail),
+					style = MaterialTheme.typography.bodySmall
+				)
+				TextButton(onClick = onKeep, modifier = Modifier.align(Alignment.End)) {
+					Text(stringResource(Res.string.action_reader_keep_layout))
 				}
 			}
 		}

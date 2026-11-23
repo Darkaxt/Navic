@@ -393,12 +393,17 @@ internal fun KomikkuReaderRoot(
 					controllerState.errorMessage == null &&
 						controllerState.paginationProfile.status != "measuring" &&
 						!(bookPreparationActive &&
-							pagePreparationState.presentation == ReaderPagePreparationPresentation.Compact)
+							pagePreparationState.presentation == ReaderPagePreparationPresentation.Compact &&
+							!pagePreparationState.layoutReviewPending)
 				) {
+					// The Keep layout card sits above the open menu's slider and bottom bar.
+					val reviewAboveMenu = pagePreparationState.layoutReviewPending && controllerState.menuVisible
 					ReaderPagePreparationOverlay(
 						state = pagePreparationState,
 						onRetry = { pagePreparationRetryKey += 1 },
-						modifier = Modifier.matchParentSize()
+						modifier = Modifier
+							.matchParentSize()
+							.padding(bottom = if (reviewAboveMenu) 136.dp else 0.dp)
 					)
 				}
 				if (bookPreparationActive) {

@@ -680,8 +680,11 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 
 /**
  * The back-cover colour the WebView paints in the strips beside the pages
- * (`readerReadableCoverTintChannels` plus its ~90% cover alpha over the paper), so the curl's
- * uncovered background matches them instead of showing paper during a turn. Null without a tint.
+ * (`readerReadableCoverTintChannels`), so the curl's uncovered background matches them instead
+ * of showing paper during a turn. The settled strip is a gradient whose body runs from the
+ * `middle` stop (4% text colour, 82% alpha) to the `edge` stop (14% text colour, 90% alpha); the
+ * flat curl colour is that body's midpoint over the paper, so the hand-off shows no shade step
+ * (#72). Null without a tint.
  */
 internal fun readerPlayLikeCurlBackCoverColorArgb(tint: String?, paperColorArgb: Int): Int? {
 	val hex = tint?.trim()?.takeIf { value -> ReaderPlayLikeCurlCoverTintPattern.matches(value) }
@@ -721,9 +724,16 @@ internal fun readerPlayLikeCurlBackCoverColorArgb(tint: String?, paperColorArgb:
 			else -> p
 		}
 	}
+	val paperLuminance = 0.2126 * (paperColorArgb ushr 16 and 0xFF) +
+		0.7152 * (paperColorArgb ushr 8 and 0xFF) + 0.0722 * (paperColorArgb and 0xFF)
+	// The theme's text colour: dark ink on light paper, light ink on dark themes.
+	val ink = if (paperLuminance >= 128) 0xFF261B10.toInt() else 0xFFF2F0EA.toInt()
 	fun channel(cover: Double, shift: Int): Int {
 		val paper = paperColorArgb ushr shift and 0xFF
-		return kotlin.math.round(cover * 255 * 0.9 + paper * 0.1).toInt().coerceIn(0, 255)
+		val text = ink ushr shift and 0xFF
+		val body = cover * 255 * (1 - BackCoverBodyInkWeight) + text * BackCoverBodyInkWeight
+		return kotlin.math.round(body * BackCoverBodyAlpha + paper * (1 - BackCoverBodyAlpha))
+			.toInt().coerceIn(0, 255)
 	}
 	return 0xFF000000.toInt() or
 		(channel(hueChannel(hue + 1.0 / 3), 16) shl 16) or
@@ -732,3 +742,5 @@ internal fun readerPlayLikeCurlBackCoverColorArgb(tint: String?, paperColorArgb:
 }
 
 private val ReaderPlayLikeCurlCoverTintPattern = Regex("^#[0-9a-fA-F]{6}$")
+private const val BackCoverBodyInkWeight = 0.09
+private const val BackCoverBodyAlpha = 0.86

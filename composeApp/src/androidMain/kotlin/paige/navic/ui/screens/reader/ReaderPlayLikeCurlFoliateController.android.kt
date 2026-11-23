@@ -1861,6 +1861,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	fun setHostLayoutMutationInFlight(inFlight: Boolean) {
 		hostLayoutMutationInFlight = inFlight
+		if (!inFlight && enabled && !destroyed) retryPassiveManifestAuthorityRecovery()
+	}
+
+	/** A settings change outranks re-anchoring the live page; the anchor is requested again after it. */
+	fun yieldInitialLivePresentationAuthority() {
+		releaseInitialLivePresentationAuthority()
 	}
 
 	private var backCoverTint: String? = null

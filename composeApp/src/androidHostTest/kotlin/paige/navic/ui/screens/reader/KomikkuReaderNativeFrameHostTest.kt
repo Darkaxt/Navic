@@ -195,6 +195,42 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
+	fun aLayoutChangeWaitsForTheReaderToKeepItBeforePagesArePrepared() {
+		val idle = readerPagePreparationState(
+			phase = ReaderPagePreparationPhase.Idle,
+			requiredCount = 0,
+			completedCount = 0,
+			interactiveRequiredCount = 0,
+			interactiveCompletedCount = 0,
+			readiness = ReaderPageReadinessState(
+				interaction = ReaderPageInteractionState.BlockingInitialPreparation
+			)
+		)
+		val held = readerLayoutReviewPreparationState(idle, layoutReviewHold = true)
+		assertTrue(held.layoutReviewPending, "the Keep layout card is shown")
+		assertEquals(ReaderPagePreparationPresentation.Compact, held.presentation, "the live page stays visible")
+		assertFalse(held.interactiveReady)
+		assertEquals(idle, readerLayoutReviewPreparationState(idle, layoutReviewHold = false))
+
+		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
+		val prewarm = source.substringAfter("private fun requestPageTurnPrewarmWhenReady() {").substringBefore("startPassiveRasterRuntimeEarly()")
+		assertTrue("if (layoutReviewHold) return" in prewarm, "no preparation while the layout awaits review")
+		val keep = source.substringAfter("fun setPagePreparationRetryKey(retryKey: Int) {").substringBefore("val webView")
+		assertTrue("layoutReviewHold = false" in keep, "Keep layout releases the hold")
+	}
+
+	@Test
+	fun aSettingsChangeTakesTheLiveClaimFromTheCurlReAnchor() {
+		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
+		val acquire = source.substringAfter("override fun acquireSettingsMutation(").substringBefore("\n\t}")
+		val yieldAt = acquire.indexOf("playLikeCurlController.yieldInitialLivePresentationAuthority()")
+		assertTrue(yieldAt in 0 until acquire.indexOf("settingsWebViewMutationCoordinator.acquireSettingsMutation("))
+		val controller = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/ReaderPlayLikeCurlFoliateController.android.kt").readText()
+		assertContains(controller.substringAfter("fun yieldInitialLivePresentationAuthority() {").substringBefore("\n\t}"), "releaseInitialLivePresentationAuthority()")
+		assertContains(controller.substringAfter("fun setHostLayoutMutationInFlight(").substringBefore("\n\t}"), "retryPassiveManifestAuthorityRecovery()")
+	}
+
+	@Test
 	fun readableLayoutRegenerationIsOnlyStartedByLayoutChanges() {
 		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
 			.substringAfter("private class KomikkuReaderNativeViewerContainer(")
