@@ -3269,6 +3269,42 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun aSwipeWhileBrowsingKeepsTheLandedPageSurfaceInsteadOfFlashingTheWebView() {
+		val source = controllerFile.readText()
+		val reveal = source
+			.substringAfter("private fun revealSurfaceAfterNextPresentedFrame(")
+			.substringBefore("fun cancelGestureAfterHostTerminal(")
+		val handOver = "if (presentedSurfaceGestureId != null && surfaceView.alpha > 0f) {"
+
+		assertContains(reveal, handOver)
+		val handOverBlock = reveal.substringAfter(handOver).substringBefore("}")
+		assertContains(handOverBlock, "presentedSurfaceGestureId = gestureId")
+		assertFalse(handOverBlock.contains("surfaceView.alpha = 0f"))
+		assertTrue(
+			reveal.indexOf(handOver) < reveal.indexOf("if (surfaceView.alpha != 0f) surfaceView.alpha = 0f"),
+			"A visible landed-page surface must be handed over before the hide-until-frame path."
+		)
+	}
+
+	@Test
+	fun aSwipeDuringTheDecodedRefillQueuesAndTheRefillWakesIt() {
+		val source = controllerFile.readText()
+		val settling = source
+			.substringAfter("private fun isTurnStillSettling(): Boolean =")
+			.substringBefore("fun canQueueSwipeDuringSettlement(")
+		val completion = source
+			.substringAfter("reason = \"decoded-refill-completed:\$refill\"")
+			.substringBefore("event = \"decoded-refill-completed\"")
+
+		assertContains(settling, "isDecodedRefillForCurrentPageRunning()")
+		assertContains(
+			settling,
+			"decodedRefillCenterOrdinal == currentOrdinal && !hasDecodedWorkingSetForCurrentOrdinal()"
+		)
+		assertContains(completion, "mainHandler.post { replayDeferredSwipeIfReady() }")
+	}
+
+	@Test
 	fun newSwipeYieldsTheLiveCatchUpInsteadOfWaitingForIt() {
 		val source = controllerFile.readText()
 		val touch = source.substringAfter("fun onPageTouchEvent(")

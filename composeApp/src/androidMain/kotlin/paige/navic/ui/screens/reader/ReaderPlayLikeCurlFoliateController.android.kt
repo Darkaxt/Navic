@@ -1682,7 +1682,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		relocationQueue.hasInFlightHead() ||
 			readinessState.interaction == ReaderPageInteractionState.Settling ||
 			readinessState.textureDeck == ReaderTextureDeckState.Settling ||
-			readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet
+			readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet ||
+			isDecodedRefillForCurrentPageRunning()
+
+	// The deck can report Ready before the decoded pages around the landed page are refilled
+	// (a fast burst outruns the decoded prefetch); a swipe in that window queues instead of
+	// being rejected as "preparing".
+	private fun isDecodedRefillForCurrentPageRunning(): Boolean =
+		decodedRefillCenterOrdinal == currentOrdinal && !hasDecodedWorkingSetForCurrentOrdinal()
 
 	/** The host asks this before admitting a touch while the previous page is still landing. */
 	fun canQueueSwipeDuringSettlement(): Boolean =
@@ -2424,6 +2431,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		surfaceView.animate().cancel()
 		if (presentedSurfaceGestureId == gestureId) {
+			surfaceView.alpha = 1f
+			inlineRasterShield.dismiss()
+			return
+		}
+		// While browsing, the surface still shows the page the previous turn landed on, which is
+		// where this gesture starts; the WebView behind it may lag pages behind or be mid
+		// catch-up. Hiding the surface until the next GL frame would flash that stale page.
+		if (presentedSurfaceGestureId != null && surfaceView.alpha > 0f) {
+			presentedSurfaceGestureId = gestureId
 			surfaceView.alpha = 1f
 			inlineRasterShield.dismiss()
 			return
@@ -3812,6 +3828,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 					interaction = preparedInteractionState(),
 					reason = "decoded-refill-completed:$refill"
 				)
+				// Readiness may not change (Ready -> Ready), so wake the swipes queued behind the refill.
+				if (queuedDeferredSwipes.isNotEmpty()) {
+					mainHandler.post { replayDeferredSwipeIfReady() }
+				}
 				logActivationState(
 					event = "decoded-refill-completed",
 					detail = "refill=$refill center=$centerOrdinal reason=$reason " +
