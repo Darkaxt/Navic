@@ -915,6 +915,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var snapshotKey = Int.MIN_VALUE
 	private var currentOrdinal = 0
 	private var currentWebViewOrdinal: Int? = null
+	// Set when a newer turn abandoned the live catch-up: until the WebView reports its page again
+	// the curl surface keeps showing the prepared page instead of exposing an unvalidated WebView.
+	private var webViewPositionUnknownAfterYield = false
 	private var authoritativeLocationReady = false
 	private var currentFoliateSessionId: String? = null
 	private var failedLivePresentationGeneration: FailedLivePresentationGeneration? = null
@@ -2192,6 +2195,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 
 		releaseInitialLivePresentationAuthority()
+		yieldLiveCatchUpToNewerTurn()
 		restartBrowseIdleRelocationDispatch()
 		trackingDeferredSwipe?.takeIf { it.gestureId != gestureId }?.let(::rejectDeferredSwipe)
 		val metadata = relocationMetadata(gestureId)
@@ -2573,6 +2577,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		) {
 			authoritativeLocationReady = true
 			currentWebViewOrdinal = normalized
+			webViewPositionUnknownAfterYield = false
 		}
 		when (origin) {
 			ReaderPageVisualLocationOrigin.ExactPageTurn -> {
@@ -5958,6 +5963,17 @@ internal class ReaderPlayLikeCurlFoliateController(
 				"PlayLikeCurl terminal content rejection became stale " +
 					"gestureId=${request.gestureId}"
 			)
+			// Escape hatch: the head is gone and a newer gesture owns the prepared page on screen,
+			// so its failure must not keep the reader latched in Failed (rejecting every touch).
+			if (failedLivePresentationGeneration?.matches(request) == true) {
+				failedLivePresentationGeneration = null
+				retainsRejectedSurfaceInputShield = false
+				livePresentationRecoveryRequest.clear()
+				updateReadiness(
+					interaction = preparedInteractionState(),
+					reason = "visual-handoff-failure-superseded"
+				)
+			}
 			return
 		}
 		blockTerminalContentFailureRecovery(
@@ -6108,6 +6124,26 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		restartBrowseIdleRelocationDispatch()
+	}
+
+	/**
+	 * Browsing never waits for the live WebView. A swipe made while the catch-up to the last
+	 * turned page is still loading or validating behind the curl surface abandons that
+	 * catch-up; the turn runs on the prepared rasters and the catch-up restarts once browsing
+	 * idles again. Where the WebView ended up is unknown, so the next catch-up always dispatches.
+	 */
+	private fun yieldLiveCatchUpToNewerTurn() {
+		if (destroyed || !relocationQueue.hasInFlightHead()) return
+		val head = relocationQueue.head() ?: return
+		if (!relocationVisualHandoffCoordinator.yieldToNewerTurn(head)) return
+		relocationDispatchTimeout.cancel(head)
+		retireSupersededRelocation(head)
+		currentWebViewOrdinal = null
+		webViewPositionUnknownAfterYield = true
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl live catch-up yielded to newer turn target=${head.destinationOrdinal}"
+		)
 	}
 
 	private fun retireSupersededRelocation(request: ReaderPageRelocationRequest) {
@@ -6730,7 +6766,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun hideSurfaceAfterGesture(gestureId: Long) {
-		if (relocationQueue.ownershipSnapshot().queued > 0) return
+		if (relocationQueue.ownershipSnapshot().queued > 0) {
+			returnSurfaceClaimToQueuedCatchUp(gestureId)
+			return
+		}
+		if (webViewPositionUnknownAfterYield) return
 		if (
 			presentedFrameGestureId != gestureId &&
 			presentedSurfaceGestureId != gestureId
@@ -6738,6 +6778,24 @@ internal class ReaderPlayLikeCurlFoliateController(
 			return
 		}
 		hideSurface()
+	}
+
+	/**
+	 * A gesture that ended without turning (a drag that settled back, a cancel or a rejection)
+	 * still showing the page the queued catch-up is heading to is not a newer owner: the surface
+	 * claim goes back to that catch-up, otherwise its presentation fails and latches the reader.
+	 */
+	private fun returnSurfaceClaimToQueuedCatchUp(gestureId: Long) {
+		val head = relocationQueue.head() ?: return
+		if (
+			activeGestureId == gestureId ||
+			presentedSurfaceGestureId != gestureId ||
+			head.gestureId >= gestureId ||
+			head.destinationOrdinal != currentOrdinal
+		) {
+			return
+		}
+		presentedSurfaceGestureId = head.gestureId
 	}
 
 	private fun hasNewerSurfacePresentationOwner(gestureId: Long): Boolean =

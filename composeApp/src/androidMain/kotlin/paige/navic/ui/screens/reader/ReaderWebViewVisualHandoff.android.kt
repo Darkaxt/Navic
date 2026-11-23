@@ -1780,6 +1780,27 @@ internal class ReaderPageRelocationVisualHandoffCoordinator(
 		}
 	}
 
+	/**
+	 * A newer turn supersedes the live catch-up while the curl surface still covers the
+	 * WebView (awaiting the frame or validating content), so it ends silently: no presentation,
+	 * no recovery. A head already being presented or recovering keeps running.
+	 */
+	fun yieldToNewerTurn(request: ReaderPageRelocationRequest): Boolean {
+		val handoffOwnsHead = head == request &&
+			(phase == Phase.Awaiting || phase == Phase.ValidatingContent)
+		val dispatchedOnly = head == null && phase == Phase.Idle &&
+			queue.matchesDispatchedHead(
+				token = request.token.value,
+				rasterGeneration = request.rasterGeneration,
+				textureGeneration = request.textureGeneration,
+				foliateSessionId = request.foliateSessionId,
+				destinationOrdinal = request.destinationOrdinal
+			)
+		if (!handoffOwnsHead && !dispatchedOnly) return false
+		if (handoffOwnsHead) cancelForQueueInvalidation()
+		return queue.abandonInFlightHead(request.token.value)
+	}
+
 	fun cancelForQueueInvalidation() {
 		val request = head
 		if (request == null) {

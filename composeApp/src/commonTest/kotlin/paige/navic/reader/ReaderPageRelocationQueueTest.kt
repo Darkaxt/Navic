@@ -24,6 +24,29 @@ class ReaderPageRelocationQueueTest {
 	}
 
 	@Test
+	fun newerTurnAbandonsInFlightHeadAndItsLateAckIsStale() {
+		val queue = ReaderPageRelocationQueue()
+		val catchUp = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		// An undispatched head is not in flight and cannot be abandoned.
+		assertFalse(queue.abandonInFlightHead(catchUp.token.value))
+		assertEquals(catchUp, queue.commandToDispatch())
+		assertFalse(queue.abandonInFlightHead("other-token"))
+
+		assertTrue(queue.abandonInFlightHead(catchUp.token.value))
+		assertFalse(queue.hasInFlightHead())
+		assertNull(queue.head())
+		assertFalse(queue.acknowledge(catchUp.token.value, 4, "session-a", 10L, 20L))
+
+		val next = enqueue(queue, gestureId = 2L, source = 4, destination = 5)
+		assertEquals(next, queue.commandToDispatch())
+		assertTrue(queue.acknowledge(next.token.value, 5, "session-a", 10L, 20L))
+		// An acknowledged head waiting for its visual handoff can be abandoned too.
+		assertTrue(queue.abandonInFlightHead(next.token.value))
+		assertFalse(queue.completeHandoff(next.token.value))
+		assertEquals(0, queue.queuedCount())
+	}
+
+	@Test
 	fun staleTokenOrdinalOrSessionCannotCompleteCurrentHead() {
 		val queue = ReaderPageRelocationQueue()
 		val current = enqueue(queue, gestureId = 1L, source = 3, destination = 4)

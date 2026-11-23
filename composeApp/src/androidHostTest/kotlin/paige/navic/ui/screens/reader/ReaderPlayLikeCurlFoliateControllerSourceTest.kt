@@ -3269,6 +3269,59 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun newSwipeYieldsTheLiveCatchUpInsteadOfWaitingForIt() {
+		val source = controllerFile.readText()
+		val touch = source.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("activeGestureId = gestureId")
+		val yieldBody = source.substringAfter("private fun yieldLiveCatchUpToNewerTurn() {")
+			.substringBefore("private fun retireSupersededRelocation(")
+		val gestureHide = source.substringAfter("private fun hideSurfaceAfterGesture(")
+			.substringBefore("private fun hasNewerSurfacePresentationOwner(")
+
+		// The yield runs before the deferral check, so the swipe no longer waits behind it.
+		assertTrue(
+			touch.indexOf("yieldLiveCatchUpToNewerTurn()") in 0 until
+				touch.indexOf("trackingDeferredSwipe = DeferredSwipe(gestureId, event.x)")
+		)
+		assertContains(yieldBody, "relocationVisualHandoffCoordinator.yieldToNewerTurn(head)")
+		assertContains(yieldBody, "relocationDispatchTimeout.cancel(head)")
+		assertContains(yieldBody, "retireSupersededRelocation(head)")
+		// Where the WebView landed is unknown: the next catch-up always dispatches.
+		assertContains(yieldBody, "currentWebViewOrdinal = null")
+		assertContains(yieldBody, "webViewPositionUnknownAfterYield = true")
+		// A swipe that does not turn keeps the prepared page instead of exposing the WebView.
+		assertContains(gestureHide, "if (webViewPositionUnknownAfterYield) return")
+		assertContains(
+			source,
+			"currentWebViewOrdinal = normalized\n\t\t\twebViewPositionUnknownAfterYield = false"
+		)
+	}
+
+	@Test
+	fun dragThatTurnsNothingCannotLatchTheReaderInFailed() {
+		val source = controllerFile.readText()
+		val gestureHide = source.substringAfter("private fun hideSurfaceAfterGesture(")
+			.substringBefore("private fun hasNewerSurfacePresentationOwner(")
+		val claimReturn = source.substringAfter("private fun returnSurfaceClaimToQueuedCatchUp(")
+			.substringBefore("private fun hasNewerSurfacePresentationOwner(")
+		val terminal = source.substringAfter("private fun releaseTerminalContentFailure(")
+			.substringBefore("private fun releaseTerminalContentFailureAfterCancelledGesture(")
+
+		// A drag that settles back hands the surface back to the queued catch-up for that page.
+		assertContains(gestureHide, "returnSurfaceClaimToQueuedCatchUp(gestureId)")
+		assertContains(claimReturn, "presentedSurfaceGestureId != gestureId")
+		assertContains(claimReturn, "head.gestureId >= gestureId")
+		assertContains(claimReturn, "head.destinationOrdinal != currentOrdinal")
+		assertContains(claimReturn, "presentedSurfaceGestureId = head.gestureId")
+		// Escape hatch: a stale presentation failure restores the prepared interaction.
+		val stale = terminal.substringAfter("if (!recoveryStillCurrent) {")
+			.substringBefore("blockTerminalContentFailureRecovery(")
+		assertContains(stale, "failedLivePresentationGeneration = null")
+		assertContains(stale, "interaction = preparedInteractionState()")
+		assertContains(stale, "\"visual-handoff-failure-superseded\"")
+	}
+
+	@Test
 	fun browsingDefersLiveRelocationUntilIdle() {
 		val source = controllerFile.readText()
 		val idle = source.substringAfter("private fun dispatchRelocationOnceBrowsingIdles()")

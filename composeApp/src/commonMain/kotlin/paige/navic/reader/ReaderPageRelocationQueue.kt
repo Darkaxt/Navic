@@ -182,6 +182,23 @@ class ReaderPageRelocationQueue(
 			superseded
 		}
 
+	/**
+	 * Drops the in-flight head when a newer turn supersedes the live catch-up. A late
+	 * acknowledgement for [token] no longer matches the head and is treated as stale.
+	 */
+	fun abandonInFlightHead(token: String): Boolean = synchronized(lock) {
+		val head = requests.firstOrNull() ?: return@synchronized false
+		if (
+			head.token.value != token ||
+			(dispatchedToken != head.token && acknowledgedToken != head.token)
+		) return@synchronized false
+		requests.removeAt(0)
+		dispatchedToken = null
+		acknowledgedToken = null
+		onOwnershipMutated()
+		true
+	}
+
 	fun commandToDispatch(): ReaderPageRelocationRequest? = synchronized(lock) {
 		val head = requests.firstOrNull() ?: return@synchronized null
 		if (dispatchedToken != null || acknowledgedToken != null) return@synchronized null

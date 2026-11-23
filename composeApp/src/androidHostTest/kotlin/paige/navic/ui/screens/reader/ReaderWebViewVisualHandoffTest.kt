@@ -1634,6 +1634,67 @@ class ReaderWebViewVisualHandoffTest {
 	}
 
 	@Test
+	fun newerTurnYieldsCatchUpBehindTheCurlButNeverAPresentingOne() {
+		val queue = ReaderPageRelocationQueue()
+		val request = enqueueVisualRequest(queue, gestureId = 1L)
+		val host = FakeVisualHandoffHost(attached = true)
+		val validations = mutableListOf<
+			(ReaderPageRelocationContentValidationResult) -> Unit
+		>()
+		val finalizations = mutableListOf<(Boolean) -> Unit>()
+		val completed = mutableListOf<ReaderPageRelocationRequest>()
+		val recoveries = mutableListOf<ReaderPageRelocationRequest>()
+		var state = visualStateFor(request)
+		val coordinator = ReaderPageRelocationVisualHandoffCoordinator(
+			queue = queue,
+			host = host,
+			currentState = { state },
+			dispatch = { error("No dispatch expected") },
+			publishRecovery = { recovering, _ -> recoveries += recovering },
+			finalizePresentation = { _, onFinalized -> finalizations += onFinalized },
+			validateContent = { _, onValidated ->
+				validations += onValidated
+				ReaderPageRelocationContentValidationHandle.Completed
+			},
+			onCompleted = completed::add
+		)
+
+		// Dispatched but not yet acknowledged: the WebView is still moving behind the curl.
+		assertEquals(request, queue.commandToDispatch())
+		assertTrue(coordinator.yieldToNewerTurn(request))
+		assertNull(queue.head())
+
+		// Acknowledged and validating behind the curl: yields silently, late callbacks are inert.
+		val validating = enqueueVisualRequest(queue, gestureId = 2L)
+		state = visualStateFor(validating)
+		acknowledgeForVisualHandoff(queue, validating)
+		assertTrue(coordinator.onAcknowledged(validating))
+		host.completeVisualState()
+		host.runNextFrame()
+		assertTrue(coordinator.yieldToNewerTurn(validating))
+		assertEquals(0, coordinator.pendingCallbackCount())
+		validations.single().invoke(ReaderPageRelocationContentValidationResult.Accepted)
+		assertNull(queue.head())
+		assertTrue(finalizations.isEmpty())
+		assertTrue(completed.isEmpty())
+		assertTrue(recoveries.isEmpty())
+
+		// Already presenting the WebView: the short fade keeps ownership and completes.
+		val presenting = enqueueVisualRequest(queue, gestureId = 3L)
+		state = visualStateFor(presenting)
+		acknowledgeForVisualHandoff(queue, presenting)
+		assertTrue(coordinator.onAcknowledged(presenting))
+		host.completeVisualState()
+		host.runNextFrame()
+		validations.last().invoke(ReaderPageRelocationContentValidationResult.Accepted)
+		assertEquals(1, finalizations.size)
+		assertFalse(coordinator.yieldToNewerTurn(presenting))
+		finalizations.single().invoke(true)
+		assertEquals(listOf(presenting), completed)
+		assertNull(queue.head())
+	}
+
+	@Test
 	fun terminalReadyWaitsForContentValidationAcceptance() {
 		val queue = ReaderPageRelocationQueue()
 		val request = enqueueVisualRequest(queue, gestureId = 1L)
