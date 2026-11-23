@@ -329,6 +329,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
 	coverBackdropEnabled: Boolean,
+	backCoverTint: String?,
 	viewerKey: ReaderViewerKey,
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
@@ -480,6 +481,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setViewerLayerPaint(grayscaleEnabled, invertedColors)
 					setVerticalPageDragPreview(verticalPageDragPreview)
 					setPageTurnBitmapQuality(pageTurnBitmapQuality)
+					setBackCoverTint(backCoverTint)
 					setBookPreparation(
 						if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
 					)
@@ -535,6 +537,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setViewerLayerPaint(grayscaleEnabled, invertedColors)
 				root.setVerticalPageDragPreview(verticalPageDragPreview)
 				root.setPageTurnBitmapQuality(pageTurnBitmapQuality)
+				root.setBackCoverTint(backCoverTint)
 				root.setBookPreparation(
 					if (bookPreparationActive) { progress -> currentOnBookPreparationProgress(progress) } else null
 				)
@@ -791,6 +794,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnBitmapQuality(value: String?) {
 		viewerContainer.setPageTurnBitmapQuality(value)
+	}
+
+	fun setBackCoverTint(value: String?) {
+		viewerContainer.setBackCoverTint(value)
 	}
 
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
@@ -1953,6 +1960,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			layoutRegeneration = regeneratingReadableLayout
 		)
 		requestPageTurnPrewarmWhenReady()
+	}
+
+	/** The book's cover tint, so the curl paints the back-cover strips while a page turns. */
+	fun setBackCoverTint(value: String?) {
+		playLikeCurlController.updateBackCoverTint(value)
 	}
 
 	fun setPageTurnBitmapQuality(value: String?) {

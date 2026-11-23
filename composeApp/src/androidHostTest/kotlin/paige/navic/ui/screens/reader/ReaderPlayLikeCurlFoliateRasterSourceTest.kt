@@ -8,10 +8,25 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ReaderPlayLikeCurlFoliateRasterSourceTest {
+	@Test
+	fun backCoverStripsUseTheCoverTintDuringACurl() {
+		val paper = 0xFFE8DCC4.toInt()
+		assertNull(readerPlayLikeCurlBackCoverColorArgb(null, paper))
+		assertNull(readerPlayLikeCurlBackCoverColorArgb("green", paper))
+		val cover = assertNotNull(readerPlayLikeCurlBackCoverColorArgb("#2E7D5B", paper))
+		val red = cover ushr 16 and 0xFF
+		val green = cover ushr 8 and 0xFF
+		val blue = cover and 0xFF
+		assertEquals(0xFF, cover ushr 24)
+		assertTrue(green > red && green > blue, "a green cover gives green strips, not paper")
+		assertNotEquals(paper, cover)
+	}
+
 	@Test
 	fun portraitUsesTheMatchingFullPageSnapshot() {
 		assertEquals(

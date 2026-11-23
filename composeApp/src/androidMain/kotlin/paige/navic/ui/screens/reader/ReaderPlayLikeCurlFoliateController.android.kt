@@ -1863,6 +1863,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 		hostLayoutMutationInFlight = inFlight
 	}
 
+	private var backCoverTint: String? = null
+
+	/** Applies to the decks built from now on; the tint is known before the first deck. */
+	fun updateBackCoverTint(value: String?) {
+		backCoverTint = value
+	}
+
 	fun updateBitmapQuality(value: String?) {
 		val normalized = normalizeReaderPageBitmapQuality(value)
 		if (bitmapQuality == normalized) return
@@ -5254,7 +5261,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			image.material.frontPaperColorArgb,
 			image.material.reversePaperColorArgb,
 			image.material.fixedBorderColorArgb,
-			image.material.uncoveredBackgroundColorArgb,
+			readerPlayLikeCurlBackCoverColorArgb(backCoverTint, image.paperColorArgb)
+				?: image.material.uncoveredBackgroundColorArgb,
 			image.leaf.pageLeafRole(),
 			displayRect,
 			image.layout.clippingRectInHost(),
@@ -5290,7 +5298,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.material.frontPaperColorArgb,
 			borrowed.material.reversePaperColorArgb,
 			borrowed.material.fixedBorderColorArgb,
-			borrowed.material.uncoveredBackgroundColorArgb,
+			readerPlayLikeCurlBackCoverColorArgb(backCoverTint, borrowed.paperColorArgb)
+				?: borrowed.material.uncoveredBackgroundColorArgb,
 			foliateLeaf.pageLeafRole(),
 			displayRect,
 			borrowed.layout.clippingRectInHost(),
@@ -5343,7 +5352,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			borrowed.material.frontPaperColorArgb,
 			borrowed.material.reversePaperColorArgb,
 			borrowed.material.fixedBorderColorArgb,
-			borrowed.material.uncoveredBackgroundColorArgb,
+			readerPlayLikeCurlBackCoverColorArgb(backCoverTint, borrowed.paperColorArgb)
+				?: borrowed.material.uncoveredBackgroundColorArgb,
 			foliateLeaf.pageLeafRole(),
 			displayRect,
 			borrowed.layout.clippingRectInHost(),

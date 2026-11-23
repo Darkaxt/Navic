@@ -323,6 +323,8 @@ class PreferenceManager(
 	var readerParagraphSpacingPercent by preference(100)
 	var readerParagraphSpacingDefaultMigrated by preference(false)
 	var readerParagraphSpacingReadableDefaultMigrated by preference(false)
+	/** Page rasters default to full resolution since the paper/text split made them light. */
+	var readerPageBitmapQualityNativeDefaultMigrated by preference(false)
 	var readerMarginPercent by preference(0)
 	var readerFontWeight by preference(400f)
 	var readerLetterSpacing by preference(0f)
@@ -350,7 +352,7 @@ class PreferenceManager(
 	var readerNavBarType by preference("vertical-right")
 	var readerFlowMode by preference("paged")
 	var readerDragAnimationMode by preference("none")
-	var readerPageBitmapQuality by preference("50")
+	var readerPageBitmapQuality by preference("100")
 	var readerPageCacheScope by preference("per-chapter")
 	var readerPageCacheLayouts by preference("current")
 	var readerPaged by preference(true)

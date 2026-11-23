@@ -65,7 +65,7 @@ class ReaderSettingsDefaultsTest {
 				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
 				dragAnimationMode = ReaderDragAnimationNone,
-				pageBitmapQuality = ReaderPageBitmapQuality.Balanced.persistedValue,
+				pageBitmapQuality = ReaderPageBitmapQuality.Native.persistedValue,
 				pageCacheScope = ReaderPageCacheScope.PerChapter.persistedValue,
 				pageCacheLayouts = ReaderPageCacheLayouts.Current.persistedValue,
 				paged = false,

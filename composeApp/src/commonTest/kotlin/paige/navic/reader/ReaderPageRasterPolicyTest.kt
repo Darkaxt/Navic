@@ -24,9 +24,9 @@ class ReaderPageRasterPolicyTest {
 	}
 
 	@Test
-	fun bitmapQualityDefaultsToHalfResolution() {
-		assertEquals(ReaderPageBitmapQuality.Balanced, normalizeReaderPageBitmapQuality(null))
-		assertEquals(0.5f, ReaderPageBitmapQuality.Balanced.scale)
+	fun bitmapQualityDefaultsToFullResolution() {
+		assertEquals(ReaderPageBitmapQuality.Native, normalizeReaderPageBitmapQuality(null))
+		assertEquals(1f, ReaderPageBitmapQuality.Native.scale)
 	}
 
 	@Test
@@ -43,7 +43,7 @@ class ReaderPageRasterPolicyTest {
 		assertEquals(ReaderPageBitmapQuality.Balanced, normalizeReaderPageBitmapQuality("50"))
 		assertEquals(ReaderPageBitmapQuality.High, normalizeReaderPageBitmapQuality("75"))
 		assertEquals(ReaderPageBitmapQuality.Native, normalizeReaderPageBitmapQuality("100"))
-		assertEquals(ReaderPageBitmapQuality.Balanced, normalizeReaderPageBitmapQuality("invalid"))
+		assertEquals(ReaderPageBitmapQuality.Native, normalizeReaderPageBitmapQuality("invalid"))
 	}
 
 	@Test

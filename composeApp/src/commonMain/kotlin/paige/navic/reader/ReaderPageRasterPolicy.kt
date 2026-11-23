@@ -59,7 +59,7 @@ val ReaderPageRasterPriority.adjacentChapterDirection: ReaderPageAdjacentChapter
 fun normalizeReaderPageBitmapQuality(value: String?): ReaderPageBitmapQuality =
 	ReaderPageBitmapQuality.entries.firstOrNull { quality ->
 		quality.persistedValue == value?.trim()
-	} ?: ReaderPageBitmapQuality.Balanced
+	} ?: ReaderPageBitmapQuality.Native
 
 /** How far ahead page rasters are prepared in the background while a book is open (#57). */
 enum class ReaderPageCacheScope(val persistedValue: String) {

@@ -48,6 +48,8 @@ interface ReaderViewer {
 	val engineRenderer: ReaderEngineRenderer
 	val shellCoverUrl: String?
 	val shellCoverTitle: String?
+	/** The cover tint the back-cover strips are painted with; null without one. */
+	val backCoverTint: String? get() = null
 	fun withViewState(viewState: ReaderEngineViewState): ReaderViewer
 	fun viewerActionFor(region: KomikkuNavigationRegion): ReaderViewerAction
 	fun moveToPage(locator: ReaderLocator): ReaderViewerAction =
@@ -112,6 +114,7 @@ sealed class WebViewPublicationReaderViewer(
 	)
 	override val engineRenderer: ReaderEngineRenderer = ReaderEngineRenderer.FoliatePublication.from(viewState)
 	override val shellCoverUrl: String? = viewState.nativeShellCoverUrl
+	override val backCoverTint: String? = viewState.nativeShellCoverTint
 	override val shellCoverTitle: String? = viewState.title.takeIf { it.isNotBlank() }
 
 	override fun withViewState(viewState: ReaderEngineViewState): ReaderViewer =

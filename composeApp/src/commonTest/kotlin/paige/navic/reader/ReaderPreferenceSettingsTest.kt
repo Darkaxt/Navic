@@ -380,11 +380,30 @@ class ReaderPreferenceSettingsTest {
 	}
 
 	@Test
+	fun theOldHalfResolutionDefaultMovesToFullResolutionOnce() {
+		val preferences = PreferenceManager(MapSettings())
+		preferences.readerPageBitmapQuality = ReaderPageBitmapQuality.Balanced.persistedValue
+
+		assertEquals(
+			ReaderPageBitmapQuality.Native.persistedValue,
+			preferences.readerDefaultSettings().pageBitmapQuality
+		)
+		assertEquals(true, preferences.readerPageBitmapQualityNativeDefaultMigrated)
+
+		// Choosing 50% again afterwards is respected.
+		preferences.readerPageBitmapQuality = ReaderPageBitmapQuality.Balanced.persistedValue
+		assertEquals(
+			ReaderPageBitmapQuality.Balanced.persistedValue,
+			preferences.readerDefaultSettings().pageBitmapQuality
+		)
+	}
+
+	@Test
 	fun readerDefaultSettingsRoundTripPageBitmapQuality() {
 		val preferences = PreferenceManager(MapSettings())
 
 		assertEquals(
-			ReaderPageBitmapQuality.Balanced.persistedValue,
+			ReaderPageBitmapQuality.Native.persistedValue,
 			preferences.readerDefaultSettings().pageBitmapQuality
 		)
 
@@ -396,10 +415,10 @@ class ReaderPreferenceSettingsTest {
 
 		preferences.readerPageBitmapQuality = "invalid"
 		assertEquals(
-			ReaderPageBitmapQuality.Balanced.persistedValue,
+			ReaderPageBitmapQuality.Native.persistedValue,
 			preferences.readerDefaultSettings().pageBitmapQuality
 		)
-		assertEquals(ReaderPageBitmapQuality.Balanced.persistedValue, preferences.readerPageBitmapQuality)
+		assertEquals(ReaderPageBitmapQuality.Native.persistedValue, preferences.readerPageBitmapQuality)
 
 		preferences.setReaderDefaultSettings(
 			ReaderSettings(pageBitmapQuality = ReaderPageBitmapQuality.Native.persistedValue)
@@ -627,6 +646,7 @@ class ReaderPreferenceSettingsTest {
 	fun readerBookSettingsOverrideIsScopedToTheRequestedBook() {
 		val preferences = PreferenceManager(MapSettings())
 		preferences.readerTheme = ReaderDarkTheme
+		preferences.readerPageBitmapQualityNativeDefaultMigrated = true
 		preferences.readerPageBitmapQuality = ReaderPageBitmapQuality.Balanced.persistedValue
 
 		preferences.setReaderBookSettings(

@@ -37,6 +37,14 @@ fun PreferenceManager.readerDefaultSettings(): ReaderSettings {
 	if (readerDragAnimationMode != dragAnimationMode) {
 		readerDragAnimationMode = dragAnimationMode
 	}
+	// The old 50% default blurred text during the curl; the paper/text split made full
+	// resolution pages light enough, so the old default moves to 100% once.
+	if (!readerPageBitmapQualityNativeDefaultMigrated) {
+		if (readerPageBitmapQuality == ReaderPageBitmapQuality.Balanced.persistedValue) {
+			readerPageBitmapQuality = ReaderPageBitmapQuality.Native.persistedValue
+		}
+		readerPageBitmapQualityNativeDefaultMigrated = true
+	}
 	val pageBitmapQuality = normalizeReaderPageBitmapQuality(readerPageBitmapQuality).persistedValue
 	if (readerPageBitmapQuality != pageBitmapQuality) {
 		readerPageBitmapQuality = pageBitmapQuality

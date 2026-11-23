@@ -677,3 +677,58 @@ internal class ReaderPlayLikeCurlFoliateRasterLoader(
 			}
 		}
 }
+
+/**
+ * The back-cover colour the WebView paints in the strips beside the pages
+ * (`readerReadableCoverTintChannels` plus its ~90% cover alpha over the paper), so the curl's
+ * uncovered background matches them instead of showing paper during a turn. Null without a tint.
+ */
+internal fun readerPlayLikeCurlBackCoverColorArgb(tint: String?, paperColorArgb: Int): Int? {
+	val hex = tint?.trim()?.takeIf { value -> ReaderPlayLikeCurlCoverTintPattern.matches(value) }
+		?: return null
+	val rgb = hex.substring(1).toInt(16)
+	val red = (rgb ushr 16 and 0xFF) / 255.0
+	val green = (rgb ushr 8 and 0xFF) / 255.0
+	val blue = (rgb and 0xFF) / 255.0
+	val maximum = maxOf(red, green, blue)
+	val minimum = minOf(red, green, blue)
+	val delta = maximum - minimum
+	val hue = when {
+		delta <= 0.0 -> 0.0
+		maximum == red -> ((green - blue) / delta + (if (green < blue) 6.0 else 0.0)) / 6.0
+		maximum == green -> ((blue - red) / delta + 2.0) / 6.0
+		else -> ((red - green) / delta + 4.0) / 6.0
+	}
+	val sourceLightness = (maximum + minimum) / 2.0
+	val sourceSaturation =
+		if (delta <= 0.0) 0.0 else delta / (1.0 - kotlin.math.abs(2.0 * sourceLightness - 1.0))
+	val lightness = sourceLightness.coerceIn(0.22, 0.46)
+	val saturation = sourceSaturation.coerceIn(0.38, 0.72)
+	val q = if (lightness < 0.5) {
+		lightness * (1 + saturation)
+	} else {
+		lightness + saturation - lightness * saturation
+	}
+	val p = 2 * lightness - q
+	fun hueChannel(value: Double): Double {
+		var t = value
+		if (t < 0) t += 1
+		if (t > 1) t -= 1
+		return when {
+			t < 1.0 / 6 -> p + (q - p) * 6 * t
+			t < 1.0 / 2 -> q
+			t < 2.0 / 3 -> p + (q - p) * (2.0 / 3 - t) * 6
+			else -> p
+		}
+	}
+	fun channel(cover: Double, shift: Int): Int {
+		val paper = paperColorArgb ushr shift and 0xFF
+		return kotlin.math.round(cover * 255 * 0.9 + paper * 0.1).toInt().coerceIn(0, 255)
+	}
+	return 0xFF000000.toInt() or
+		(channel(hueChannel(hue + 1.0 / 3), 16) shl 16) or
+		(channel(hueChannel(hue), 8) shl 8) or
+		channel(hueChannel(hue - 1.0 / 3), 0)
+}
+
+private val ReaderPlayLikeCurlCoverTintPattern = Regex("^#[0-9a-fA-F]{6}$")

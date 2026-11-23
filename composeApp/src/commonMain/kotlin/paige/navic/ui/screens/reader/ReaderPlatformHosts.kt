@@ -36,6 +36,7 @@ expect fun KomikkuReaderNativeFrameHost(
 	shellCoverUrl: String?,
 	shellCoverTitle: String,
 	coverBackdropEnabled: Boolean,
+	backCoverTint: String?,
 	viewerKey: ReaderViewerKey,
 	grayscaleEnabled: Boolean,
 	invertedColors: Boolean,
