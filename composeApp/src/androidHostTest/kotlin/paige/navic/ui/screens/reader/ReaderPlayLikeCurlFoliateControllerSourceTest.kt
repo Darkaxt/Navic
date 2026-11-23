@@ -2041,11 +2041,24 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("activeGestureId = gestureId")
 		assertContains(source, "private fun isTurnStillSettling(): Boolean =\n\t\trelocationQueue.hasInFlightHead() ||")
 		assertContains(deferral, "canDeferSwipe()")
+		// A settling deck still lets a swipe wait behind the page that is landing.
+		assertContains(
+			source,
+			"readinessState.textureDeck == ReaderTextureDeckState.Settling &&\n\t\t\t\t\t\t\thasPreparedActiveDeckOwnership()"
+		)
 		assertContains(deferral, "queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit")
 		// Later swipes queue behind earlier ones instead of superseding them.
 		assertContains(deferral, "isTurnStillSettling() || queuedDeferredSwipes.isNotEmpty()")
 		// The post-commit working-set refill is part of the turn a swipe waits behind.
 		assertContains(source, "readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet")
+		// A swipe during the curl's settle animation queues instead of being rejected as settling.
+		assertContains(source, "readinessState.interaction == ReaderPageInteractionState.Settling ||")
+		// The host admits a touch during the settle only when it can join this queue.
+		assertContains(source, "fun canQueueSwipeDuringSettlement(): Boolean =")
+		assertContains(
+			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText(),
+			"playLikeCurlController.canQueueSwipeDuringSettlement()"
+		)
 		assertContains(deferral, "trackingDeferredSwipe = DeferredSwipe(gestureId, event.x)")
 		assertContains(touch, "return onDeferredSwipeEvent(deferred, event)")
 		val events = requiredFoliateSourceSlice(
@@ -3276,11 +3289,12 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		}
 		assertContains(idle, "dispatchNextRelocation()")
 		assertContains(idle, "if (!hostResumed) return")
-		assertContains(
-			source.substringAfter("fun onHostResumedChanged(resumed: Boolean)")
-				.substringBefore("fun onHostWindowHidden()"),
-			"restartBrowseIdleRelocationDispatch()"
-		)
+		val resumedChanged = source.substringAfter("fun onHostResumedChanged(resumed: Boolean)")
+			.substringBefore("fun onHostWindowHidden()")
+		assertContains(resumedChanged, "restartBrowseIdleRelocationDispatch()")
+		// Pausing flushes the pending catch-up so the saved position follows the last turn.
+		assertContains(resumedChanged, "dispatchQueuedRelocationNow(trigger = \"paused\")")
+		assertContains(idle, "dispatchQueuedRelocationNow(trigger = \"browse-idle\")")
 		// The initial live page after a hide lands on the settled page: it is current, not stale.
 		assertContains(
 			source.substringAfter("fun acknowledgesSettledPage(pageIndex: Int?): Boolean =")

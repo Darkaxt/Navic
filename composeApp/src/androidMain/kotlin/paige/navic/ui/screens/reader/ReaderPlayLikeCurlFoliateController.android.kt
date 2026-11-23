@@ -1659,15 +1659,34 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	// A swipe can wait for the turn in front of it (its settling relocation and the working-set
 	// refill that follows) but never for a failed, detached or recovering presentation.
+	// While the previous page is still landing its deck is Settling rather than Ready; the deck
+	// this reader owns is still usable, so a swipe can wait for it.
 	private fun canDeferSwipe(): Boolean =
 		readerPageLivePresentationAvailable(
 			hasFailedLivePresentation = failedLivePresentationGeneration != null,
-			otherwiseAvailable = enabled && attached && deckRecoveryCoordinator.canAcceptPointer
+			otherwiseAvailable = enabled && attached && (
+				deckRecoveryCoordinator.canAcceptPointer ||
+					(
+						readinessState.textureDeck == ReaderTextureDeckState.Settling &&
+							hasPreparedActiveDeckOwnership()
+						)
+				)
 		)
 
+	// The curl's own settle animation counts too: a swipe made while the previous page is still
+	// landing queues behind it instead of being rejected by the renderer.
 	private fun isTurnStillSettling(): Boolean =
 		relocationQueue.hasInFlightHead() ||
+			readinessState.interaction == ReaderPageInteractionState.Settling ||
+			readinessState.textureDeck == ReaderTextureDeckState.Settling ||
 			readinessState.interaction == ReaderPageInteractionState.RefillingWorkingSet
+
+	/** The host asks this before admitting a touch while the previous page is still landing. */
+	fun canQueueSwipeDuringSettlement(): Boolean =
+		!destroyed &&
+			isTurnStillSettling() &&
+			queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit &&
+			canDeferSwipe()
 
 	private fun onDeferredSwipeEvent(
 		deferred: DeferredSwipe,
@@ -2133,6 +2152,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun onHostResumedChanged(resumed: Boolean) {
 		if (hostResumed == resumed) return
 		hostResumed = resumed
+		// Leaving the reader must not strand the saved position behind the last turned page:
+		// the live page (and so the reading progress) catches up before the reader is hidden.
+		if (!resumed && browseIdleRelocationPending && enabled && !destroyed) {
+			mainHandler.removeCallbacks(browseIdleRelocationDispatch)
+			dispatchQueuedRelocationNow(trigger = "paused")
+		}
 		if (resumed && enabled && !destroyed) {
 			retryPassiveManifestAuthorityRecovery()
 			retryRelocationVisualHandoffResumed()
@@ -6132,9 +6157,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 			restartBrowseIdleRelocationDispatch()
 			return
 		}
+		dispatchQueuedRelocationNow(trigger = "browse-idle")
+	}
+
+	private fun dispatchQueuedRelocationNow(trigger: String) {
+		browseIdleRelocationPending = false
+		if (destroyed || relocationQueue.hasInFlightHead()) return
+		val head = relocationQueue.head() ?: return
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
-			"PlayLikeCurl browse-idle relocation dispatched target=${head.destinationOrdinal}"
+			"PlayLikeCurl $trigger relocation dispatched target=${head.destinationOrdinal}"
 		)
 		try {
 			dispatchNextRelocation()

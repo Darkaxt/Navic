@@ -113,7 +113,9 @@ internal class ReaderPageInputSettlementHostController(
 	private val publishLifecycleCancellation: (
 		gestureId: Long,
 		reason: ReaderPageLifecycleCancellationReason
-	) -> Unit = { _, _ -> }
+	) -> Unit = { _, _ -> },
+	/** A page still landing may take a new swipe when the curl can queue it behind that turn. */
+	private val admitPointerDuringSettlement: () -> Boolean = { false }
 ) {
 	private var operationPolicy = initialPolicy
 	private var physicalStreamGestureId: Long? = null
@@ -184,8 +186,20 @@ internal class ReaderPageInputSettlementHostController(
 		}
 	}
 
-	private fun beginPointer(x: Float, y: Float): ReaderPagePointerBeginResult =
-		pointerRouter.begin(x, y, operationPolicy.newPointer)
+	private fun beginPointer(x: Float, y: Float): ReaderPagePointerBeginResult {
+		val decision = operationPolicy.newPointer
+		val admission = if (
+			decision == ReaderPageNewPointerDecision.Reject(
+				ReaderPageGestureTerminalOutcome.RejectedSettling
+			) &&
+			admitPointerDuringSettlement()
+		) {
+			ReaderPageNewPointerDecision.Accept
+		} else {
+			decision
+		}
+		return pointerRouter.begin(x, y, admission)
+	}
 
 	private fun movePointer(x: Float, y: Float, touchSlop: Float): ReaderPagePointerRoute =
 		pointerRouter.move(x, y, touchSlop)

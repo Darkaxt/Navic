@@ -1390,6 +1390,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 					reason
 				)
 			)
+		},
+		admitPointerDuringSettlement = {
+			playLikeCurlController.canQueueSwipeDuringSettlement()
 		}
 	)
 	private val playLikeCurlController: ReaderPlayLikeCurlFoliateController =

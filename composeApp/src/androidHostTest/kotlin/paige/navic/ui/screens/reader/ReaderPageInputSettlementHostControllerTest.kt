@@ -79,7 +79,8 @@ class ReaderPageInputSettlementHostControllerTest {
 		publishLifecycleCancellation: (
 			Long,
 			ReaderPageLifecycleCancellationReason
-		) -> Unit = { _, _ -> }
+		) -> Unit = { _, _ -> },
+		admitPointerDuringSettlement: () -> Boolean = { false }
 	): Triple<ReaderPageInputSettlementHostController, ReaderPagePointerRouter, FakeReaderPageHostCancellationPort> {
 		val router = ReaderPagePointerRouter(lifecycle) { gestureId, outcome ->
 			published?.add(gestureId to outcome)
@@ -89,7 +90,8 @@ class ReaderPageInputSettlementHostControllerTest {
 				initialPolicy = readerPageOperationPolicy(readiness),
 				pointerRouter = router,
 				cancellationPort = cancellationPort,
-				publishLifecycleCancellation = publishLifecycleCancellation
+				publishLifecycleCancellation = publishLifecycleCancellation,
+				admitPointerDuringSettlement = admitPointerDuringSettlement
 			),
 			router,
 			cancellationPort
@@ -265,6 +267,39 @@ class ReaderPageInputSettlementHostControllerTest {
 		)
 		assertTrue(requireNotNull(second.gestureId) > firstId)
 		assertEquals(ReaderPagePointerRoute.Content, second.route)
+	}
+
+	@Test
+	fun settlingAdmitsANewPointerOnlyWhenTheCurlCanQueueIt() {
+		var curlCanQueue = true
+		val published = mutableListOf<Pair<Long, ReaderPageGestureTerminalOutcome>>()
+		val (host, _, _) = host(
+			published = published,
+			readiness = settling,
+			admitPointerDuringSettlement = { curlCanQueue }
+		)
+		val admitted = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 20f, 20L))
+		assertEquals(ReaderPagePointerRoute.Content, admitted.route)
+		host.dispatchPointer(ReaderPageHostPointerEvent.Cancel)
+		assertTrue(published.none { it.second == ReaderPageGestureTerminalOutcome.RejectedSettling })
+
+		curlCanQueue = false
+		val rejected = host.dispatchPointer(ReaderPageHostPointerEvent.Down(30f, 20f, 30L))
+		val rejectedId = requireNotNull(rejected.gestureId)
+		assertEquals(
+			ReaderPagePointerRoute.Terminal(rejectedId, ReaderPageGestureTerminalOutcome.RejectedSettling),
+			rejected.route
+		)
+	}
+
+	@Test
+	fun preparingIsNeverAdmittedByTheSettlementHook() {
+		val (host, _, _) = host(
+			readiness = ReaderPageReadinessState(),
+			admitPointerDuringSettlement = { true }
+		)
+		val down = host.dispatchPointer(ReaderPageHostPointerEvent.Down(20f, 20f, 20L))
+		assertTrue(down.route is ReaderPagePointerRoute.Terminal)
 	}
 
 	@Test
