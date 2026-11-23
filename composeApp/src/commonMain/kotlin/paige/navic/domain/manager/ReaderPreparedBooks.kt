@@ -8,6 +8,7 @@ import paige.navic.reader.ReaderOrientationReversePortrait
 import paige.navic.reader.ReaderPageCacheLayouts
 import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.reader.ReaderSettings
+import paige.navic.reader.normalizeReaderPageBitmapQuality
 import paige.navic.reader.normalizeReaderPageCacheLayouts
 import paige.navic.reader.readerSettingsForBook
 
@@ -26,7 +27,9 @@ fun readerPreparationSignature(settings: ReaderSettings): String =
 		settings.marginPercent, settings.fontWeight, settings.letterSpacing, settings.wordSpacing,
 		settings.sideMargin, settings.topMargin, settings.bottomMargin, settings.indent,
 		settings.headingFontSize, settings.maxColumnCount, settings.columnThreshold,
-		settings.flowMode, settings.direction
+		settings.flowMode, settings.direction,
+		// Pages prepared at another bitmap quality are re-rendered, so they are not prepared.
+		normalizeReaderPageBitmapQuality(settings.pageBitmapQuality).persistedValue
 	).joinToString(separator = ",").hashCode().toUInt().toString(16)
 
 /**

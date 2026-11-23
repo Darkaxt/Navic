@@ -1488,6 +1488,7 @@ internal class ReaderPageRasterPreparationController(
 			)
 			onPreparedWindowCurrent()
 			bundleSource.retireRasterChaptersBehindCurrent()
+			adjacentChapterPrefetchCoordinator.onViewSettled()
 			return true
 		}
 		val passiveRasterPreparationPort = passiveRasterPreparationPortProvider()
@@ -2454,7 +2455,8 @@ internal class ReaderPageRasterPreparationController(
 				detail = "session=${submission.sessionId} reason=reference-unavailable " +
 					"chapter=${submission.chapter.identity.chapterIndex} generation=${prefetch.generation}"
 			)
-			adjacentChapterPrefetchCoordinator.onBatchFinished(submission, haltRun = true)
+			// The deck's reference page is not retained while a page turn settles (#71 tablet).
+			adjacentChapterPrefetchCoordinator.onBatchDeferred(submission)
 			return
 		}
 		backgroundBatchSubmission = submission
@@ -2505,7 +2507,10 @@ internal class ReaderPageRasterPreparationController(
 			onComplete = backgroundComplete@ { outcome ->
 				if (backgroundBatchSubmission != submission) return@backgroundComplete
 				backgroundBatchSubmission = null
-				val batchAccepted =
+				val batchAccepted = if (outcome is ReaderPageRasterBatchOutcome.Deferred) {
+					// A page turn relocating the live view defers every chapter alike (#71 tablet).
+					adjacentChapterPrefetchCoordinator.onBatchDeferred(submission)
+				} else {
 					adjacentChapterPrefetchCoordinator.onBatchFinished(
 						submission,
 						// A full or failing page cache stops the whole run; a render failure (a
@@ -2514,6 +2519,7 @@ internal class ReaderPageRasterPreparationController(
 							(outcome is ReaderPageRasterBatchOutcome.Failed &&
 								outcome.stage == "persistent-publication")
 					)
+				}
 				if (!batchAccepted) return@backgroundComplete
 				emitPrefetchDiagnostic(
 					submission,

@@ -89,6 +89,8 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	private val durablePageIndices = linkedSetOf<Int>()
 	private val attemptedChapterIdentities = linkedSetOf<ReaderPageAdjacentChapterIdentity>()
 	private var drainedReported = false
+	private var awaitingSettledView = false
+	private val transientDeferrals = mutableMapOf<ReaderPageAdjacentChapterIdentity, Int>()
 	private var nextSessionId = 0L
 	private var suspended = false
 	private var hostAvailable = true
@@ -132,6 +134,8 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		if (!retainDurablePagesAcrossPlans || durableEpochs != epochs) durablePageIndices.clear()
 		durableEpochs = epochs
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
+		transientDeferrals.clear()
 		suspended = false
 		trySubmit()
 	}
@@ -145,6 +149,8 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 			durableEpochs = null
 		}
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
+		transientDeferrals.clear()
 		suspended = false
 	}
 
@@ -156,6 +162,8 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		durablePageIndices.clear()
 		durableEpochs = null
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
+		transientDeferrals.clear()
 		suspended = false
 	}
 
@@ -163,6 +171,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		if (hostAvailable == available) return
 		hostAvailable = available
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
 		if (available) {
 			trySubmit()
 		} else {
@@ -175,6 +184,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		if (interactionActive == active) return
 		interactionActive = active
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
 		if (active) {
 			cancelActive()
 			onDisturbed()
@@ -185,6 +195,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 
 	fun onPassiveAvailable() {
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
 		trySubmit()
 	}
 
@@ -198,6 +209,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 	fun resumeAfterForegroundWork() {
 		suspended = false
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
 		trySubmit()
 	}
 
@@ -205,6 +217,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		if (preparedActiveDeck == deck) return
 		preparedActiveDeck = deck
 		attemptedChapterIdentities.clear()
+		awaitingSettledView = false
 		cancelActive()
 		onDisturbed()
 		trySubmit()
@@ -238,6 +251,35 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		return true
 	}
 
+	/**
+	 * The batch could not start because a page turn was relocating the live view (#71 tablet):
+	 * every chapter would defer the same way, so the run waits for the next settled view and
+	 * retries this chapter instead of setting it (and the rest of the book) aside. After
+	 * [MaxTransientDeferrals] deferrals the chapter is set aside like a failed one, so the run
+	 * always ends.
+	 */
+	fun onBatchDeferred(submission: ReaderPageAdjacentChapterPrefetchSubmission): Boolean {
+		if (activeSubmission != submission) return false
+		activeSubmission = null
+		val identity = submission.chapter.identity
+		val deferrals = (transientDeferrals[identity] ?: 0) + 1
+		transientDeferrals[identity] = deferrals
+		if (deferrals >= MaxTransientDeferrals) {
+			attemptedChapterIdentities += identity
+			trySubmit()
+		} else {
+			awaitingSettledView = true
+		}
+		return true
+	}
+
+	/** The live view settled after a page turn: a deferred run resumes. */
+	fun onViewSettled() {
+		if (!awaitingSettledView) return
+		awaitingSettledView = false
+		trySubmit()
+	}
+
 	fun isActive(submission: ReaderPageAdjacentChapterPrefetchSubmission): Boolean =
 		activeSubmission == submission && isEligible(submission)
 
@@ -266,6 +308,7 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		val deck = preparedActiveDeck ?: return
 		if (
 			suspended ||
+			awaitingSettledView ||
 			!hostAvailable ||
 			interactionActive ||
 			!planServesDeck(currentPlan.key, deck) ||
@@ -368,3 +411,5 @@ internal class ReaderPageAdjacentChapterPrefetchCoordinator(
 		})
 	}
 }
+
+private const val MaxTransientDeferrals = 3

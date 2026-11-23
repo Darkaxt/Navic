@@ -310,6 +310,38 @@ class ReaderPageAdjacentChapterPrefetchTest {
 	}
 
 	@Test
+	fun aDeferredChapterWaitsForTheSettledViewInsteadOfDrainingTheRun() {
+		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
+		var drained = 0
+		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(
+			onSubmit = submissions::add,
+			onCancel = {},
+			onDrained = { drained++ }
+		)
+		coordinator.retainDurablePagesAcrossPlans = true
+		coordinator.replaceDurablePlan(adjacentPlan())
+		coordinator.onPreparedActiveDeckChanged(preparedDeck())
+		// A page turn relocates the live view: the batch defers and nothing else is tried.
+		val deferred = submissions.last()
+		val submitted = submissions.size
+		assertTrue(coordinator.onBatchDeferred(deferred))
+		assertEquals(submitted, submissions.size, "the rest of the book is not burnt through")
+		assertEquals(0, drained)
+		coordinator.onViewSettled()
+		assertEquals(deferred.chapter.identity, submissions.last().chapter.identity, "same chapter again")
+		// A chapter that keeps deferring is eventually set aside, so the run always ends.
+		assertTrue(coordinator.onBatchDeferred(submissions.last()))
+		coordinator.onViewSettled()
+		assertTrue(coordinator.onBatchDeferred(submissions.last()))
+		val next = submissions.last()
+		assertTrue(next.chapter.identity != deferred.chapter.identity, "third deferral sets it aside")
+		next.targets.forEach { target -> coordinator.onTargetDurable(next, target.pageIndex) }
+		assertTrue(coordinator.onBatchFinished(next))
+		assertEquals(1, drained)
+		assertEquals(false, coordinator.planProgress()?.complete)
+	}
+
+	@Test
 	fun adjacentPrefetchStillWaitsForAPlanOfTheChapterBeingRead() {
 		val submissions = mutableListOf<ReaderPageAdjacentChapterPrefetchSubmission>()
 		val coordinator = ReaderPageAdjacentChapterPrefetchCoordinator(

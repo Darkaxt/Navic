@@ -55,6 +55,8 @@ class ReaderPreparedBooksTest {
 		assertTrue(preferences.isReaderBookPrepared("book-1", settings.copy(fullscreen = false), landscape))
 		val bigger = settings.copy(fontSizePercent = 120)
 		assertFalse(preferences.isReaderBookPrepared("book-1", bigger, landscape))
+		// Pages prepared at another bitmap quality are re-rendered (v1.6.4 tablet: stale check mark).
+		assertFalse(preferences.isReaderBookPrepared("book-1", settings.copy(pageBitmapQuality = "50"), landscape))
 
 		// Preparing under new settings drops the stale entries.
 		preferences.markReaderBookPrepared("book-1", bigger, landscape)
