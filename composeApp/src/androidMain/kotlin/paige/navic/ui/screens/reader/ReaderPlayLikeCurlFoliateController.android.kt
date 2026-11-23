@@ -71,6 +71,7 @@ import paige.navic.util.core.Logger
 private const val ReaderPlayLikeCurlFoliateControllerTag = "ReaderPlayLikeCurlFoliate"
 private const val ReaderPageLiveHandoffCrossfadeMillis = 200L
 private const val ReaderPageRelocationVisualHandoffTimeoutMillis = 5_000L
+private const val ReaderPageRelocationBrowseIdleMillis = 1_200L
 private const val PassiveManifestAuthorityRecoveryTimeoutMillis = 10_000L
 private const val MAX_RASTER_ADAPTER_OWNERS = 2
 
@@ -131,14 +132,15 @@ internal fun readerPlayLikeCurlTurnAdmissionAvailable(
  * handoff is fenced on; replacing it mid-handoff invalidated the turn and reset the reader to the
  * preparation cover mid-chapter. While the head is bound to the current prepared active deck it
  * can complete on it, so recovery waits for the handoff to drain. A head bound to a lost or
- * unprepared deck still needs the replacement to rebind, so it never defers.
+ * unprepared deck still needs the replacement to rebind, so it never defers. A head still waiting
+ * for browsing to stop is bound the same way, so it defers too.
  */
 internal fun readerRecoveredDeckDefersForInFlightRelocation(
 	relocationQueue: ReaderPageRelocationQueue,
 	activeDeckGenerationId: Long?,
 	hasPreparedActiveDeck: Boolean
 ): Boolean = hasPreparedActiveDeck &&
-	relocationQueue.hasInFlightHead() &&
+	relocationQueue.head() != null &&
 	relocationQueue.head()?.textureGeneration == activeDeckGenerationId
 
 /**
@@ -865,6 +867,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			ReaderPlayLikeCurlRasterAdapter<ReaderPlayLikeCurlRasterImage>
 		>(ownerLimit = MAX_RASTER_ADAPTER_OWNERS)
 	private val mainHandler = Handler(Looper.getMainLooper())
+	private val browseIdleRelocationDispatch = Runnable { dispatchRelocationOnceBrowsingIdles() }
+	// While set, host readiness kicks leave the queued relocation to the browse-idle timer.
+	private var browseIdleRelocationPending = false
 	private val relocationDispatchTimeout = ReaderPageRelocationDispatchTimeout(
 		scheduler = object : ReaderPageRelocationDispatchTimeoutScheduler {
 			override fun postDelayed(action: Runnable, delayMillis: Long): Boolean =
@@ -2057,7 +2062,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (enabled) {
 			onRequestPrewarm()
 			refreshPreparedDeck()
-			dispatchNextRelocation()
+			dispatchNextRelocationUnlessBrowsing()
 			retryRelocationVisualHandoffAttached()
 		}
 	}
@@ -2077,7 +2082,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestInitialLivePresentationAuthorityForPassivePreparation()
 		retryPassiveManifestAuthorityRecovery()
 		refreshPreparedDeck()
-		dispatchNextRelocation()
+		dispatchNextRelocationUnlessBrowsing()
 		retryRelocationVisualHandoffAttached()
 	}
 
@@ -2104,7 +2109,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 		if (!enabled || destroyed) return
 		retryPassiveManifestAuthorityRecovery()
-		dispatchNextRelocation()
+		dispatchNextRelocationUnlessBrowsing()
 		retryRelocationVisualHandoffAttached()
 	}
 
@@ -2131,6 +2136,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (resumed && enabled && !destroyed) {
 			retryPassiveManifestAuthorityRecovery()
 			retryRelocationVisualHandoffResumed()
+			if (relocationQueue.head() != null && !relocationQueue.hasInFlightHead()) {
+				restartBrowseIdleRelocationDispatch()
+			}
 		}
 	}
 
@@ -2159,6 +2167,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 
 		releaseInitialLivePresentationAuthority()
+		restartBrowseIdleRelocationDispatch()
 		trackingDeferredSwipe?.takeIf { it.gestureId != gestureId }?.let(::rejectDeferredSwipe)
 		val metadata = relocationMetadata(gestureId)
 		// Swipes made while a turn is still settling keep their order behind it.
@@ -2330,6 +2339,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		gestureId: Long
 	): ReaderPageTurnStartResult {
 		releaseInitialLivePresentationAuthority()
+		restartBrowseIdleRelocationDispatch()
 		activeGestureId = gestureId
 		val metadata = relocationMetadata(gestureId)
 		if (!isAvailable || metadata == null) {
@@ -2488,6 +2498,16 @@ internal class ReaderPlayLikeCurlFoliateController(
 		currentWebViewOrdinal = null
 	}
 
+	/**
+	 * An acknowledgement that is not the queued head (for example the initial live page
+	 * dispatched after an invalidation drained the queue) still reports where the WebView is.
+	 * When it lands on the settled page with nothing queued, it is current, not stale.
+	 */
+	fun acknowledgesSettledPage(pageIndex: Int?): Boolean =
+		pageIndex != null && pageIndex >= 0 &&
+			relocationQueue.queuedCount() == 0 &&
+			pageIndex == currentOrdinal
+
 	fun visualLocationOrigin(
 		pageIndex: Int?,
 		acknowledgement: ReaderPageTurnSettlementAck?
@@ -2510,7 +2530,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			foliateSessionRelocationPending = foliateSessionRelocationPending,
 			exactAcknowledgementMatches = exactAcknowledgementMatches,
 			acknowledgementPresent = acknowledgement != null,
-			relocationInFlight = relocationQueue.hasInFlightHead()
+			relocationInFlight = relocationQueue.queuedCount() > 0
 		)
 	}
 
@@ -2522,7 +2542,10 @@ internal class ReaderPlayLikeCurlFoliateController(
 		val normalized = pageIndex?.takeIf { it >= 0 } ?: return
 		confirmInitialLivePresentationAuthority(normalized, acknowledgement)
 		val origin = visualLocationOrigin(normalized, acknowledgement)
-		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+		if (
+			origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement ||
+			acknowledgesSettledPage(normalized)
+		) {
 			authoritativeLocationReady = true
 			currentWebViewOrdinal = normalized
 		}
@@ -2648,6 +2671,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rejectionReason: ReaderPageRelocationDiagnosticRejectionReason
 	): ReaderPageRelocationDrain {
 		relocationDispatchTimeout.cancelAll()
+		mainHandler.removeCallbacks(browseIdleRelocationDispatch)
+		browseIdleRelocationPending = false
 		val drained = try {
 			relocationGestureCoordinator.cancelAll()
 		} finally {
@@ -3270,7 +3295,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	}
 
 	private fun isAwaitingAuthoritativeRelocation(): Boolean =
-		relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal
+		relocationQueue.queuedCount() > 0 && currentWebViewOrdinal != currentOrdinal
 
 	private fun recoveredDeckWouldSupersedeInFlightRelocation(): Boolean =
 		readerRecoveredDeckDefersForInFlightRelocation(
@@ -6035,11 +6060,87 @@ internal class ReaderPlayLikeCurlFoliateController(
 			) { "Reentrant terminal drain lost exact foreground ownership" }
 			return
 		}
+		// Browsing turns run on the raster deck; the live WebView catches up to the latest page
+		// only once the reader stops turning, so its relocation, validation and handoff never
+		// hold the next swipe.
+		relocationQueue.supersedeUndispatched(request.token.value)
+			.forEach(::retireSupersededRelocation)
+		if (
+			!relocationQueue.hasInFlightHead() &&
+			relocationQueue.queuedCount() == 1 &&
+			currentFoliateSessionId == request.foliateSessionId &&
+			currentWebViewOrdinal == request.destinationOrdinal
+		) {
+			check(relocationQueue.cancelTransferred(request.token.value)) {
+				"Coalesced relocation was already dispatched"
+			}
+			retireSupersededRelocation(request)
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl relocation coalesced to live page target=${request.destinationOrdinal}"
+			)
+			hideSurfaceAfterGesture(request.gestureId)
+			return
+		}
+		restartBrowseIdleRelocationDispatch()
+	}
+
+	private fun retireSupersededRelocation(request: ReaderPageRelocationRequest) {
+		check(relocationLiveDispatchCoordinator.complete(request)) {
+			"Superseded relocation lost exact foreground ownership"
+		}
+		emitRelocationDiagnostic(
+			request,
+			ReaderPageRelocationDiagnosticState.Rejected,
+			rejectionReason = ReaderPageRelocationDiagnosticRejectionReason.Superseded,
+			terminal = true
+		)
+	}
+
+	private fun restartBrowseIdleRelocationDispatch() {
+		mainHandler.removeCallbacks(browseIdleRelocationDispatch)
+		browseIdleRelocationPending = false
+		if (
+			destroyed ||
+			relocationQueue.queuedCount() == 0 ||
+			relocationQueue.hasInFlightHead()
+		) {
+			return
+		}
+		browseIdleRelocationPending =
+			mainHandler.postDelayed(browseIdleRelocationDispatch, ReaderPageRelocationBrowseIdleMillis)
+	}
+
+	// Attachment, content-ready and similar host events retry a stalled dispatch; they must not
+	// start the live catch-up while the reader is still turning pages.
+	private fun dispatchNextRelocationUnlessBrowsing() {
+		if (browseIdleRelocationPending) return
+		dispatchNextRelocation()
+	}
+
+	private fun dispatchRelocationOnceBrowsingIdles() {
+		browseIdleRelocationPending = false
+		if (destroyed || relocationQueue.hasInFlightHead()) return
+		val head = relocationQueue.head() ?: return
+		// A paused reader keeps the catch-up queued; resuming restarts the idle wait.
+		if (!hostResumed) return
+		if (
+			activeGestureId != null ||
+			trackingDeferredSwipe != null ||
+			queuedDeferredSwipes.isNotEmpty()
+		) {
+			restartBrowseIdleRelocationDispatch()
+			return
+		}
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"PlayLikeCurl browse-idle relocation dispatched target=${head.destinationOrdinal}"
+		)
 		try {
 			dispatchNextRelocation()
 		} catch (failure: Throwable) {
 			relocationLiveDispatchCoordinator.fail(
-				request,
+				head,
 				ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed
 			)
 			throw failure

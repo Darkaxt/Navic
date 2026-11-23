@@ -904,6 +904,8 @@ class ReaderWebViewVisualHandoffTest {
 
 		assertFalse(defers(20L))
 		val request = enqueueVisualRequest(queue, gestureId = 1L, textureGeneration = 20L)
+		// A head still waiting for browsing to stop is bound to the deck as well.
+		assertTrue(defers(20L))
 		acknowledgeForVisualHandoff(queue, request)
 
 		assertTrue(defers(20L))

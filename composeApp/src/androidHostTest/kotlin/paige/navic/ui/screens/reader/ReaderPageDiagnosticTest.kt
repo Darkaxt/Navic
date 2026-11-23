@@ -190,7 +190,8 @@ class ReaderPageDiagnosticTest {
 				"PresentationFailed",
 				"OwnershipUnavailable",
 				"OwnershipInvalidated",
-				"WebViewUnavailable"
+				"WebViewUnavailable",
+				"Superseded"
 			),
 			ReaderPageRelocationDiagnosticRejectionReason.entries.map { it.name }
 		)

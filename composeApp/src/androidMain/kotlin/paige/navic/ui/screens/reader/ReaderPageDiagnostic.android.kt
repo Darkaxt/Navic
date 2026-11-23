@@ -89,7 +89,8 @@ internal enum class ReaderPageRelocationDiagnosticRejectionReason {
 	PresentationFailed,
 	OwnershipUnavailable,
 	OwnershipInvalidated,
-	WebViewUnavailable
+	WebViewUnavailable,
+	Superseded
 }
 
 internal enum class ReaderPageHandoffDiagnosticResult {

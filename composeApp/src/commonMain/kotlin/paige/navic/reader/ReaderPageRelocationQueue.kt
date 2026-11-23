@@ -167,6 +167,21 @@ class ReaderPageRelocationQueue(
 		true
 	}
 
+	/** Drops every undispatched request other than [latestToken]; an in-flight head is kept. */
+	fun supersedeUndispatched(latestToken: String): List<ReaderPageRelocationRequest> =
+		synchronized(lock) {
+			require(requests.any { it.token.value == latestToken })
+			val superseded = requests.filter { request ->
+				request.token.value != latestToken &&
+					request.token != dispatchedToken &&
+					request.token != acknowledgedToken
+			}
+			if (superseded.isEmpty()) return@synchronized emptyList()
+			requests.removeAll { it in superseded }
+			onOwnershipMutated()
+			superseded
+		}
+
 	fun commandToDispatch(): ReaderPageRelocationRequest? = synchronized(lock) {
 		val head = requests.firstOrNull() ?: return@synchronized null
 		if (dispatchedToken != null || acknowledgedToken != null) return@synchronized null

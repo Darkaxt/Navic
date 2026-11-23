@@ -2192,7 +2192,19 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			reason,
 			acknowledgement
 		)
-		if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+		val settledPageAcknowledged = origin == ReaderPageVisualLocationOrigin.StaleAcknowledgement &&
+			playLikeCurlController.acknowledgesSettledPage(normalized)
+		if (origin == ReaderPageVisualLocationOrigin.StaleAcknowledgement) {
+			Logger.i(
+				KomikkuReaderNativeFrameHostTag,
+				"reader-visual-location stale-acknowledgement page=$normalized reason=$reason " +
+					"settledPage=$settledPageAcknowledged"
+			)
+		}
+		if (
+			origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement ||
+			settledPageAcknowledged
+		) {
 			pageRasterPreparationController.synchronizeVisualPageIndex(normalized, reason)
 		}
 		// Prewarm admission needs a visual page; readiness signals that arrived while it

@@ -392,7 +392,8 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("private fun dispatchRelocation(")
 
 		assertContains(transfer, "relocationLiveDispatchCoordinator.transfer(request, claim)")
-		assertContains(transfer, "dispatchNextRelocation()")
+		assertContains(transfer, "relocationQueue.supersedeUndispatched(request.token.value)")
+		assertContains(transfer, "restartBrowseIdleRelocationDispatch()")
 		assertFalse(
 			transfer.contains("check(dispatchNextRelocation())"),
 			"A later committed relocation may validly wait behind the in-flight queue head."
@@ -540,7 +541,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(origin, "readerPageVisualLocationOrigin(")
 		assertContains(origin, "foliateSessionRelocationPending =")
 		assertContains(origin, "acknowledgementPresent = acknowledgement != null")
-		assertContains(origin, "relocationInFlight = relocationQueue.hasInFlightHead()")
+		assertContains(origin, "relocationInFlight = relocationQueue.queuedCount() > 0")
 		assertContains(
 			controller,
 			"ReaderPageVisualLocationOrigin.PendingExactPageTurn"
@@ -554,18 +555,18 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(synchronization, "val origin = visualLocationOrigin(")
 		assertContains(
 			synchronization,
-			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
+			"origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement ||"
 		)
 		assertFalse(pendingExact.contains("invalidate("))
 		assertFalse(stale.contains("currentOrdinal ="))
 		assertFalse(stale.contains("invalidate("))
 		assertContains(
 			hostSynchronization,
-			"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
+			"origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement ||"
 		)
 		assertTrue(
 			hostSynchronization.indexOf(
-				"if (origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement)"
+				"origin != ReaderPageVisualLocationOrigin.StaleAcknowledgement ||"
 			) < hostSynchronization.indexOf(
 				"pageRasterPreparationController.synchronizeVisualPageIndex("
 			),
@@ -1251,7 +1252,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(controller, "private val settlementMutationFence")
 		assertContains(
 			controller,
-			"relocationQueue.hasInFlightHead() && currentWebViewOrdinal != currentOrdinal"
+			"relocationQueue.queuedCount() > 0 && currentWebViewOrdinal != currentOrdinal"
 		)
 		assertContains(settlementStarted, "settlementMutationFence.onSettlementStarted(")
 		listOf(settlementCompleted, settlementCancelled).forEach { settlement ->
@@ -3255,6 +3256,62 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun browsingDefersLiveRelocationUntilIdle() {
+		val source = controllerFile.readText()
+		val idle = source.substringAfter("private fun dispatchRelocationOnceBrowsingIdles()")
+			.substringBefore("private fun dispatchRelocation(")
+		val retire = source.substringAfter("private fun retireSupersededRelocation(")
+			.substringBefore("private fun restartBrowseIdleRelocationDispatch()")
+		val cancel = source.substringAfter("rejectionReason: ReaderPageRelocationDiagnosticRejectionReason\n\t): ReaderPageRelocationDrain {")
+			.substringBefore("val drained = try {")
+		val touch = source.substringAfter("fun onPageTouchEvent(")
+			.substringBefore("activeGestureId = gestureId")
+		val tap = source.substringAfter("private fun startTapTurn(")
+			.substringBefore("activeGestureId = gestureId")
+
+		assertContains(source, "private const val ReaderPageRelocationBrowseIdleMillis = 1_200L")
+		listOf("activeGestureId != null", "trackingDeferredSwipe != null",
+			"queuedDeferredSwipes.isNotEmpty()").forEach { guard ->
+			assertContains(idle, guard)
+		}
+		assertContains(idle, "dispatchNextRelocation()")
+		assertContains(idle, "if (!hostResumed) return")
+		assertContains(
+			source.substringAfter("fun onHostResumedChanged(resumed: Boolean)")
+				.substringBefore("fun onHostWindowHidden()"),
+			"restartBrowseIdleRelocationDispatch()"
+		)
+		// The initial live page after a hide lands on the settled page: it is current, not stale.
+		assertContains(
+			source.substringAfter("fun acknowledgesSettledPage(pageIndex: Int?): Boolean =")
+				.substringBefore("fun visualLocationOrigin("),
+			"pageIndex == currentOrdinal"
+		)
+		assertContains(idle, "ReaderPageRelocationDiagnosticRejectionReason.JavascriptDispatchFailed")
+		assertContains(retire, "relocationLiveDispatchCoordinator.complete(request)")
+		assertContains(retire, "ReaderPageRelocationDiagnosticRejectionReason.Superseded")
+		assertContains(cancel, "mainHandler.removeCallbacks(browseIdleRelocationDispatch)")
+		assertContains(touch, "restartBrowseIdleRelocationDispatch()")
+		assertContains(tap, "restartBrowseIdleRelocationDispatch()")
+		assertContains(cancel, "browseIdleRelocationPending = false")
+		assertContains(
+			source.substringAfter("private fun dispatchNextRelocationUnlessBrowsing()")
+				.substringBefore("private fun dispatchRelocationOnceBrowsingIdles()"),
+			"if (browseIdleRelocationPending) return"
+		)
+		// Host readiness kicks must not start the live catch-up while pages are still turning.
+		listOf(
+			"fun onHostAttached()" to "fun onHostSizeChanged()",
+			"fun onHostContentReady()" to "fun onPreparedWindowCurrent()",
+			"fun onWebViewAttachmentChanged(" to "fun onWhispersyncOverlayAnchorUnavailable()"
+		).forEach { (start, end) ->
+			val body = source.substringAfter(start).substringBefore(end)
+			assertContains(body, "dispatchNextRelocationUnlessBrowsing()")
+			assertFalse(body.contains("\tdispatchNextRelocation()"), start)
+		}
+	}
+
+	@Test
 	fun reentrantCommittedTerminalDrainFailsLateTransferBeforeItCanOrphanOwnership() {
 		val source = controllerFile.readText()
 		val transfer = source.substringAfter(
@@ -3282,7 +3339,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		)
 		assertTrue(
 			transfer.indexOf("if (relocationQueue.occupiedCount() == 0) {") <
-				transfer.indexOf("dispatchNextRelocation()")
+				transfer.indexOf("relocationQueue.supersedeUndispatched(")
+		)
+		assertTrue(
+			transfer.indexOf("relocationQueue.supersedeUndispatched(") <
+				transfer.indexOf("restartBrowseIdleRelocationDispatch()")
 		)
 		assertContains(failure, "val entry = remove(request) ?: return false")
 		assertContains(failure, "claims.remove(token)")

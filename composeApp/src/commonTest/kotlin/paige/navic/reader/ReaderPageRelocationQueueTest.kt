@@ -2,6 +2,7 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -332,6 +333,45 @@ class ReaderPageRelocationQueueTest {
 		assertEquals(0, queue.occupiedCount())
 		assertFalse(queue.release(reserved))
 		assertFalse(queue.completeHandoff(queued.token.value))
+	}
+
+	@Test
+	fun supersedeUndispatchedKeepsOnlyTheLatestBrowseTarget() {
+		val queue = ReaderPageRelocationQueue()
+		val first = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		val second = enqueue(queue, gestureId = 2L, source = 4, destination = 5)
+		val latest = enqueue(queue, gestureId = 3L, source = 5, destination = 6)
+
+		assertEquals(listOf(first, second), queue.supersedeUndispatched(latest.token.value))
+		assertEquals(latest, queue.head())
+		assertEquals(1, queue.queuedCount())
+		assertEquals(latest, queue.commandToDispatch())
+	}
+
+	@Test
+	fun supersedeUndispatchedKeepsTheInFlightHead() {
+		val queue = ReaderPageRelocationQueue()
+		val inFlight = enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+		assertEquals(inFlight, queue.commandToDispatch())
+		val skipped = enqueue(queue, gestureId = 2L, source = 4, destination = 5)
+		val latest = enqueue(queue, gestureId = 3L, source = 5, destination = 6)
+
+		assertEquals(listOf(skipped), queue.supersedeUndispatched(latest.token.value))
+		assertEquals(inFlight, queue.head())
+		assertNull(queue.commandToDispatch())
+		assertEquals(2, queue.queuedCount())
+		assertTrue(queue.supersedeUndispatched(latest.token.value).isEmpty())
+	}
+
+	@Test
+	fun supersedeUndispatchedRejectsAnUnknownLatestToken() {
+		val queue = ReaderPageRelocationQueue()
+		enqueue(queue, gestureId = 1L, source = 3, destination = 4)
+
+		assertFailsWith<IllegalArgumentException> {
+			queue.supersedeUndispatched("page-turn-missing")
+		}
+		assertEquals(1, queue.queuedCount())
 	}
 
 	private fun enqueue(
