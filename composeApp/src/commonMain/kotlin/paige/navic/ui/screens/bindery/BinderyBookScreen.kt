@@ -434,6 +434,7 @@ fun BinderyBookScreen(
 		BinderyReaderOpenSheet(
 			bookId = bookId,
 			bookTitle = titleText,
+			coverImageUrl = data?.manifest?.images?.firstOrNull()?.href?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) },
 			initialRow = allLanguageVersionRows.firstOrNull { candidate -> candidate.id == row.id } ?: row,
 			editions = binderyReadableEbookEditions(allLanguageVersionRows),
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,

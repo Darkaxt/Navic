@@ -396,6 +396,7 @@ fun BinderyHubScreen() {
 		BinderyReaderOpenSheet(
 			bookId = item.bookId,
 			bookTitle = item.ebookDestination.title,
+			coverImageUrl = item.imageHref?.let { binderyEndpoint(preferenceManager.binderyOpdsBaseUrl, it) },
 			initialRow = item.row,
 			editions = item.editions,
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,

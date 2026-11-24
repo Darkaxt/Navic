@@ -7,11 +7,13 @@ import paige.navic.domain.repositories.BinderyReadingProgressKind
 import paige.navic.reader.ReaderPublicationFormat
 import paige.navic.reader.canonicalReaderResourceHref
 
-/** The open sheet's remembered languages for one book; null means "no choice yet". */
+/** The open sheet's remembered languages and media type for one book; null means "no choice yet". */
 @Serializable
 data class BinderyBookLanguageChoice(
 	val ebook: String? = null,
-	val audio: String? = null
+	val audio: String? = null,
+	/** Read and listen (true) or read only (false). */
+	val audiobook: Boolean? = null
 )
 
 /** "Continue from 42% (Other edition)": the fraction of another edition of the same book. */
@@ -19,7 +21,9 @@ data class BinderyProgressImportSuggestion(
 	val fraction: Double,
 	val sourceTitle: String,
 	/** The selected edition has no progress of its own, so importing is the default. */
-	val selectedByDefault: Boolean
+	val selectedByDefault: Boolean,
+	/** Where the selected edition itself was left, when it has been opened before. */
+	val ownFraction: Double? = null
 )
 
 private val BinderyLanguageChoiceJson = Json { ignoreUnknownKeys = true }
@@ -95,9 +99,16 @@ fun binderyProgressImportSuggestion(
 			sourceRow.title.trim().takeIf { it.isNotEmpty() },
 			sourceRow.language?.let(::binderyLanguageDisplayName)
 		).joinToString(" · "),
-		selectedByDefault = own == null
+		selectedByDefault = own == null,
+		ownFraction = own?.validFraction()
 	)
 }
+
+/** Whole-book fraction where [row] was left, if it has been read. */
+fun binderyEditionProgressFraction(
+	row: BinderyBookVersionRow,
+	progresses: List<BinderyReadingProgress>
+): Double? = progresses.progressFor(row)?.validFraction()
 
 fun binderyBookLanguageChoice(json: String, bookId: String): BinderyBookLanguageChoice =
 	decodeBinderyBookLanguageChoices(json)[bookId.trim()] ?: BinderyBookLanguageChoice()
@@ -109,7 +120,7 @@ fun binderyBookLanguageChoicesJsonWithUpdate(
 ): String {
 	val key = bookId.trim().takeIf { it.isNotEmpty() } ?: return json
 	val updated = decodeBinderyBookLanguageChoices(json).toMutableMap()
-	if (choice.ebook == null && choice.audio == null) updated.remove(key) else updated[key] = choice
+	if (choice == BinderyBookLanguageChoice()) updated.remove(key) else updated[key] = choice
 	return BinderyLanguageChoiceJson.encodeToString(updated)
 }
 

@@ -62,9 +62,9 @@ class BinderyReaderOpenPolicyTest {
 	@Test
 	fun languageChoicesRoundTripPerBook() {
 		val json = binderyBookLanguageChoicesJsonWithUpdate("", "7", BinderyBookLanguageChoice(ebook = "spa", audio = "eng"))
-		val both = binderyBookLanguageChoicesJsonWithUpdate(json, "8", BinderyBookLanguageChoice(ebook = "eng"))
+		val both = binderyBookLanguageChoicesJsonWithUpdate(json, "8", BinderyBookLanguageChoice(ebook = "eng", audiobook = false))
 		assertEquals(BinderyBookLanguageChoice(ebook = "spa", audio = "eng"), binderyBookLanguageChoice(both, "7"))
-		assertEquals(BinderyBookLanguageChoice(ebook = "eng"), binderyBookLanguageChoice(both, "8"))
+		assertEquals(BinderyBookLanguageChoice(ebook = "eng", audiobook = false), binderyBookLanguageChoice(both, "8"))
 		assertEquals(BinderyBookLanguageChoice(), binderyBookLanguageChoice(both, "9"))
 		assertEquals(BinderyBookLanguageChoice(), binderyBookLanguageChoice("not json", "7"))
 	}

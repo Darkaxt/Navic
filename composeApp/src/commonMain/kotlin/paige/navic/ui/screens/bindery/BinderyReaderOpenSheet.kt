@@ -2,25 +2,30 @@ package paige.navic.ui.screens.bindery
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,47 +33,65 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_cancel
-import navic.composeapp.generated.resources.action_open
 import navic.composeapp.generated.resources.action_reader_cache_this_chapter
 import navic.composeapp.generated.resources.action_reader_cache_whole_book
-import navic.composeapp.generated.resources.action_reader_import_progress
+import navic.composeapp.generated.resources.action_reader_open_read
+import navic.composeapp.generated.resources.action_reader_open_read_and_listen
+import navic.composeapp.generated.resources.ic_whispersync
 import navic.composeapp.generated.resources.info_reader_cache_coverage
 import navic.composeapp.generated.resources.info_reader_cache_coverage_none
 import navic.composeapp.generated.resources.info_reader_cache_coverage_ready
 import navic.composeapp.generated.resources.info_reader_cache_coverage_unknown
-import navic.composeapp.generated.resources.info_reader_cache_scope_question
+import navic.composeapp.generated.resources.info_reader_open_not_started
+import navic.composeapp.generated.resources.info_reader_open_read_fraction
 import navic.composeapp.generated.resources.label_reader_open_audio_language
 import navic.composeapp.generated.resources.label_reader_open_book_language
-import navic.composeapp.generated.resources.option_ebook_only
+import navic.composeapp.generated.resources.label_reader_open_cache_type
+import navic.composeapp.generated.resources.label_reader_open_media_type
+import navic.composeapp.generated.resources.label_reader_open_narrator
+import navic.composeapp.generated.resources.label_reader_open_start_at
+import navic.composeapp.generated.resources.label_reader_open_this_edition
+import navic.composeapp.generated.resources.option_reader_open_audiobook
+import navic.composeapp.generated.resources.option_reader_open_ebook
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.isReaderBookPrepared
+import paige.navic.icons.Icons
+import paige.navic.icons.outlined.Book
 import paige.navic.reader.ReaderPageCacheScope
 import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.readerPageCacheScopeForBook
 import paige.navic.reader.readerSettingsForBook
 import paige.navic.reader.setReaderPageCacheScopeForBook
+import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.navigation.Screen
+import paige.navic.ui.screens.reader.ReaderPageCacheCoverage
 import paige.navic.ui.screens.reader.rememberReaderPageCacheCoverage
 import kotlin.math.roundToInt
 
 /**
- * The one sheet an ebook opens through: page-cache scope (chapter or book) with how much is already
- * cached, the book and audiobook languages (remembered per book), carrying progress over from another
- * edition, then the ebook-only or Whispersync audiobook opens. The reader then opens without questions.
+ * The one sheet an ebook opens through. A header (cover, edition, how far it has been read), then one
+ * compact line per choice: media type, narrator, languages, where to start (this edition or the
+ * position carried over from a more recently read edition), and the cache type with how much is
+ * already cached. One button opens the reader, which then starts without questions. Choices are
+ * remembered per book.
  */
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BinderyReaderOpenSheet(
 	bookId: String,
 	bookTitle: String,
+	coverImageUrl: String?,
 	initialRow: BinderyBookVersionRow,
 	editions: List<BinderyBookVersionRow>,
 	opdsBaseUrl: String,
@@ -89,6 +112,8 @@ internal fun BinderyReaderOpenSheet(
 	}
 	var row by remember(initialRow) { mutableStateOf(initialRow) }
 	var audioLanguage by remember(bookId) { mutableStateOf(rememberedChoice.audio) }
+	var wantsAudiobook by remember(bookId) { mutableStateOf(rememberedChoice.audiobook ?: true) }
+	var narratorIndex by remember(bookId) { mutableStateOf(0) }
 	var cacheScope by remember(bookId) { mutableStateOf(preferenceManager.readerPageCacheScopeForBook(bookId)) }
 	val bookLanguages = binderyEditionLanguages(allEditions)
 	val allMatches = row.whispersyncAudiobookLaunchMatches()
@@ -101,22 +126,26 @@ internal fun BinderyReaderOpenSheet(
 		opdsBaseUrl = opdsBaseUrl,
 		fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
 	)
-	val matchDestinations = matches.map { match ->
-		match to binderyWhispersyncReaderDestinationForMatch(
+	val matchDestinations = matches.mapNotNull { match ->
+		binderyWhispersyncReaderDestinationForMatch(
 			ebookRow = row,
 			match = match,
 			bookId = bookId,
 			bookTitle = bookTitle,
 			opdsBaseUrl = opdsBaseUrl,
 			fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-		)
+		)?.let { destination -> match to destination }
 	}
+	val audiobook = wantsAudiobook && matchDestinations.isNotEmpty()
+	val selectedMatch = matchDestinations.getOrNull(narratorIndex) ?: matchDestinations.firstOrNull()
+	val destination = if (audiobook) selectedMatch?.second else ebookDestination
+	val ownFraction = remember(row.id, progresses) { binderyEditionProgressFraction(row, progresses) }
 	val importSuggestion = remember(row.id, progresses) {
 		binderyProgressImportSuggestion(row, allEditions, progresses)
 	}
-	var importProgress by remember(row.id) { mutableStateOf(importSuggestion?.selectedByDefault == true) }
+	var startFromOtherEdition by remember(row.id) { mutableStateOf(importSuggestion?.selectedByDefault == true) }
 	val coverage = rememberReaderPageCacheCoverage(
-		listOfNotNull(ebookDestination) + matchDestinations.mapNotNull { (_, destination) -> destination }
+		listOfNotNull(ebookDestination) + matchDestinations.map { (_, target) -> target }
 	)
 	val fullyPrepared = preferenceManager.isReaderBookPrepared(
 		bookId,
@@ -125,21 +154,22 @@ internal fun BinderyReaderOpenSheet(
 			?: ReaderPreparationOrientation.Landscape
 	)
 
-	fun open(destination: Screen.Reader) {
+	fun open(target: Screen.Reader) {
 		preferenceManager.binderyBookLanguageChoicesJson = binderyBookLanguageChoicesJsonWithUpdate(
 			json = preferenceManager.binderyBookLanguageChoicesJson,
 			bookId = bookId,
 			choice = BinderyBookLanguageChoice(
 				ebook = row.language ?: rememberedChoice.ebook,
-				audio = audioLanguage
+				audio = audioLanguage,
+				audiobook = if (matchDestinations.isNotEmpty()) wantsAudiobook else rememberedChoice.audiobook
 			)
 		)
 		val suggestion = importSuggestion
 		onOpenReader(
-			if (importProgress && suggestion != null) {
-				destination.copy(startCfi = null, startHref = null, startProgress = suggestion.fraction)
+			if (startFromOtherEdition && suggestion != null) {
+				target.copy(startCfi = null, startHref = null, startProgress = suggestion.fraction)
 			} else {
-				destination
+				target
 			}
 		)
 	}
@@ -149,174 +179,265 @@ internal fun BinderyReaderOpenSheet(
 			modifier = Modifier
 				.fillMaxWidth()
 				.verticalScroll(rememberScrollState())
-				.padding(horizontal = 20.dp, vertical = 8.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp)
+				.padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+			verticalArrangement = Arrangement.spacedBy(16.dp)
 		) {
-			Text(
-				text = bookTitle,
-				style = MaterialTheme.typography.titleMedium,
-				fontWeight = FontWeight.SemiBold,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
+			BinderyReaderOpenHeader(
+				bookTitle = bookTitle,
+				coverImageUrl = coverImageUrl,
+				row = row,
+				ownFraction = ownFraction
 			)
-			Text(
-				text = listOfNotNull(row.title, row.subtitle).joinToString(" · "),
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-			if (bookLanguages.size > 1) {
-				BinderyReaderOpenLanguageRow(
-					label = stringResource(Res.string.label_reader_open_book_language),
-					languages = bookLanguages,
-					selected = row.language,
-					onSelect = { language ->
-						row = binderyEditionForLanguage(allEditions, language, row, progresses)
+			HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				if (matchDestinations.isNotEmpty()) {
+					BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_media_type)) {
+						BinderyReaderOpenSegments(
+							options = listOf(
+								stringResource(Res.string.option_reader_open_ebook),
+								stringResource(Res.string.option_reader_open_audiobook)
+							),
+							selectedIndex = if (audiobook) 1 else 0,
+							onSelect = { index -> wantsAudiobook = index == 1 }
+						)
 					}
-				)
-			}
-			if (audioLanguages.size > 1) {
-				BinderyReaderOpenLanguageRow(
-					label = stringResource(Res.string.label_reader_open_audio_language),
-					languages = audioLanguages,
-					selected = audioLanguage?.takeIf { it in audioLanguages },
-					onSelect = { language -> audioLanguage = language }
-				)
-			}
-			Text(
-				text = stringResource(Res.string.info_reader_cache_scope_question),
-				style = MaterialTheme.typography.labelLarge
-			)
-			SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-				listOf(
-					ReaderPageCacheScope.PerChapter to Res.string.action_reader_cache_this_chapter,
-					ReaderPageCacheScope.FullBook to Res.string.action_reader_cache_whole_book
-				).forEachIndexed { index, (scope, label) ->
-					SegmentedButton(
-						shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
-						onClick = {
-							cacheScope = scope
-							preferenceManager.setReaderPageCacheScopeForBook(bookId, scope)
-						},
-						selected = cacheScope == scope,
-						label = { Text(stringResource(label)) }
-					)
 				}
-			}
-			Text(
-				text = when {
-					fullyPrepared -> stringResource(Res.string.info_reader_cache_coverage_ready)
-					coverage == null -> ""
-					coverage.cachedPages == 0 -> stringResource(Res.string.info_reader_cache_coverage_none)
-					coverage.totalPages > 0 -> stringResource(
-						Res.string.info_reader_cache_coverage,
-						coverage.cachedPages.toString(),
-						coverage.totalPages.toString(),
-						"${coverage.percent}%"
-					)
-					else -> stringResource(Res.string.info_reader_cache_coverage_unknown, coverage.cachedPages.toString())
-				},
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant
-			)
-			importSuggestion?.let { suggestion ->
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					verticalAlignment = Alignment.CenterVertically
-				) {
-					Checkbox(checked = importProgress, onCheckedChange = { importProgress = it })
-					Text(
-						text = stringResource(
-							Res.string.action_reader_import_progress,
-							"${(suggestion.fraction * 100.0).roundToInt()}%",
-							suggestion.sourceTitle
-						),
-						style = MaterialTheme.typography.bodyMedium,
-						maxLines = 2,
-						overflow = TextOverflow.Ellipsis
-					)
+				if (audiobook && matchDestinations.size > 1) {
+					BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_narrator)) {
+						BinderyReaderOpenChips(
+							labels = matchDestinations.map { (match, _) -> match.oppositeTitle },
+							selectedIndex = matchDestinations.indexOf(selectedMatch),
+							onSelect = { index -> narratorIndex = index }
+						)
+					}
 				}
-			}
-			Button(
-				onClick = { ebookDestination?.let(::open) },
-				enabled = ebookDestination != null,
-				modifier = Modifier.fillMaxWidth()
-			) {
-				Text(stringResource(if (matches.isEmpty()) Res.string.action_open else Res.string.option_ebook_only))
-			}
-			matchDestinations.forEach { (match, destination) ->
-				Surface(
-					modifier = Modifier.fillMaxWidth(),
-					shape = RoundedCornerShape(8.dp),
-					color = MaterialTheme.colorScheme.surfaceContainerHighest
-				) {
+				if (bookLanguages.size > 1) {
+					BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_book_language)) {
+						BinderyReaderOpenChips(
+							labels = bookLanguages.map(::binderyLanguageDisplayName),
+							selectedIndex = bookLanguages.indexOf(row.language),
+							onSelect = { index ->
+								row = binderyEditionForLanguage(allEditions, bookLanguages[index], row, progresses)
+								narratorIndex = 0
+							}
+						)
+					}
+				}
+				if (audiobook && audioLanguages.size > 1) {
+					BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_audio_language)) {
+						BinderyReaderOpenChips(
+							labels = audioLanguages.map(::binderyLanguageDisplayName),
+							selectedIndex = audioLanguages.indexOf(audioLanguage),
+							onSelect = { index ->
+								audioLanguage = audioLanguages[index]
+								narratorIndex = 0
+							}
+						)
+					}
+				}
+				importSuggestion?.let { suggestion ->
+					BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_start_at)) {
+						BinderyReaderOpenSegments(
+							options = listOf(
+								stringResource(Res.string.label_reader_open_this_edition) + " · " +
+									binderyPercentLabel(suggestion.ownFraction ?: 0.0),
+								suggestion.sourceTitle + " · " + binderyPercentLabel(suggestion.fraction)
+							),
+							selectedIndex = if (startFromOtherEdition) 1 else 0,
+							onSelect = { index -> startFromOtherEdition = index == 1 }
+						)
+					}
+				}
+				BinderyReaderOpenLine(stringResource(Res.string.label_reader_open_cache_type)) {
 					Row(
-						modifier = Modifier.padding(12.dp),
 						horizontalArrangement = Arrangement.spacedBy(12.dp),
 						verticalAlignment = Alignment.CenterVertically
 					) {
-						Column(
-							modifier = Modifier.weight(1f),
-							verticalArrangement = Arrangement.spacedBy(3.dp)
-						) {
-							Text(
-								text = match.oppositeTitle,
-								style = MaterialTheme.typography.titleSmall,
-								maxLines = 2,
-								overflow = TextOverflow.Ellipsis
-							)
-							Text(
-								text = listOfNotNull(
-									"Ready",
-									match.oppositeLanguage?.let(::binderyLanguageDisplayName),
-									match.coveragePercent?.let { "Coverage $it%" },
-									match.scorePercent?.let { "Score $it%" }
-								).joinToString("  "),
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Button(
-							onClick = { destination?.let(::open) },
-							enabled = destination != null
-						) {
-							Text(stringResource(Res.string.action_open))
-						}
+						BinderyReaderOpenSegments(
+							options = listOf(
+								stringResource(Res.string.action_reader_cache_this_chapter),
+								stringResource(Res.string.action_reader_cache_whole_book)
+							),
+							selectedIndex = if (cacheScope == ReaderPageCacheScope.FullBook) 1 else 0,
+							onSelect = { index ->
+								val scope = if (index == 1) ReaderPageCacheScope.FullBook else ReaderPageCacheScope.PerChapter
+								cacheScope = scope
+								preferenceManager.setReaderPageCacheScopeForBook(bookId, scope)
+							}
+						)
+						BinderyReaderOpenCoverageLabel(coverage = coverage, fullyPrepared = fullyPrepared)
 					}
 				}
 			}
-			TextButton(
-				onClick = onDismissRequest,
-				modifier = Modifier.align(Alignment.End)
+			Button(
+				onClick = { destination?.let(::open) },
+				enabled = destination != null,
+				modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+				contentPadding = ButtonDefaults.ButtonWithIconContentPadding
 			) {
-				Text(stringResource(Res.string.action_cancel))
+				if (audiobook) {
+					Icon(
+						painter = painterResource(Res.drawable.ic_whispersync),
+						contentDescription = null,
+						tint = Color.Unspecified,
+						modifier = Modifier.size(22.dp)
+					)
+				} else {
+					Icon(Icons.Outlined.Book, contentDescription = null, modifier = Modifier.size(22.dp))
+				}
+				Text(
+					text = stringResource(
+						if (audiobook) Res.string.action_reader_open_read_and_listen else Res.string.action_reader_open_read
+					),
+					style = MaterialTheme.typography.titleMedium,
+					modifier = Modifier.padding(start = 10.dp)
+				)
 			}
 		}
 	}
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun BinderyReaderOpenLanguageRow(
-	label: String,
-	languages: List<String>,
-	selected: String?,
-	onSelect: (String) -> Unit
+private fun BinderyReaderOpenHeader(
+	bookTitle: String,
+	coverImageUrl: String?,
+	row: BinderyBookVersionRow,
+	ownFraction: Double?
 ) {
+	val preferenceManager = koinInject<PreferenceManager>()
 	Row(
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		horizontalArrangement = Arrangement.spacedBy(18.dp),
 		verticalAlignment = Alignment.CenterVertically
 	) {
-		Text(text = label, style = MaterialTheme.typography.labelLarge)
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			languages.forEach { language ->
-				FilterChip(
-					selected = language == selected,
-					onClick = { onSelect(language) },
-					label = { Text(binderyLanguageDisplayName(language)) }
+		CoverArt(
+			coverArtId = null,
+			imageUrl = coverImageUrl,
+			imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey),
+			contentDescription = bookTitle,
+			fallbackKind = "Book",
+			modifier = Modifier.width(72.dp).aspectRatio(2f / 3f),
+			square = false,
+			contentScale = ContentScale.Fit
+		)
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(4.dp)
+		) {
+			Text(
+				text = bookTitle,
+				style = MaterialTheme.typography.titleLarge,
+				fontWeight = FontWeight.SemiBold,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis
+			)
+			Text(
+				text = listOfNotNull(
+					row.title.trim().takeIf { it.isNotEmpty() },
+					row.language?.let(::binderyLanguageDisplayName)
+				).joinToString(" · "),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis
+			)
+			Row(
+				horizontalArrangement = Arrangement.spacedBy(10.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				modifier = Modifier.padding(top = 6.dp)
+			) {
+				LinearProgressIndicator(
+					progress = { (ownFraction ?: 0.0).toFloat() },
+					modifier = Modifier.weight(1f),
+					drawStopIndicator = {}
+				)
+				Text(
+					text = ownFraction?.let { fraction ->
+						stringResource(Res.string.info_reader_open_read_fraction, binderyPercentLabel(fraction))
+					} ?: stringResource(Res.string.info_reader_open_not_started),
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant
 				)
 			}
 		}
 	}
 }
+
+/** "Label:  [choice]" on one line. */
+@Composable
+private fun BinderyReaderOpenLine(
+	label: String,
+	content: @Composable () -> Unit
+) {
+	Row(verticalAlignment = Alignment.CenterVertically) {
+		Text(
+			text = "$label:",
+			style = MaterialTheme.typography.bodyLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.width(140.dp)
+		)
+		content()
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BinderyReaderOpenSegments(
+	options: List<String>,
+	selectedIndex: Int,
+	onSelect: (Int) -> Unit
+) {
+	SingleChoiceSegmentedButtonRow {
+		options.forEachIndexed { index, label ->
+			SegmentedButton(
+				shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+				onClick = { onSelect(index) },
+				selected = index == selectedIndex,
+				label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+			)
+		}
+	}
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BinderyReaderOpenChips(
+	labels: List<String>,
+	selectedIndex: Int,
+	onSelect: (Int) -> Unit
+) {
+	FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		labels.forEachIndexed { index, label ->
+			FilterChip(
+				selected = index == selectedIndex,
+				onClick = { onSelect(index) },
+				label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+			)
+		}
+	}
+}
+
+@Composable
+private fun BinderyReaderOpenCoverageLabel(
+	coverage: ReaderPageCacheCoverage?,
+	fullyPrepared: Boolean
+) {
+	val label = when {
+		fullyPrepared -> stringResource(Res.string.info_reader_cache_coverage_ready)
+		coverage == null -> null
+		coverage.cachedPages == 0 -> stringResource(Res.string.info_reader_cache_coverage_none)
+		coverage.totalPages > 0 -> stringResource(
+			Res.string.info_reader_cache_coverage,
+			coverage.cachedPages.toString(),
+			coverage.totalPages.toString(),
+			"${coverage.percent}%"
+		)
+		else -> stringResource(Res.string.info_reader_cache_coverage_unknown, coverage.cachedPages.toString())
+	} ?: return
+	Text(
+		text = label,
+		style = MaterialTheme.typography.bodySmall,
+		color = if (fullyPrepared) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+	)
+}
+
+private fun binderyPercentLabel(fraction: Double): String = "${(fraction * 100.0).roundToInt()}%"
