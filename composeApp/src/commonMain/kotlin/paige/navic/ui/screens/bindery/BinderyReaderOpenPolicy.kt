@@ -97,7 +97,7 @@ fun binderyProgressImportSuggestion(
 		fraction = fraction,
 		sourceTitle = listOfNotNull(
 			sourceRow.title.trim().takeIf { it.isNotEmpty() },
-			sourceRow.language?.let(::binderyLanguageDisplayName)
+			sourceRow.language?.takeIf { it != selected.language }?.let(::binderyLanguageDisplayName)
 		).joinToString(" · "),
 		selectedByDefault = own == null,
 		ownFraction = own?.validFraction()

@@ -1,6 +1,7 @@
 package paige.navic.ui.screens.bindery
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -64,14 +65,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.domain.manager.PreferenceManager
-import paige.navic.domain.manager.isReaderBookPrepared
 import paige.navic.icons.Icons
 import paige.navic.icons.outlined.Book
 import paige.navic.reader.ReaderPageCacheScope
-import paige.navic.reader.ReaderPreparationOrientation
 import paige.navic.reader.decodeReaderReadingProgress
 import paige.navic.reader.readerPageCacheScopeForBook
-import paige.navic.reader.readerSettingsForBook
 import paige.navic.reader.setReaderPageCacheScopeForBook
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.navigation.Screen
@@ -146,12 +144,6 @@ internal fun BinderyReaderOpenSheet(
 	var startFromOtherEdition by remember(row.id) { mutableStateOf(importSuggestion?.selectedByDefault == true) }
 	val coverage = rememberReaderPageCacheCoverage(
 		listOfNotNull(ebookDestination) + matchDestinations.map { (_, target) -> target }
-	)
-	val fullyPrepared = preferenceManager.isReaderBookPrepared(
-		bookId,
-		preferenceManager.readerSettingsForBook(bookId),
-		ReaderPreparationOrientation.forAspectRatio(readerLaunchTargetAspectRatio)
-			?: ReaderPreparationOrientation.Landscape
 	)
 
 	fun open(target: Screen.Reader) {
@@ -244,7 +236,8 @@ internal fun BinderyReaderOpenSheet(
 								suggestion.sourceTitle + " · " + binderyPercentLabel(suggestion.fraction)
 							),
 							selectedIndex = if (startFromOtherEdition) 1 else 0,
-							onSelect = { index -> startFromOtherEdition = index == 1 }
+							onSelect = { index -> startFromOtherEdition = index == 1 },
+							modifier = Modifier.fillMaxWidth()
 						)
 					}
 				}
@@ -265,7 +258,7 @@ internal fun BinderyReaderOpenSheet(
 								preferenceManager.setReaderPageCacheScopeForBook(bookId, scope)
 							}
 						)
-						BinderyReaderOpenCoverageLabel(coverage = coverage, fullyPrepared = fullyPrepared)
+						BinderyReaderOpenCoverageLabel(coverage = coverage)
 					}
 				}
 			}
@@ -375,7 +368,7 @@ private fun BinderyReaderOpenLine(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.width(140.dp)
 		)
-		content()
+		Box(modifier = Modifier.weight(1f)) { content() }
 	}
 }
 
@@ -384,9 +377,10 @@ private fun BinderyReaderOpenLine(
 private fun BinderyReaderOpenSegments(
 	options: List<String>,
 	selectedIndex: Int,
-	onSelect: (Int) -> Unit
+	onSelect: (Int) -> Unit,
+	modifier: Modifier = Modifier
 ) {
-	SingleChoiceSegmentedButtonRow {
+	SingleChoiceSegmentedButtonRow(modifier = modifier) {
 		options.forEachIndexed { index, label ->
 			SegmentedButton(
 				shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
@@ -417,10 +411,9 @@ private fun BinderyReaderOpenChips(
 }
 
 @Composable
-private fun BinderyReaderOpenCoverageLabel(
-	coverage: ReaderPageCacheCoverage?,
-	fullyPrepared: Boolean
-) {
+private fun BinderyReaderOpenCoverageLabel(coverage: ReaderPageCacheCoverage?) {
+	// The raster cache itself is the authority: the "prepared" preference outlives evicted pages.
+	val fullyPrepared = coverage != null && coverage.totalPages > 0 && coverage.cachedPages >= coverage.totalPages
 	val label = when {
 		fullyPrepared -> stringResource(Res.string.info_reader_cache_coverage_ready)
 		coverage == null -> null
