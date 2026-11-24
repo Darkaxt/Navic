@@ -876,7 +876,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			wiring,
 			"timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis"
 		)
-		assertContains(wiring, "contentValidationTimeoutMillis = 2_000L")
+		assertContains(wiring, "contentValidationTimeoutMillis = 4_000L")
 	}
 
 	@Test

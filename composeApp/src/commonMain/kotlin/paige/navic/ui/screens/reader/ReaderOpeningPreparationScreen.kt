@@ -109,7 +109,7 @@ internal fun ReaderOpeningPreparationScreen(
 						Res.string.info_reader_preparation_detail,
 						state.completedCount,
 						state.requiredCount,
-						(state.progress.coerceIn(0f, 1f) * 100f).toInt()
+						"${(state.progress.coerceIn(0f, 1f) * 100f).toInt()}%"
 					)
 					else -> null
 				}

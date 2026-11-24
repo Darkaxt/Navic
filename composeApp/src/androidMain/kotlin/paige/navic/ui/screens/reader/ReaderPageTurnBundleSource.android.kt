@@ -2911,6 +2911,7 @@ internal class ReaderPageTurnBundleSource(
 		val expectedTargetBitmapWidth = expectedTarget.bitmap.width
 		val expectedTargetBitmapHeight = expectedTarget.bitmap.height
 		val rejectDumpDirectory = ReaderPageLiveValidationRejectDump.directory(webView.context)
+		val validationStartedNanos = System.nanoTime()
 		fun validationIsCurrent(): Boolean {
 			val callerCurrent = runCatching(isStillCurrent).getOrDefault(false)
 			return synchronized(closeFenceLock) {
@@ -3030,6 +3031,7 @@ internal class ReaderPageTurnBundleSource(
 							if (!liveValidationGenerationIsCurrent()) {
 								ReaderPageRelocationContentValidationResult.Invalidated
 							} else {
+								val compareStartedNanos = System.nanoTime()
 								val compared = readerPageLiveCaptureValidationResult(
 									candidate = work.candidate,
 									expectedTarget = work.expectedTarget,
@@ -3038,7 +3040,9 @@ internal class ReaderPageTurnBundleSource(
 								)
 								Logger.i(
 									ReaderPageTurnBundleSourceTag,
-									"Live page-turn validation comparison result=$compared"
+									"Live page-turn validation comparison result=$compared " +
+										"captureMillis=${(compareStartedNanos - validationStartedNanos) / 1_000_000L} " +
+										"compareMillis=${(System.nanoTime() - compareStartedNanos) / 1_000_000L}"
 								)
 								if (
 									compared ==
@@ -3056,8 +3060,18 @@ internal class ReaderPageTurnBundleSource(
 								else ReaderPageRelocationContentValidationResult.Invalidated
 							}
 						} catch (cancelled: CancellationException) {
+							Logger.i(
+								ReaderPageTurnBundleSourceTag,
+								"Live page-turn validation comparison cancelled elapsedMillis=" +
+									"${(System.nanoTime() - validationStartedNanos) / 1_000_000L}"
+							)
 							throw cancelled
-						} catch (_: Throwable) {
+						} catch (failure: Throwable) {
+							Logger.w(
+								ReaderPageTurnBundleSourceTag,
+								"Live page-turn validation comparison failed " +
+									"failureClass=${failure::class.simpleName ?: "unknown"}"
+							)
 							ReaderPageRelocationContentValidationResult.Invalidated
 						}
 						ownership.recordWorkerResult(result)

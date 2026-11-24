@@ -1025,7 +1025,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			validateContent = ::validateLivePresentation,
 			canRecover = { qaFaultRegistry?.isClosed() != true },
 			timeoutMillis = ReaderPageRelocationVisualHandoffTimeoutMillis,
-			contentValidationTimeoutMillis = 2_000L,
+			contentValidationTimeoutMillis = 4_000L,
 			onOwnershipMutated = onOwnershipMutated,
 			attemptEventSink =
 				ReaderWebViewVisualHandoffAttemptEventSink(::onHandoffAttemptEvent),
