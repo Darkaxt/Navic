@@ -128,7 +128,13 @@ data class ReaderWhispersyncSessionState(
 	val canonicalRecoveryRequiresFreshVisibleRange: Boolean = false,
 	val lastEventProvenance: ReaderWhispersyncEventProvenance? = null,
 	val cueMap: ReaderWhispersyncCueMapState = ReaderWhispersyncCueMapState(),
-	val pageCurlPausedPlayback: Boolean = false
+	val pageCurlPausedPlayback: Boolean = false,
+	/** Why the visible page is not READY for read-along audio (page preparation), or null. */
+	val pageHoldReason: String? = null,
+	/** Audio the page hold took over; it resumes once the page is READY. */
+	val pageHoldResumePending: Boolean = false,
+	/** Audio was audible here when held: it resumes in place instead of re-seeking. */
+	val pageHoldPausedDestination: ReaderDestinationCommitIdentity? = null
 ) {
 	val timeline: WhispersyncTimeline?
 		get() = sidecar?.timeline
@@ -138,13 +144,13 @@ data class ReaderWhispersyncSessionState(
 
 	val canStartPlayback: Boolean
 		get() = available &&
+			pageHoldReason == null &&
 			preparedVisibleTarget != null &&
 			!playbackStartPending &&
 			!stopResetPending &&
 			transportPhase !in setOf(
 				ReaderWhispersyncTransportPhase.Unavailable,
 				ReaderWhispersyncTransportPhase.Preparing,
-				ReaderWhispersyncTransportPhase.BoundaryPaused,
 				ReaderWhispersyncTransportPhase.Failed
 			)
 }

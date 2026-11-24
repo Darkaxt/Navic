@@ -2951,13 +2951,69 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(release, "blockTerminalContentFailureRecovery(")
 		assertContains(release, "hideSurface()")
 		assertContains(release, "inlineRasterShield.dismiss()")
+		// Fail closed hides the rejected curl pixels; one rejected page must not put a blocking
+		// cover over a readable chapter, so the reader keeps reading while a usable deck exists.
+		val block = release.substringAfter("private fun blockTerminalContentFailureRecovery(")
+		assertTrue(block.indexOf("hideSurface()") < block.indexOf("updateReadiness("))
 		assertContains(
-			release,
-			"interaction = ReaderPageInteractionState.BlockingProfileRegeneration"
+			block,
+			"interaction = if (hasUsablePreparedActiveDeck()) {\n" +
+				"\t\t\t\tReaderPageInteractionState.RefillingWorkingSet\n" +
+				"\t\t\t} else {\n" +
+				"\t\t\t\tReaderPageInteractionState.BlockingProfileRegeneration\n" +
+				"\t\t\t}"
 		)
+		assertContains(block, "livePresentationRecoveryRequest.request()")
 		assertContains(release, "requestPrewarmIfIdle(reason)")
 		assertFalse(release.contains("releaseTerminalContentFailureToRetainedCurlSurface"))
 		assertFalse(source.contains("private fun releaseTerminalContentFailureToRetainedCurlSurface("))
+	}
+
+	@Test
+	fun supersededOrGatedRecoveryLoadAlwaysHandsBackItsClaim() {
+		val prepare = controllerFile.readText()
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
+
+		// The terminal block nulls failedLivePresentationGeneration while recovery is still needed,
+		// so the handback must not depend on it (the v1.6.17 reader stuck behind the cover).
+		assertFalse(
+			prepare.contains("claimedLivePresentationRecovery && failedLivePresentationGeneration != null")
+		)
+		assertEquals(
+			3,
+			Regex(
+				Regex.escape("if (claimedLivePresentationRecovery) {\n") +
+					"\\s*" + Regex.escape("livePresentationRecoveryRequest.request()")
+			).findAll(prepare).count()
+		)
+	}
+
+	@Test
+	fun deckIsNeverCalledCurrentWhileBlockedOrWhileTheRecoveryLoadIsInFlight() {
+		val source = controllerFile.readText()
+		val prepare = source
+			.substringAfter("private fun prepareProfile(")
+			.substringBefore("override fun isCurrentRepairWindow(")
+		val skip = prepare.substringBefore("\"refresh-skipped\"")
+		val loaded = prepare.substringAfter("withContext(Dispatchers.Main.immediate) {")
+		val invalidate = source.substringAfter("fun invalidate(")
+			.substringBefore("discardDecodedWorkingSetPrefetch(")
+
+		assertContains(
+			skip,
+			"readinessState.interaction != ReaderPageInteractionState.BlockingProfileRegeneration"
+		)
+		assertContains(skip, "livePresentationRecoveryLoadRequest == null")
+		assertContains(
+			prepare,
+			"if (claimedLivePresentationRecovery) livePresentationRecoveryLoadRequest = request"
+		)
+		assertTrue(
+			loaded.indexOf("livePresentationRecoveryLoadRequest = null") <
+				loaded.indexOf("settlementMutationFence.deferRefreshIfBlocked(activeGestureId)")
+		)
+		assertContains(invalidate, "livePresentationRecoveryLoadRequest = null")
 	}
 
 	@Test
@@ -3015,10 +3071,9 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		assertContains(release, "\"terminal-presentation-failed\"")
 		assertContains(release, "failedLivePresentationGeneration = null")
 		assertContains(release, "livePresentationRecoveryRequest.request()")
-		assertContains(
-			release,
-			"interaction = ReaderPageInteractionState.BlockingProfileRegeneration"
-		)
+		// Revoked pixels never block a readable chapter: the cover only stands in for a missing deck.
+		assertContains(release, "interaction = if (hasUsablePreparedActiveDeck()) {")
+		assertContains(release, "ReaderPageInteractionState.BlockingProfileRegeneration")
 		assertContains(release, "inlineRasterShield.dismiss()")
 		assertContains(release, "hideSurface()")
 		assertContains(release, "retainsRejectedSurfaceInputShield = false")

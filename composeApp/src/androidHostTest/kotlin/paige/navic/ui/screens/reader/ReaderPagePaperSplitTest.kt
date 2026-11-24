@@ -125,6 +125,49 @@ class ReaderPagePaperSplitTest {
 	}
 
 	@Test
+	fun softColourPlateFitsTheResidualCheckButLosesItsColour() {
+		// A low-saturation wash (the house pencil-and-soft-colour plate style) stays within the
+		// per-pixel residual, so the codec alone accepts it and decodes it without the colour.
+		// That is why paperSplitDescribe declines pages with visible media before any encode.
+		val recomposer = ReaderPaperSplitRecomposer(foreground, background)
+		val inWash = { x: Int, y: Int -> x in 8..55 && y in 8..39 }
+		val composite = { x: Int, y: Int ->
+			val paper = paperPixel(x, y)
+			if (inWash(x, y)) {
+				val r = ((paper ushr 16) and 0xFF) - 10
+				val g = ((paper ushr 8) and 0xFF) - 4
+				val b = (paper and 0xFF) + 12
+				(0xFF shl 24) or (r shl 16) or (g shl 8) or b
+			} else {
+				recomposer.pixel(paper, coverageAt(x, y))
+			}
+		}
+		val (ok, bytes) = encode(composite)
+		assertTrue(ok)
+
+		val input = ByteArrayInputStream(bytes)
+		val header = assertNotNull(readerPaperSplitReadHeader(input))
+		val decoded = Array(height) { IntArray(width) }
+		assertTrue(
+			readerPaperSplitDecodeRows(
+				header = header,
+				input = input,
+				paperRow = { y, row -> for (x in 0 until width) row[x] = paperPixel(x, y) },
+				outputRow = { y, row -> row.copyInto(decoded[y]) }
+			)
+		)
+		var maximumWashLoss = 0
+		for (y in 0 until height) for (x in 0 until width) {
+			if (!inWash(x, y)) continue
+			for (shift in intArrayOf(16, 8, 0)) {
+				val delta = abs(((composite(x, y) ushr shift) and 0xFF) - ((decoded[y][x] ushr shift) and 0xFF))
+				maximumWashLoss = maxOf(maximumWashLoss, delta)
+			}
+		}
+		assertTrue(maximumWashLoss >= 10, "the wash colour should be lost, lost only $maximumWashLoss")
+	}
+
+	@Test
 	fun pngAndUnknownStreamsAreNotSplitRasters() {
 		val png = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 13, 10, 26, 10)
 		assertNull(readerPaperSplitReadHeader(ByteArrayInputStream(png)))

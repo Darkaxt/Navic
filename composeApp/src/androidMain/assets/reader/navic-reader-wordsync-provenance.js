@@ -1,4 +1,6 @@
 import { log, post } from './navic-reader-helpers.js'
+import { readerRoot } from './navic-reader-bridge-core.js'
+import { readerMediaOverlayPaintedViewportRects } from './navic-reader-overlay-paint.js'
 import { readerWordSyncNextAnchor, readerWordSyncPersistentStartByte } from './navic-reader-wordsync-anchor.js'
 
 export const ReaderCueV1DomUtf16Mode = 'cue-v1-dom-utf16'
@@ -196,6 +198,110 @@ const logReaderWordSyncSegment = (runtime, fragment) => {
     : -1
   const anchorStart = runtime.wordSyncPlayedAnchor?.rawByteStart ?? -1
   log(`wordsync-segment:${sequence},${previous},${fragment.rawByteStart},${fragment.rawByteEnd},${clipMs},${anchorStart}`)
+  try {
+    logReaderWordSyncPaintProbe(runtime, sequence)
+  } catch (_) {}
+}
+
+// Numeric-only paint probe, once per segment (no publication text). The accepted overlay logs
+// only prove the SVG was handed a shape; this tells why a painted highlight is not seen:
+// sequence,svgConnected,svgChildren,rectCount,headCenterX,headCenterY,inViewport,inFrame,
+// ancestorHidden,opacityProductMilli,fillAlphaMilli,headScaleXMilli,ownContainerZ,
+// ownContainerVisible,otherContainerChildren,otherContainerZ,otherContainerVisible,
+// coveringCount,coveringMask (1 drag preview, 2-64 paper layers, 128 other, -1 = unknown).
+const ReaderWordSyncPaintProbeLayerCodes = Object.freeze({
+  navicPageDragPreviewLayer: 1,
+  navicSurfacePaperTextureLayer: 2,
+  navicSurfacePageBorderOverlayLayer: 4,
+  navicSurfacePageStainOverlayLayer: 8,
+  navicSurfaceSpreadGutterOverlayLayer: 16,
+  navicShellCoverLayer: 32,
+  navicMovingPagePaperTextureLayer: 64,
+})
+
+const readerWordSyncProbeInteger = value => Number.isFinite(value) ? Math.round(value) : -1
+
+const logReaderWordSyncPaintProbe = (runtime, sequence) => {
+  const entries = Array.from(runtime.contentEntries?.() || [])
+  const entry = entries.find(content => content?.overlayer?.element?.childElementCount > 0) ?? entries[0]
+  const svg = entry?.overlayer?.element ?? null
+  const rects = readerMediaOverlayPaintedViewportRects() ?? []
+  const head = rects[rects.length - 1] ?? null
+  const cx = head ? head.left + head.width / 2 : -1
+  const cy = head ? head.top + head.height / 2 : -1
+  const inViewport = head && cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight ? 1 : 0
+  const frame = entry?.doc?.defaultView?.frameElement?.getBoundingClientRect?.()
+  const inFrame = frame && head &&
+    cx >= frame.left && cx < frame.right && cy >= frame.top && cy < frame.bottom ? 1 : 0
+  let opacity = svg ? 1 : 0
+  let readerLayer = null
+  for (let node = svg; node && node !== readerRoot; node = node.parentElement || node.getRootNode?.()?.host) {
+    opacity *= parseFloat(getComputedStyle(node).opacity) || 0
+    if (node.parentElement === readerRoot) readerLayer = node
+  }
+  const svgStyle = svg ? getComputedStyle(svg) : null
+  const ancestorHidden = !svg || svgStyle.visibility !== 'visible' ||
+    !(svg.getBoundingClientRect().width > 0) ? 1 : 0
+  const group = svg?.lastElementChild ?? null
+  const fill = group ? getComputedStyle(group).fill : ''
+  const fillMatch = /rgba?\(([^)]+)\)/.exec(fill)
+  const fillParts = fillMatch ? fillMatch[1].split(',') : null
+  const fillAlpha = fillParts ? (fillParts[3] !== undefined ? parseFloat(fillParts[3]) : 1) : NaN
+  const shape = group?.firstElementChild ?? null
+  const transform = shape ? getComputedStyle(shape).transform : 'none'
+  const scaleX = !transform || transform === 'none'
+    ? 1
+    : parseFloat(transform.slice(transform.indexOf('(') + 1))
+  const own = svg?.parentElement?.parentElement ?? null
+  const other = own?.parentElement
+    ? Array.from(own.parentElement.children).find(child => child !== own && child.classList?.contains('container'))
+    : null
+  const zIndex = element => parseInt(element?.style?.zIndex, 10) || 0
+  const visible = element => element && getComputedStyle(element).visibility === 'visible' ? 1 : 0
+  let coveringCount = 0
+  let coveringMask = readerLayer && head ? 0 : -1
+  if (readerLayer && head) {
+    const readerZ = parseInt(getComputedStyle(readerLayer).zIndex, 10) || 0
+    let afterReader = false
+    for (const child of Array.from(readerRoot.children)) {
+      if (child === readerLayer) {
+        afterReader = true
+        continue
+      }
+      const style = getComputedStyle(child)
+      if (style.display === 'none' || style.visibility !== 'visible' || !(parseFloat(style.opacity) > 0)) continue
+      const rect = child.getBoundingClientRect()
+      if (cx < rect.left || cx >= rect.right || cy < rect.top || cy >= rect.bottom) continue
+      const childZ = parseInt(style.zIndex, 10) || 0
+      if (childZ > readerZ || (childZ === readerZ && afterReader)) {
+        coveringCount += 1
+        const key = Object.keys(ReaderWordSyncPaintProbeLayerCodes).find(name => name in (child.dataset || {}))
+        coveringMask |= key ? ReaderWordSyncPaintProbeLayerCodes[key] : 128
+      }
+    }
+  }
+  const fields = [
+    sequence,
+    svg?.isConnected ? 1 : 0,
+    svg ? svg.childElementCount : -1,
+    rects.length,
+    readerWordSyncProbeInteger(cx),
+    readerWordSyncProbeInteger(cy),
+    inViewport,
+    inFrame,
+    ancestorHidden,
+    readerWordSyncProbeInteger(opacity * 1000),
+    readerWordSyncProbeInteger(fillAlpha * 1000),
+    readerWordSyncProbeInteger(scaleX * 1000),
+    zIndex(own),
+    visible(own),
+    other ? other.childElementCount : -1,
+    other ? zIndex(other) : -1,
+    other ? visible(other) : -1,
+    coveringCount,
+    coveringMask,
+  ]
+  log(`wordsync-paint-probe:${fields.join(',')}`)
 }
 
 export const rejectReaderWordSyncOverlay = (runtime, fragment, reason) => {

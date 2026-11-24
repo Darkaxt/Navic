@@ -238,6 +238,17 @@ internal object ReaderPagePaperRegistry {
 
 	@Synchronized
 	fun referenceFor(bitmap: Bitmap): ReaderPagePaperReference? = references[bitmap]
+
+	// Diagnostics only: bitmaps rebuilt from a split file (a copy of one is not tracked).
+	private val splitDecoded = WeakHashMap<Bitmap, Unit>()
+
+	@Synchronized
+	fun markSplitDecoded(bitmap: Bitmap) {
+		splitDecoded[bitmap] = Unit
+	}
+
+	@Synchronized
+	fun isSplitDecoded(bitmap: Bitmap): Boolean = splitDecoded.containsKey(bitmap)
 }
 
 private const val ReaderPagePaperMaximumStoredPapers = 48
@@ -399,6 +410,7 @@ internal class ReaderSplitPageRasterCodec(
 				bitmap.recycle()
 				return null
 			}
+			ReaderPagePaperRegistry.markSplitDecoded(bitmap)
 			return bitmap
 		}
 	}

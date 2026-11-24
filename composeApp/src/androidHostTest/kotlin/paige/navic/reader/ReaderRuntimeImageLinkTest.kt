@@ -342,7 +342,7 @@ class ReaderRuntimeImageLinkTest {
 			.substringBefore("\n\tprivate fun turnPage")
 		val shellCoverDismissalBranch = shellCoverViewerAction
 			.substringAfter(
-				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
+				"(action is ReaderViewerAction.TurnPage && action.direction == ReaderPageTurnDirection.Next) ||"
 			)
 			.substringBefore("else -> ReaderControllerStep(this)")
 

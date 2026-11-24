@@ -3036,8 +3036,7 @@ class ReaderControllerTest {
 			status = acknowledged.controller.state.whispersync.status,
 			playbackState = acknowledged.controller.state.chrome.readaloudPlayback,
 			hasPreparedVisibleTarget =
-				acknowledged.controller.state.whispersync.preparedVisibleTarget != null,
-			transportPhase = acknowledged.controller.state.whispersync.transportPhase
+				acknowledged.controller.state.whispersync.preparedVisibleTarget != null
 		)
 		assertFalse(playbackControl.loading)
 		assertTrue(playbackControl.enabled)

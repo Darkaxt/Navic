@@ -32,6 +32,8 @@ class ReaderControllerDecompositionSourceTest {
 		assertContains(coordinator, "private fun applyEngineCommand")
 		assertFalse("fun search(query:" in coordinator)
 		assertFalse("fun applySettings(settings:" in coordinator)
+		// Every controller step passes the single page-readiness audio gate before it is applied.
+		assertContains(coordinator, "decision.controllerStep.withWhispersyncPageHold()")
 	}
 
 	@Test

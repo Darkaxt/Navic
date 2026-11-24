@@ -989,6 +989,9 @@
 	<string name="info_reader_preparing_book">Preparing book</string>
 	<string name="info_reader_preparation_measuring">Measuring chapters %1$d of %2$d</string>
 	<string name="info_reader_preparation_opening_hint">The book opens as soon as its pages are ready.</string>
+	<string name="info_reader_cache_scope_question">Prepare pages for</string>
+	<string name="action_reader_cache_this_chapter">This chapter</string>
+	<string name="action_reader_cache_whole_book">Whole book</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>
 	<string name="action_disable_sleep_timer">Turn off timer</string>
@@ -1195,6 +1198,9 @@
 	<string name="action_seek_back_seconds">Seek back %1$d seconds</string>
 	<string name="action_play_whispersync_audiobook">Play Whispersync audiobook</string>
 	<string name="action_reset_whispersync_audiobook">Reset Whispersync audiobook</string>
+	<string name="action_pause_whispersync_audiobook">Pause Whispersync audiobook</string>
+	<string name="action_reader_previous_page">Previous page</string>
+	<string name="action_reader_next_page">Next page</string>
 	<string name="option_on">On</string>
 	<string name="option_speed">Speed</string>
 	<string name="option_audio_sync">Audio sync</string>
@@ -1216,6 +1222,7 @@
 	<string name="info_whispersync_unavailable">Whispersync unavailable</string>
 	<string name="info_whispersync_audio_unavailable">Whispersync audio unavailable</string>
 	<string name="info_whispersync_audiobook_loading">Whispersync audiobook loading</string>
+	<string name="info_whispersync_waiting_for_page">Audio resumes when the page is ready</string>
 	<string name="info_whispersync_synced_segment">%1$d synced segment</string>
 	<string name="info_whispersync_synced_segments">%1$d synced segments</string>
 	<string name="info_audio_not_loaded">Audio not loaded</string>

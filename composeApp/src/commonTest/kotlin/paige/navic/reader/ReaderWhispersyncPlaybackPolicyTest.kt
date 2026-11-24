@@ -399,7 +399,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun whispersyncControlKeepsStopAvailableWhileNextCueActivationIsPending() {
+	fun whispersyncControlKeepsPauseAvailableWhileNextCueActivationIsPending() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.SeekingAudio,
@@ -418,11 +418,11 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.crossed)
 		assertTrue(control.enabled)
 		assertFalse(control.noAudioCueOnPage)
-		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, control.command)
 	}
 
 	@Test
-	fun whispersyncControlShowsPlayingStateAndResetsOnTap() {
+	fun whispersyncControlShowsPlayingStateAndPausesOnTap() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(
 				kind = ReaderWhispersyncStatusKind.Playing,
@@ -440,7 +440,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertFalse(control.crossed)
 		assertTrue(control.enabled)
-		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, control.command)
 	}
 
 	@Test
@@ -466,7 +466,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 	}
 
 	@Test
-	fun activePlaybackKeepsStopAvailableWhenWhispersyncStatusTemporarilyResets() {
+	fun activePlaybackKeepsPauseAvailableWhenWhispersyncStatusTemporarilyResets() {
 		val control = readerWhispersyncPlaybackControlState(
 			status = ReaderWhispersyncStatus(),
 			playbackState = ReaderReadaloudPlaybackUiState(
@@ -481,7 +481,7 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		assertFalse(control.loading)
 		assertFalse(control.crossed)
 		assertTrue(control.enabled)
-		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, control.command)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, control.command)
 	}
 
 	@Test
@@ -503,7 +503,78 @@ class ReaderWhispersyncPlaybackPolicyTest {
 		)
 
 		assertTrue(presented.visible)
-		assertEquals(ReaderReadaloudPlaybackCommand.StopAndReset, presented.command)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, presented.command)
+	}
+
+	@Test
+	fun heldPageShowsDisabledWaitingSpinnerUntilThePageIsReady() {
+		val ready = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.Ready,
+			message = ReaderWhispersyncStatusMessage.Ready
+		)
+		val stopped = ReaderReadaloudPlaybackUiState(isAvailable = true, isPlaying = false, syncEnabled = true)
+
+		val held = readerWhispersyncPlaybackControlState(
+			status = ready,
+			playbackState = stopped,
+			hasPreparedVisibleTarget = true,
+			pageHeld = true
+		)
+		assertTrue(held.visible)
+		assertTrue(held.loading)
+		assertFalse(held.enabled)
+		assertNull(held.command)
+		assertEquals(ReaderWhispersyncPlaybackControlDescription.WaitingForPage, held.contentDescription)
+
+		val playing = readerWhispersyncPlaybackControlState(
+			status = ready,
+			playbackState = stopped.copy(isPlaying = true),
+			hasPreparedVisibleTarget = true,
+			pageHeld = true
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, playing.command)
+		assertEquals(ReaderWhispersyncPlaybackControlDescription.Pause, playing.contentDescription)
+	}
+
+	@Test
+	fun transportControlsPlayPauseKeepPositionAndStopOnlyWhenThereIsSomethingToReset() {
+		val ready = ReaderWhispersyncStatus(
+			kind = ReaderWhispersyncStatusKind.Ready,
+			message = ReaderWhispersyncStatusMessage.Ready
+		)
+		val stopped = ReaderReadaloudPlaybackUiState(isAvailable = true, isPlaying = false, syncEnabled = true)
+		fun transport(
+			playbackState: ReaderReadaloudPlaybackUiState,
+			userPaused: Boolean = false,
+			transportPhase: ReaderWhispersyncTransportPhase = ReaderWhispersyncTransportPhase.Ready
+		) = readerWhispersyncTransportControls(
+			control = readerWhispersyncPlaybackControlState(
+				status = ready,
+				playbackState = playbackState,
+				hasPreparedVisibleTarget = true
+			),
+			playbackState = playbackState,
+			userPaused = userPaused,
+			transportPhase = transportPhase
+		)
+
+		val playing = transport(stopped.copy(isPlaying = true), transportPhase = ReaderWhispersyncTransportPhase.Playing)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, playing.playPause)
+		assertTrue(playing.playing)
+		assertTrue(playing.stopEnabled)
+
+		val pageEnded = transport(stopped, transportPhase = ReaderWhispersyncTransportPhase.BoundaryPaused)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, pageEnded.playPause)
+		assertFalse(pageEnded.playing)
+		assertTrue(pageEnded.stopEnabled)
+
+		val paused = transport(stopped, userPaused = true)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, paused.playPause)
+		assertTrue(paused.stopEnabled)
+
+		val fresh = transport(stopped)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, fresh.playPause)
+		assertFalse(fresh.stopEnabled)
 	}
 
 	private fun whispersyncPlaybackPlan(): ReadaloudPlaybackPlan =

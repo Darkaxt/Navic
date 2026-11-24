@@ -46,6 +46,8 @@ import paige.navic.reader.normalizedReaderFlowMode
 import paige.navic.reader.normalizedReaderDragAnimationMode
 import paige.navic.reader.readerWhispersyncPlaybackControlPresentation
 import paige.navic.reader.readerWhispersyncPlaybackControlState
+import paige.navic.reader.readerWhispersyncTransportControls
+import paige.navic.reader.readAlongHoldReason
 import paige.navic.reader.productionDiagnosticSurface
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
@@ -89,6 +91,8 @@ internal fun KomikkuReaderRoot(
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
 	onPageCurlTurnPhase: (ReaderPageCurlTurnPhase) -> Unit,
+	/** Why read-along audio must wait (the page is not READY), or null; see readAlongHoldReason. */
+	onPageReadinessChange: (String?) -> Unit = {},
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onToggleWhispersyncCueMap: () -> Unit,
 	onWhispersyncCueMapChromeInterception: () -> Unit,
@@ -144,6 +148,19 @@ internal fun KomikkuReaderRoot(
 	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
 	var bookPreparationRetryKey by remember { mutableStateOf(0) }
 	val bookPreparationActive = reader.prepareBookPages
+	// Every opening that has pages to prepare asks for the cache scope (this chapter or the whole
+	// book) and the book waits for the answer; "Prepare pages" already means the whole book.
+	var openingCacheScopeAsked by remember(reader) { mutableStateOf(false) }
+	var openingCacheScopeAnswered by remember(reader) { mutableStateOf(bookPreparationActive) }
+	// Read-along audio holds while the page is not READY, including while the opening question waits.
+	val pageReadinessHoldReason = pagePreparationState.readAlongHoldReason(
+		openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered
+	)
+	LaunchedEffect(pageReadinessHoldReason, controllerState.whispersync.pageHoldReason) {
+		if (pageReadinessHoldReason != controllerState.whispersync.pageHoldReason) {
+			onPageReadinessChange(pageReadinessHoldReason)
+		}
+	}
 	// #70: the orientation still missing after the current one is prepared. The reader prepares
 	// it in place when it can; otherwise (or when that fails) the overlay offers Done.
 	var bookPreparationMissing by remember { mutableStateOf<ReaderPreparationOrientation?>(null) }
@@ -179,7 +196,7 @@ internal fun KomikkuReaderRoot(
 				status = controllerState.whispersync.status,
 				playbackState = readaloudPlaybackState,
 				hasPreparedVisibleTarget = controllerState.whispersync.preparedVisibleTarget != null,
-				transportPhase = controllerState.whispersync.transportPhase
+				pageHeld = controllerState.whispersync.pageHoldReason != null
 			),
 			shellCoverVisible = controllerState.shellCoverVisible,
 			mediaOverlayAvailable = mediaOverlayAvailable
@@ -346,6 +363,7 @@ internal fun KomikkuReaderRoot(
 						whispersyncPlaybackControl = whispersyncPlaybackControl,
 						readaloudPlaybackState = readaloudPlaybackState,
 						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
+						onTurnPageWithAudio = { direction -> onViewerAction(ReaderViewerAction.TurnPage(direction, withAudio = true)) },
 						onToggleWhispersyncCueMap = onToggleWhispersyncCueMap,
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
@@ -409,13 +427,36 @@ internal fun KomikkuReaderRoot(
 							.padding(bottom = if (reviewAboveMenu) 136.dp else 0.dp)
 					)
 				}
-				if (controllerState.errorMessage == null && readerOpeningPreparationVisible(pagePreparationState)) {
+				val openingPreparationVisible = readerOpeningPreparationVisible(pagePreparationState)
+				LaunchedEffect(openingPreparationVisible, pagePreparationState.phase) {
+					when {
+						openingCacheScopeAnswered || openingCacheScopeAsked -> Unit
+						openingPreparationVisible -> openingCacheScopeAsked = true
+						// Opened from ready pages: nothing to prepare, so nothing to ask this time.
+						pagePreparationState.phase == ReaderPagePreparationPhase.Ready -> openingCacheScopeAnswered = true
+					}
+				}
+				if (
+					controllerState.errorMessage == null &&
+					(openingPreparationVisible || openingCacheScopeAsked && !openingCacheScopeAnswered)
+				) {
 					ReaderOpeningPreparationScreen(
 						title = reader.title,
 						state = pagePreparationState,
 						profile = controllerState.paginationProfile,
 						onRetry = { pagePreparationRetryKey += 1 },
-						modifier = Modifier.matchParentSize()
+						modifier = Modifier.matchParentSize(),
+						cacheScope = controllerState.chrome.settings.pageCacheScope,
+						onChooseCacheScope = if (openingCacheScopeAnswered) {
+							null
+						} else {
+							{ scope ->
+								openingCacheScopeAnswered = true
+								if (controllerState.chrome.settings.pageCacheScope != scope.persistedValue) {
+									onSettingsChange(controllerState.chrome.settings.copy(pageCacheScope = scope.persistedValue))
+								}
+							}
+						}
 					)
 				}
 				if (bookPreparationActive) {
@@ -471,6 +512,7 @@ private fun KomikkuComposeOverlay(
 	whispersyncPlaybackControl: ReaderWhispersyncPlaybackControlState,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onTurnPageWithAudio: (ReaderPageTurnDirection) -> Unit,
 	onToggleWhispersyncCueMap: () -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
@@ -587,9 +629,21 @@ private fun KomikkuComposeOverlay(
 					KomikkuWhispersyncPlaybackControl(
 						control = whispersyncPlaybackControl,
 						readerTheme = controllerState.chrome.settings.theme,
-						onCommand = onWhispersyncPlaybackCommand,
 						onOpenPlayer = onWhispersyncPlayer
 					)
+					if (!whispersyncPlaybackControl.loading) {
+						KomikkuWhispersyncTransportControls(
+							transport = readerWhispersyncTransportControls(
+								control = whispersyncPlaybackControl,
+								playbackState = readaloudPlaybackState,
+								userPaused = controllerState.whispersync.userPaused,
+								transportPhase = controllerState.whispersync.transportPhase
+							),
+							readerTheme = controllerState.chrome.settings.theme,
+							onCommand = onWhispersyncPlaybackCommand,
+							onTurnPageWithAudio = onTurnPageWithAudio
+						)
+					}
 				}
 				if (cueMapAvailable) {
 					val cueMapDiagnosticSurface = controllerState.whispersync.cueMap.productionDiagnosticSurface(

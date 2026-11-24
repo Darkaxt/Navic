@@ -48,8 +48,14 @@ private data class ReaderPageRasterBackgroundPrefetch(
 	val currentChapterPageCount: Int,
 	val chapters: List<ReaderPageAdjacentChapterPrefetchChapter>,
 	val generation: Long,
-	val preparationGeneration: Long
+	val preparationGeneration: Long,
+	/** The plan's chapters for each page cache scope, so a scope change re-plans without a rebuild. */
+	val scopedChapters: List<ReaderPageAdjacentChapterPrefetchChapter> = chapters,
+	val wholeBookChapters: List<ReaderPageAdjacentChapterPrefetchChapter> = chapters
 ) {
+	fun withWholeBook(wholeBook: Boolean): ReaderPageRasterBackgroundPrefetch =
+		copy(chapters = if (wholeBook) wholeBookChapters else scopedChapters)
+
 	fun qualifiedPlan(rasterProfileEpoch: Long): ReaderPageAdjacentChapterPrefetchPlan =
 		ReaderPageAdjacentChapterPrefetchPlan(
 			key = ReaderPageAdjacentChapterPrefetchKey(
@@ -677,7 +683,16 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	fun updatePageCacheOptions(scope: String?, layouts: String?) {
+		val previousScope = pageCacheScope
 		pageCacheScope = normalizeReaderPageCacheScope(scope)
+		if (pageCacheScope != previousScope && !destroyed) {
+			// The opening question (or the setting) changed the scope of an open book: the plans
+			// already made take the new chapters now instead of at the next preparation.
+			val wholeBook = wholeBookPreparationAllowed()
+			candidateBackgroundPrefetch = candidateBackgroundPrefetch?.withWholeBook(wholeBook)
+			pendingReadyBackgroundPrefetch = pendingReadyBackgroundPrefetch?.withWholeBook(wholeBook)
+			durableBackgroundPrefetch?.withWholeBook(wholeBook)?.let(::publishDurableAdjacentChapterPlan)
+		}
 		pageCacheLayouts = normalizeReaderPageCacheLayouts(layouts)
 		if (pageCacheLayouts != ReaderPageCacheLayouts.Both) onCurrentLayoutSettledChanged(false)
 	}
@@ -1821,7 +1836,15 @@ internal class ReaderPageRasterPreparationController(
 					earlierChapters = bookPreparationListener != null
 				),
 				generation = bundleSource.currentGeneration(),
-				preparationGeneration = preparationGeneration
+				preparationGeneration = preparationGeneration,
+				scopedChapters = plan.adjacentChapterPrefetchChapters(
+					wholeBook = false,
+					earlierChapters = bookPreparationListener != null
+				),
+				wholeBookChapters = plan.adjacentChapterPrefetchChapters(
+					wholeBook = true,
+					earlierChapters = bookPreparationListener != null
+				)
 			)
 			val calibrationTargets = readerPageRasterCalibrationTargets(plan.targets)
 			obtainRasterReference(

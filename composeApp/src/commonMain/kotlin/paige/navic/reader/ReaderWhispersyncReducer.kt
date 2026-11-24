@@ -413,7 +413,9 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 		overlayFragment != null &&
 		overlayFragment.isOutsideWhispersyncVisibleRange(visibleRange)
 	) {
-		return pauseAtWhispersyncVisiblePageEnd(playbackState, syncState, overlayFragment.label)
+		return pauseAtWhispersyncVisiblePageEnd(
+			playbackState, syncState, overlayFragment.label, "outside-visible-range"
+		)
 	}
 
 	val publishedCommand = command.takeIf {
@@ -585,7 +587,7 @@ private fun ReaderController.resumeOrBeginWhispersyncPlayback(): ReaderControlle
  */
 internal fun ReaderController.whispersyncPlayBlocker(): String? {
 	val current = state.whispersync
-	if (current.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused) return "boundary-paused"
+	current.pageHoldReason?.let { reason -> return "page-not-ready-$reason" }
 	if (
 		current.userPaused &&
 		current.userPausedDestinationCommitIdentity == state.destinationCommitIdentity
@@ -598,7 +600,7 @@ internal fun ReaderController.whispersyncPlayBlocker(): String? {
 /** The conditions under which a prepared visible target may not begin playback (any caller). */
 private fun ReaderController.preparedPlaybackBlocker(): String? {
 	val current = state.whispersync
-	if (current.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused) return "boundary-paused"
+	// A finished spread (BoundaryPaused) replays from its first visible word; turning continues.
 	val prepared = current.preparedVisibleTarget ?: return "no-prepared-visible-target"
 	val preparedSegment = prepared.audioSeekTarget.segment
 	if (current.sidecar?.coordinateBasis != null) {
@@ -640,7 +642,7 @@ private fun ReaderController.pauseWhispersyncPlayback(): ReaderControllerStep {
 	)
 }
 
-private fun ReaderController.beginPreparedWhispersyncPlayback(): ReaderControllerStep {
+internal fun ReaderController.beginPreparedWhispersyncPlayback(): ReaderControllerStep {
 	val currentWhispersync = state.whispersync
 	if (preparedPlaybackBlocker() != null) return ReaderControllerStep(this)
 	val prepared = currentWhispersync.preparedVisibleTarget ?: return ReaderControllerStep(this)
@@ -1165,7 +1167,7 @@ private fun ReaderController.failCanonicalWhispersyncMapping(
 	)
 }
 
-private fun ReaderController.hasCurrentCanonicalAdmission(): Boolean {
+internal fun ReaderController.hasCurrentCanonicalAdmission(): Boolean {
 	val current = state.whispersync
 	val sidecar = current.sidecar?.takeIf { it.coordinateBasis != null } ?: return true
 	if (current.canonicalGenerationState != ReaderWhispersyncCanonicalGenerationState.Open) return false
@@ -2111,12 +2113,13 @@ private fun ReaderEngineCommand?.confirmedOverlayLabelOrPrevious(
 internal fun ReaderController.pauseAtWhispersyncVisiblePageEnd(
 	playbackState: ReaderReadaloudPlaybackUiState,
 	sync: ReaderWhispersyncSyncState,
-	detail: String?
+	detail: String?,
+	reason: String
 ): ReaderControllerStep {
 	Logger.i(
 		WhispersyncSyncLogTag,
 		"Whispersync playback state=page-ended matched=false active=false " +
-			"reason=outside-visible-range command=pause"
+			"reason=$reason command=pause"
 	)
 	return ReaderControllerStep(
 		controller = copy(

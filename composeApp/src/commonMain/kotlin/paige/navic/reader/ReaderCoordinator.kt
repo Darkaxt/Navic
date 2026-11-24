@@ -70,7 +70,7 @@ data class ReaderCoordinator(
 	}
 
 	internal fun applyWordSyncDecision(decision: ReaderWordSyncDecision): ReaderCoordinatorStep {
-		val step = decision.controllerStep
+		val step = decision.controllerStep.withWhispersyncPageHold()
 		var next = copy(controller = step.controller, wordSync = decision.coordinator)
 		val bridgeCommands = ReaderWordSyncBridgeCommandSequence()
 		step.engineCommands.forEach { command ->

@@ -910,6 +910,33 @@ class ReaderPassiveRasterPrototypeTest {
 	}
 
 	@Test
+	fun pagesWithVisibleMediaAreNeverPaperTextSplit() {
+		val script = readerAssetRoot().resolve("passive-raster-prototype")
+			.resolve("passive-raster-prototype.js").readText()
+		val describe = script.substringAfter("export const paperSplitDescribe = () => {")
+			.substringBefore("export const paperSplitHideText")
+		val visible = script.substringAfter("const paperSplitHasVisibleMedia = view =>")
+			.substringBefore("export const paperSplitDescribe")
+
+		// One coverage plane cannot hold a colour plate (#58): describe must decline those pages
+		// before fingerprinting, so the host keeps the full composite PNG.
+		assertContains(
+			script,
+			"const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]'"
+		)
+		assertTrue(
+			describe.indexOf("if (paperSplitHasVisibleMedia(view)) return null") in
+				0 until describe.indexOf("const fingerprint")
+		)
+		// The paginated iframe spans the whole section: visibility is measured in top-level
+		// coordinates, and an unmeasurable frame counts its pictures as visible.
+		assertContains(visible, "content.doc.defaultView?.frameElement?.getBoundingClientRect?.()")
+		assertContains(visible, "if (!frame || !(frame.width > 0) || !(frame.height > 0)) return true")
+		assertContains(visible, "const left = frame.left + rect.left")
+		assertContains(visible, "left < innerWidth && top < innerHeight")
+	}
+
+	@Test
 	fun passiveWebViewHostAndAssetsExposeOnlyTheRasterChannel() {
 		val hostText = readerAndroidFile("ReaderPassiveRasterWebViewHost.android.kt").readText()
 		val prototypeText = readerAndroidFile("ReaderPassiveRasterPrototype.android.kt").readText()

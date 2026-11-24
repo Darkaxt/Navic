@@ -4,7 +4,9 @@ import java.io.File
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import paige.navic.reader.ReaderPageBitmapQuality
+import paige.navic.reader.readerAndroidFile
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -1028,6 +1030,49 @@ class ReaderPageTurnBundleTest {
 		)
 		// The dump reads the owned bitmaps, so it must finish before the worker hands them back.
 		assertTrue(dump < worker.indexOf("ownership.recordWorkerResult(result)"))
+	}
+
+	@Test
+	fun rejectionDetailLocatesAColourPlateAgainstAMonochromeTarget() {
+		val target = TestRaster.create(width = 180, height = 160, color = PaperColor).apply {
+			fillRect(left = 100, top = 40, right = 160, bottom = 120, color = 0xff8a8580.toInt())
+		}
+		val candidate = target.copy().apply {
+			fillRect(left = 100, top = 40, right = 160, bottom = 120, color = 0xff3c78c8.toInt())
+		}
+		val detail = assertNotNull(readerPageLiveRasterRejectionDetail(candidate, target))
+
+		assertEquals(0L, detail.leftFarPixels)
+		assertEquals(30L * 40L, detail.rightFarPixels)
+		assertEquals(100, detail.left)
+		assertEquals(40, detail.top)
+		assertEquals(158, detail.right)
+		assertEquals(118, detail.bottom)
+		assertEquals(0xc8L - 0x3cL, detail.candidateChroma)
+		assertEquals(0x8aL - 0x80L, detail.targetChroma)
+		assertContains(detail.privacySafeMetrics(), "box=100,40-158,118")
+
+		val identical = assertNotNull(readerPageLiveRasterRejectionDetail(target.copy(), target))
+		assertEquals(0L, identical.leftFarPixels + identical.rightFarPixels)
+		assertEquals(-1, identical.left)
+		assertEquals(-1, identical.bottom)
+		assertNull(readerPageLiveRasterRejectionDetail(TestRaster.create(10, 10, PaperColor), target))
+	}
+
+	@Test
+	fun rejectedLiveCaptureLogsWhereItDiffersBeforeReturningRasterMismatch() {
+		val source = readerAndroidFile("ReaderPageTurnBundleSource.android.kt").readText()
+		val capture = source.substringAfter("private fun readerPageLiveCaptureMatchesExpected(")
+			.substringBefore("private fun readerPageLiveCaptureValidationResult(")
+		val mismatch = capture.substringAfter("\"Live page-turn renderer capture metrics \"")
+			.substringBefore("return rejected(\"RasterMismatch\")")
+		assertContains(mismatch, "readerPageLiveRasterRejectionDetail(")
+		assertContains(mismatch, "\"Live page-turn validation rejection detail \"")
+		assertContains(mismatch, "targetSplit=\${ReaderPagePaperRegistry.isSplitDecoded(expectedTarget.bitmap)}")
+		assertContains(mismatch, "if (failure is CancellationException) throw failure")
+		val codec = readerAndroidFile("ReaderPagePaperSplit.android.kt").readText()
+			.substringAfter("override fun decode(source: File): Bitmap? {")
+		assertContains(codec, "ReaderPagePaperRegistry.markSplitDecoded(bitmap)")
 	}
 
 	private class TestRaster private constructor(

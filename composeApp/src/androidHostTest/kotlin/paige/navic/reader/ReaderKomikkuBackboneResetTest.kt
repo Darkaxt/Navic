@@ -2020,8 +2020,24 @@ class ReaderKomikkuBackboneResetTest {
 		)
 		assertTrue(
 			playbackControlBody.contains("onOpenPlayer: () -> Unit") &&
-				playbackControlBody.contains("onLongPress = { latestOnOpenPlayer.value() }"),
-			"The page-level headset must own the full player route through a secondary gesture while short tap remains playback toggle."
+				playbackControlBody.contains("onLongPress = { latestOnOpenPlayer.value() }") &&
+				playbackControlBody.contains("onTap = { latestOnOpenPlayer.value() }") &&
+				!playbackControlBody.contains("onCommand"),
+			"The page-level headset must open the full player on tap and long press; playback lives in the transport row."
+		)
+		assertTrue(
+			readerRootText.contains("KomikkuWhispersyncTransportControls(") &&
+				statusBadgeText.contains("onTurnPageWithAudio(ReaderPageTurnDirection.Previous)") &&
+				statusBadgeText.contains("onTurnPageWithAudio(ReaderPageTurnDirection.Next)") &&
+				readerRootText.contains("ReaderViewerAction.TurnPage(direction, withAudio = true)") &&
+				statusBadgeText.contains("onCommand(ReaderReadaloudPlaybackCommand.StopAndReset)") &&
+				statusBadgeText.contains("transport.playPause?.let(onCommand)"),
+			"The Whispersync transport row must offer back/forward page, play/pause and stop beside the headset."
+		)
+		assertTrue(
+			readerRootText.contains("openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered") &&
+				readerRootText.contains("onPageReadinessChange(pageReadinessHoldReason)"),
+			"Read-along audio must hold while the page is not ready, including the unanswered opening question."
 		)
 		assertFalse(
 			playbackControlBody.contains("Surface(") ||

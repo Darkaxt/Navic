@@ -43,10 +43,12 @@ internal fun ReaderWhispersyncPlaybackControlDescription.localizedDescription():
 			stringResource(Res.string.title_whispersync_audiobook)
 		ReaderWhispersyncPlaybackControlDescription.Loading ->
 			stringResource(Res.string.info_whispersync_audiobook_loading)
-		ReaderWhispersyncPlaybackControlDescription.Reset ->
-			stringResource(Res.string.action_reset_whispersync_audiobook)
+		ReaderWhispersyncPlaybackControlDescription.Pause ->
+			stringResource(Res.string.action_pause_whispersync_audiobook)
 		ReaderWhispersyncPlaybackControlDescription.Play ->
 			stringResource(Res.string.action_play_whispersync_audiobook)
 		ReaderWhispersyncPlaybackControlDescription.NoAudioCueOnPage ->
 			stringResource(Res.string.info_whispersync_no_audio_cue_on_page)
+		ReaderWhispersyncPlaybackControlDescription.WaitingForPage ->
+			stringResource(Res.string.info_whispersync_waiting_for_page)
 	}

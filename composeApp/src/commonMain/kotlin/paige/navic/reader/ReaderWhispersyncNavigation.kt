@@ -175,3 +175,18 @@ internal fun ReaderWhispersyncSessionState.navigationPauseCommand(): ReaderReada
 			!userPaused &&
 			transportPhase != ReaderWhispersyncTransportPhase.BoundaryPaused
 	}
+
+/**
+ * The transport's Prev/Next always carry the narration: once the new page's visible range is
+ * admitted, playback begins from its first visible word, even if audio was paused or never started.
+ */
+internal fun ReaderController.withTransportAudioCarry(): ReaderController =
+	copy(
+		state = state.copy(
+			whispersync = state.whispersync.copy(
+				playbackIntent = ReaderWhispersyncPlaybackIntent.Enabled,
+				userPaused = false,
+				userPausedDestinationCommitIdentity = null
+			)
+		)
+	)

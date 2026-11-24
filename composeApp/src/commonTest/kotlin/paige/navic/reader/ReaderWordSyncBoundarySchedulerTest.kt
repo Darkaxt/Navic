@@ -209,6 +209,53 @@ class ReaderWordSyncBoundarySchedulerTest {
 	}
 
 	@Test
+	fun pageEndIsScheduledBeforeTheNextWordAndFiresOnceWithoutPublishing() {
+		val harness = SchedulerHarness(positionMs = 1_050L)
+		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_200L), pageEnd(audioTimeMs = 1_150L))
+
+		assertEquals(listOf(30L), harness.activeDelays())
+		harness.snapshot = harness.snapshot.copy(positionMs = 1_080L)
+		harness.runNext()
+		// The visible narration ends before the next page's first word starts.
+		assertEquals(listOf(70L), harness.activeDelays())
+
+		harness.snapshot = harness.snapshot.copy(positionMs = 1_150L)
+		harness.runNext()
+
+		assertEquals(listOf(1_150L), harness.pageEnds.map { it.positionMs })
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
+		assertEquals(1, harness.clears.size)
+		// The page end is behind the position now; only the next word remains scheduled.
+		assertEquals(listOf(50L), harness.activeDelays())
+	}
+
+	@Test
+	fun lateWakePastThePageEndFiresThePageEndInsteadOfCoalescingIntoTheNextPage() {
+		val harness = SchedulerHarness(positionMs = 1_050L)
+		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_100L, 1_200L, 1_300L), pageEnd(audioTimeMs = 1_150L))
+
+		harness.snapshot = harness.snapshot.copy(positionMs = 1_250L)
+		harness.runNext()
+
+		assertEquals(1, harness.pageEnds.size)
+		assertEquals(listOf(1_000L), harness.dispatches.map { it.boundary.audioStartMs })
+		assertEquals(listOf(30L), harness.activeDelays())
+	}
+
+	@Test
+	fun pageEndOfAnotherTrackIsIgnored() {
+		val harness = SchedulerHarness(positionMs = 1_050L)
+		harness.scheduler.replaceTimeline(boundaries(1_000L, 1_200L), pageEnd(audioTimeMs = 1_060L, audioTrackIndex = 1))
+
+		assertEquals(listOf(30L), harness.activeDelays())
+		harness.snapshot = harness.snapshot.copy(positionMs = 1_080L)
+		harness.runNext()
+
+		assertTrue(harness.pageEnds.isEmpty())
+		assertEquals(1, harness.clears.size)
+	}
+
+	@Test
 	fun trackBoundariesExcludeWordsWithoutPresentableExactEndpoints() {
 		val track = WordSyncTrack(
 			audioResourceId = "track-1",
@@ -242,13 +289,15 @@ class ReaderWordSyncBoundarySchedulerTest {
 		val scheduled = mutableListOf<ScheduledWakeup>()
 		val dispatches = mutableListOf<ReaderWordSyncBoundaryDispatch>()
 		val clears = mutableListOf<ReaderWordSyncTimelineSnapshot>()
+		val pageEnds = mutableListOf<ReaderWordSyncTimelineSnapshot>()
 		val scheduler = ReaderWordSyncBoundaryScheduler(
 			currentTimeline = { snapshot },
 			schedule = { delayMs, action ->
 				ScheduledWakeup(delayMs, action).also(scheduled::add)
 			},
 			onBoundary = dispatches::add,
-			onClear = clears::add
+			onClear = clears::add,
+			onPageEnd = pageEnds::add
 		)
 
 		fun activeDelays(): List<Long> = scheduled.filterNot { it.cancelled || it.ran }.map { it.delayMs }
@@ -273,6 +322,14 @@ class ReaderWordSyncBoundarySchedulerTest {
 	}
 
 	private companion object {
+		fun pageEnd(audioTimeMs: Long, audioTrackIndex: Int = 0) = ReaderWordSyncPageEnd(
+			audioTrackIndex = audioTrackIndex,
+			audioTimeMs = audioTimeMs,
+			source = "next-word",
+			trailingWordCount = 0,
+			trailingStatuses = ""
+		)
+
 		fun boundaries(vararg starts: Long): List<ReaderWordSyncBoundary> =
 			starts.mapIndexed { index, start ->
 				boundary(startMs = start, endMs = start + 80L, ordinal = index)

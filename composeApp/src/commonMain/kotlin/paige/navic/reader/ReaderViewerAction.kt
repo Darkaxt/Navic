@@ -5,8 +5,10 @@ sealed interface ReaderViewerAction {
 
 	data object NativeShellPrepared : ReaderViewerAction
 
+	/** [withAudio]: the read-along transport's Prev/Next, which carry the narration to the new page. */
 	data class TurnPage(
-		val direction: ReaderPageTurnDirection
+		val direction: ReaderPageTurnDirection,
+		val withAudio: Boolean = false
 	) : ReaderViewerAction
 
 	data class PreviewPageDrag(

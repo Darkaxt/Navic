@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -491,17 +492,43 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(onPage.controllerStep.engineCommands.single())
 		assertNull(onPage.controllerStep.readaloudPlaybackCommand)
 
-		// The last visible word ends and only off-page words follow: pause there, not at the next
-		// page's first matched word, however far into the narration that is.
+		// The last visible word's own end is silence inside the page, never the page end: the
+		// narration between words keeps playing until the scheduler's PageEnd transition.
 		val lastWordEnded = onPage.coordinator.coordinateClear(
 			controller = onPage.controllerStep.controller,
 			playback = playback.copy(positionMs = 1_250)
 		)
-		assertEquals(ReaderReadaloudPlaybackCommand.Pause, lastWordEnded.controllerStep.readaloudPlaybackCommand)
+		assertNull(lastWordEnded.controllerStep.readaloudPlaybackCommand)
 		assertEquals(
-			ReaderWhispersyncTransportPhase.BoundaryPaused,
+			ReaderWhispersyncTransportPhase.Playing,
 			lastWordEnded.controllerStep.controller.state.whispersync.transportPhase
 		)
+
+		// The visible page ends where the first word past it starts.
+		val pageEnd = assertNotNull(onPage.coordinator.visiblePageEnd(onPage.controllerStep.controller, playback))
+		assertEquals("next-word", pageEnd.source)
+		assertEquals(1_300L, pageEnd.audioTimeMs)
+		assertEquals(0, pageEnd.trailingWordCount)
+		val early = onPage.coordinator.coordinatePageEnd(
+			controller = onPage.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_290)
+		)
+		assertNull(early.controllerStep.readaloudPlaybackCommand)
+		val reached = onPage.coordinator.coordinatePageEnd(
+			controller = onPage.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_300)
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, reached.controllerStep.readaloudPlaybackCommand)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.BoundaryPaused,
+			reached.controllerStep.controller.state.whispersync.transportPhase
+		)
+		// Once paused the PageEnd transition is inert: no second Pause.
+		val again = reached.coordinator.coordinatePageEnd(
+			controller = reached.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_310)
+		)
+		assertNull(again.controllerStep.readaloudPlaybackCommand)
 
 		val pastPage = current.coordinator.coordinateBoundary(
 			controller = current.controllerStep.controller,
@@ -515,6 +542,94 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			pastPage.controllerStep.controller.state.whispersync.transportPhase
 		)
 	}
+
+	@Test
+	fun trailingUnmatchedVisibleWordPlaysBeforePageEnd() {
+		// The second word is on the page but the aligner did not match it: its narration still
+		// belongs to the page, so the page ends after it, not at the last matched word's end.
+		val unmatchedChapter = chapter.copy(
+			tracks = chapter.tracks.map { track ->
+				track.copy(words = track.words.map { word -> if (word.ebookStart == 103) word.copy(status = 0) else word })
+			}
+		)
+		val (ready, base) = readyCoordinatorAndController()
+		val coordinator = ready.copy(
+			chapters = mapOf(
+				unmatchedChapter.chapterKey to ReaderVerifiedWordSyncChapter(
+					chapter = unmatchedChapter,
+					descriptor = descriptor()
+				)
+			)
+		)
+		val controller = base.withVisibleBytes(rawByteStart = 100, rawByteEnd = 105)
+
+		val pageEnd = assertNotNull(coordinator.visiblePageEnd(controller, playbackIdentity(positionMs = 1_050)))
+
+		assertEquals("track-end", pageEnd.source)
+		assertEquals(1_520L, pageEnd.audioTimeMs)
+		assertEquals(1, pageEnd.trailingWordCount)
+		assertEquals("0", pageEnd.trailingStatuses)
+		val beforeTrailingWord = coordinator.coordinatePageEnd(controller, playbackIdentity(positionMs = 1_250))
+		assertNull(beforeTrailingWord.controllerStep.readaloudPlaybackCommand)
+		val ended = coordinator.coordinatePageEnd(controller, playbackIdentity(positionMs = 1_520))
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, ended.controllerStep.readaloudPlaybackCommand)
+	}
+
+	@Test
+	fun chapterEndOnPageUsesTrackOrCueEnd() {
+		val (ready, base) = readyCoordinatorAndController()
+		val lastPage = base.withVisibleBytes(rawByteStart = 100, rawByteEnd = 109)
+		val playback = playbackIdentity(positionMs = 1_050)
+
+		// No word follows the page on this track: the page ends with the track's last word.
+		val trackEnd = assertNotNull(ready.visiblePageEnd(lastPage, playback))
+		assertEquals("track-end", trackEnd.source)
+		assertEquals(1_520L, trackEnd.audioTimeMs)
+
+		// A canonical cue over the page that outlasts the last word extends the page end.
+		val withCue = lastPage.copy(
+			state = lastPage.state.copy(
+				whispersync = lastPage.state.whispersync.copy(
+					sidecar = WhispersyncSidecar(
+						timeline = WhispersyncTimeline(
+						segments = listOf(
+							cueSegment().copy(
+								audioTrackIndex = 0,
+								endMs = 1_800,
+								textStart = 100,
+								textEnd = 109,
+								rawProvenanceId = descriptor().id
+							)
+						)
+					)
+					)
+				)
+			)
+		)
+		val cueEnd = assertNotNull(ready.visiblePageEnd(withCue, playback))
+		assertEquals("cue-end", cueEnd.source)
+		assertEquals(1_800L, cueEnd.audioTimeMs)
+
+		// Another track's playback never inherits this page's end.
+		assertNull(ready.visiblePageEnd(lastPage, playback.copy(audioResourceId = "audio-b", audioTrackIndex = 1)))
+	}
+
+	private fun ReaderController.withVisibleBytes(rawByteStart: Int, rawByteEnd: Int) = copy(
+		state = state.copy(
+			whispersync = state.whispersync.copy(
+				transportPhase = ReaderWhispersyncTransportPhase.Playing,
+				visibleTextRange = ReaderWhispersyncVisibleTextRange(
+					textHref = "Text/chapter.xhtml",
+					visibleStart = 10,
+					visibleEnd = 20,
+					rawProvenanceId = descriptor().id,
+					rawSpineIndex = 2,
+					rawByteStart = rawByteStart,
+					rawByteEnd = rawByteEnd
+				)
+			)
+		)
+	)
 
 	@Test
 	fun failedIndexCannotSuppressCueLevelProgressFallback() {

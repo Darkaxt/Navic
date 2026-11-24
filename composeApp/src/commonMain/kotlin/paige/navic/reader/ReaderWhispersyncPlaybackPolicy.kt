@@ -3,9 +3,10 @@ package paige.navic.reader
 enum class ReaderWhispersyncPlaybackControlDescription {
 	Audiobook,
 	Loading,
-	Reset,
+	Pause,
 	Play,
-	NoAudioCueOnPage
+	NoAudioCueOnPage,
+	WaitingForPage
 }
 
 data class ReaderWhispersyncPlaybackControlState(
@@ -23,7 +24,7 @@ fun readerWhispersyncPlaybackControlState(
 	status: ReaderWhispersyncStatus,
 	playbackState: ReaderReadaloudPlaybackUiState?,
 	hasPreparedVisibleTarget: Boolean,
-	transportPhase: ReaderWhispersyncTransportPhase? = null
+	pageHeld: Boolean = false
 ): ReaderWhispersyncPlaybackControlState {
 	if (playbackState?.isPlaying == true) {
 		return ReaderWhispersyncPlaybackControlState(
@@ -32,12 +33,22 @@ fun readerWhispersyncPlaybackControlState(
 			crossed = false,
 			enabled = true,
 			noAudioCueOnPage = false,
-			contentDescription = ReaderWhispersyncPlaybackControlDescription.Reset,
-			command = ReaderReadaloudPlaybackCommand.StopAndReset
+			contentDescription = ReaderWhispersyncPlaybackControlDescription.Pause,
+			command = ReaderReadaloudPlaybackCommand.Pause
 		)
 	}
 	if (!status.visible) {
 		return ReaderWhispersyncPlaybackControlState()
+	}
+	// The page is not READY (page preparation, opening question): audio waits for it.
+	if (pageHeld) {
+		return ReaderWhispersyncPlaybackControlState(
+			visible = true,
+			loading = true,
+			crossed = true,
+			enabled = false,
+			contentDescription = ReaderWhispersyncPlaybackControlDescription.WaitingForPage
+		)
 	}
 	if (
 		status.kind == ReaderWhispersyncStatusKind.SeekingAudio &&
@@ -59,9 +70,9 @@ fun readerWhispersyncPlaybackControlState(
 			enabled = false,
 			contentDescription = ReaderWhispersyncPlaybackControlDescription.Loading
 		)
+	// A finished spread (page end) replays from its first visible word on Play.
 	val command = availablePlayback.whispersyncHeadsetCommand(
-		hasPreparedVisibleTarget = hasPreparedVisibleTarget,
-		canStart = transportPhase != ReaderWhispersyncTransportPhase.BoundaryPaused
+		hasPreparedVisibleTarget = hasPreparedVisibleTarget
 	)
 	val crossed = !availablePlayback.isPlaying || !availablePlayback.syncEnabled
 	val noAudioCueOnPage = !availablePlayback.isPlaying && !hasPreparedVisibleTarget
@@ -72,7 +83,7 @@ fun readerWhispersyncPlaybackControlState(
 		enabled = command != null,
 		noAudioCueOnPage = noAudioCueOnPage,
 		contentDescription = when {
-			availablePlayback.isPlaying -> ReaderWhispersyncPlaybackControlDescription.Reset
+			availablePlayback.isPlaying -> ReaderWhispersyncPlaybackControlDescription.Pause
 			noAudioCueOnPage -> ReaderWhispersyncPlaybackControlDescription.NoAudioCueOnPage
 			else -> ReaderWhispersyncPlaybackControlDescription.Play
 		},
@@ -85,7 +96,7 @@ fun readerWhispersyncPlaybackControlPresentation(
 	shellCoverVisible: Boolean,
 	mediaOverlayAvailable: Boolean
 ): ReaderWhispersyncPlaybackControlState =
-	if (control.command == ReaderReadaloudPlaybackCommand.StopAndReset) {
+	if (control.command == ReaderReadaloudPlaybackCommand.Pause) {
 		control
 	} else if (shellCoverVisible || !mediaOverlayAvailable) {
 		control.copy(visible = false)
@@ -100,18 +111,34 @@ fun readerWhispersyncTransportEnabled(
 	playbackState.isAvailable && (playbackState.isPlaying || hasPreparedVisibleTarget)
 
 private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(
-	hasPreparedVisibleTarget: Boolean,
-	canStart: Boolean
+	hasPreparedVisibleTarget: Boolean
 ): ReaderReadaloudPlaybackCommand? =
 	if (!readerWhispersyncTransportEnabled(this, hasPreparedVisibleTarget)) {
 		null
 	} else if (isPlaying) {
-		ReaderReadaloudPlaybackCommand.StopAndReset
-	} else if (canStart) {
-		ReaderReadaloudPlaybackCommand.Play
+		ReaderReadaloudPlaybackCommand.Pause
 	} else {
-		null
+		ReaderReadaloudPlaybackCommand.Play
 	}
+
+/** The page transport row: back/forward step pages, play/pause keeps the position, stop resets. */
+data class ReaderWhispersyncTransportControls(
+	val playPause: ReaderReadaloudPlaybackCommand?,
+	val playing: Boolean,
+	val stopEnabled: Boolean
+)
+
+fun readerWhispersyncTransportControls(
+	control: ReaderWhispersyncPlaybackControlState,
+	playbackState: ReaderReadaloudPlaybackUiState?,
+	userPaused: Boolean,
+	transportPhase: ReaderWhispersyncTransportPhase?
+): ReaderWhispersyncTransportControls = ReaderWhispersyncTransportControls(
+	playPause = control.command?.takeIf { control.enabled },
+	playing = playbackState?.isPlaying == true,
+	stopEnabled = playbackState?.isPlaying == true || userPaused ||
+		transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused
+)
 
 fun readerWhispersyncPlaybackCommandForSeekTarget(
 	playbackPlan: ReadaloudPlaybackPlan?,

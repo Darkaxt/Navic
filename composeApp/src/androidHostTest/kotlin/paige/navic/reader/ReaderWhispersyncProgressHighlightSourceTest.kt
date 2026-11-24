@@ -529,6 +529,27 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 		assertFalse(highlighter.contains("textHref: fragment.textHref"))
 	}
 
+	@Test
+	fun eachWordSyncSegmentLogsANumericPaintProbe() {
+		val provenance = sourceFile("composeApp/src/androidMain/assets/reader/navic-reader-wordsync-provenance.js")
+			.readText()
+		val segment = provenance.substringAfter("const logReaderWordSyncSegment = (runtime, fragment) => {")
+			.substringBefore("export const rejectReaderWordSyncOverlay")
+		val probe = provenance.substringAfter("const logReaderWordSyncPaintProbe = (runtime, sequence) => {")
+			.substringBefore("export const rejectReaderWordSyncOverlay")
+
+		// The probe runs after the segment line and can never break painting.
+		assertTrue(
+			segment.indexOf("log(`wordsync-segment:") < segment.indexOf("logReaderWordSyncPaintProbe(runtime, sequence)")
+		)
+		assertContains(segment, "} catch (_) {}")
+		assertContains(probe, "readerMediaOverlayPaintedViewportRects()")
+		assertContains(probe, "log(`wordsync-paint-probe:\${fields.join(',')}`)")
+		// Numeric only: every field goes through the integer guard or is a 0/1/-1 flag.
+		assertFalse(probe.contains("textContent"))
+		assertFalse(probe.contains("outerHTML"))
+	}
+
 	private fun sourceFile(path: String): File =
 		listOf(
 			File("../$path"),

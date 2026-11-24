@@ -967,11 +967,11 @@ class ReaderRuntimeShellProgressTest {
 			.substringBefore("\n\tprivate fun turnPage")
 		val shellCoverDismissalBranch = shellCoverViewerAction
 			.substringAfter(
-				"action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||"
+				"(action is ReaderViewerAction.TurnPage && action.direction == ReaderPageTurnDirection.Next) ||"
 			)
 			.substringBefore("else -> ReaderControllerStep(this)")
 		val pageTurn = controllerText
-			.substringAfter("private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =")
+			.substringAfter("private fun turnPage(direction: ReaderPageTurnDirection, withAudio: Boolean = false): ReaderControllerStep =")
 			.substringBefore("\n\tprivate fun scrollViewport")
 
 		assertContains(

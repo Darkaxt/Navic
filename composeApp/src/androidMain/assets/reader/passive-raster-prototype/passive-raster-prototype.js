@@ -35,9 +35,32 @@ const paperSplitLayers = () => Array.from(document.querySelectorAll('*')).filter
   Object.keys(element.dataset || {}).some(name =>
     name.startsWith('navic') && name.endsWith('Layer') && name !== 'navicPageNumberLayer'))
 
+// A split stores one coverage plane, so any picture on the page would lose its colour (#58): the
+// soft-colour plates fit the residual check and were stored monochrome. Such pages stay full PNGs.
+const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]'
+
+// Foliate's paginated iframe is as wide as the whole section, so a rect inside it says nothing
+// about the visible column: map it through the frame's own top-level rect. A frame that cannot
+// be measured counts every picture in its section as visible (fail toward colour).
+const paperSplitHasVisibleMedia = view =>
+  (view.renderer?.getContents?.() || []).some(content => {
+    const media = Array.from(content?.doc?.querySelectorAll?.(paperSplitMediaSelector) || [])
+    if (media.length === 0) return false
+    const frame = content.doc.defaultView?.frameElement?.getBoundingClientRect?.()
+    if (!frame || !(frame.width > 0) || !(frame.height > 0)) return true
+    return media.some(element => {
+      const rect = element.getBoundingClientRect()
+      if (!(rect.width > 0) || !(rect.height > 0)) return false
+      const left = frame.left + rect.left
+      const top = frame.top + rect.top
+      return left + rect.width > 0 && top + rect.height > 0 && left < innerWidth && top < innerHeight
+    })
+  })
+
 export const paperSplitDescribe = () => {
   const view = document.querySelector('foliate-view')
   if (!view || paperSplitTextTargets(view).length === 0) return null
+  if (paperSplitHasVisibleMedia(view)) return null
   const style = getComputedStyle(view)
   const identity = [
     innerWidth,

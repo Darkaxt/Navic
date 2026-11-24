@@ -184,6 +184,15 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console DEBUG: wordsync-segment:412,-1,9120,9388,1834500,9001"
 			),
 			ProjectionCase(
+				description = "word sync numeric paint probe",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-paint-probe:412,1,2,2,1480,920,1,1,0,1000,400,1000,0,1,-1,-1,-1,0,0 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: wordsync-paint-probe:412,1,2,2,1480,920,1,1,0,1000,400,1000,0,1,-1,-1,-1,0,0"
+			),
+			ProjectionCase(
 				description = "word sync degraded progress numeric trace",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",
@@ -233,6 +242,24 @@ class ReaderJavascriptBridgeTest {
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",
 					message = "[NavicReader] wordsync-progress-degraded:sand,1,2,3,4",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
+			),
+			ProjectionCase(
+				description = "word sync paint probe with a missing field is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-paint-probe:412,1,2,2,1480,920,1,1,0,1000,400,1000,0,1,-1,-1,-1,0",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console DEBUG: [redacted-reader-console]"
+			),
+			ProjectionCase(
+				description = "word sync paint probe carrying text is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "DEBUG",
+					message = "[NavicReader] wordsync-paint-probe:412,1,2,2,1480,920,1,1,0,1000,400,1000,0,1,-1,-1,-1,0,sand",
 					sourceId = sourceCanary
 				),
 				expected = "Reader console DEBUG: [redacted-reader-console]"

@@ -78,7 +78,8 @@ internal class ReaderWordSyncBoundaryScheduler(
 		action: () -> Unit
 	) -> ReaderWordSyncBoundaryCancellation,
 	private val onBoundary: (ReaderWordSyncBoundaryDispatch) -> Unit,
-	private val onClear: (ReaderWordSyncTimelineSnapshot) -> Unit
+	private val onClear: (ReaderWordSyncTimelineSnapshot) -> Unit,
+	private val onPageEnd: (ReaderWordSyncTimelineSnapshot) -> Unit = {}
 ) {
 	private sealed interface ScheduledTransition {
 		val audioTimeMs: Long
@@ -89,6 +90,10 @@ internal class ReaderWordSyncBoundaryScheduler(
 		) : ScheduledTransition
 
 		data class End(
+			override val audioTimeMs: Long
+		) : ScheduledTransition
+
+		data class PageEnd(
 			override val audioTimeMs: Long
 		) : ScheduledTransition
 	}
@@ -103,15 +108,17 @@ internal class ReaderWordSyncBoundaryScheduler(
 	)
 
 	private var boundaries: List<ReaderWordSyncBoundary> = emptyList()
+	private var pageEnd: ReaderWordSyncPageEnd? = null
 	private var pending: ReaderWordSyncBoundaryCancellation? = null
 	private var scheduleEpoch = 0L
 	private var publishedBoundary: PublishedBoundary? = null
 
-	fun replaceTimeline(boundaries: List<ReaderWordSyncBoundary>) {
+	fun replaceTimeline(boundaries: List<ReaderWordSyncBoundary>, pageEnd: ReaderWordSyncPageEnd? = null) {
 		require(boundaries.zipWithNext().all { (first, second) ->
 			first.audioStartMs <= second.audioStartMs
 		}) { "WordSync boundaries must be ordered by audio start." }
 		this.boundaries = boundaries
+		this.pageEnd = pageEnd
 		if (boundaries.isEmpty()) publishedBoundary = null
 		rebuild()
 	}
@@ -122,6 +129,7 @@ internal class ReaderWordSyncBoundaryScheduler(
 
 	fun stop() {
 		boundaries = emptyList()
+		pageEnd = null
 		publishedBoundary = null
 		cancelPending()
 	}
@@ -206,7 +214,10 @@ internal class ReaderWordSyncBoundaryScheduler(
 		}.takeIf { it >= 0 }?.let { index ->
 			ScheduledTransition.Start(index, boundaries[index].audioStartMs)
 		}
-		val transition = listOfNotNull(currentEnd, nextStart)
+		val pageEndTransition = pageEnd
+			?.takeIf { it.audioTrackIndex == snapshot.audioTrackIndex && it.audioTimeMs > snapshot.positionMs }
+			?.let { ScheduledTransition.PageEnd(it.audioTimeMs) }
+		val transition = listOfNotNull(currentEnd, nextStart, pageEndTransition)
 			.minByOrNull(ScheduledTransition::audioTimeMs)
 			?: return
 		val delayMs = ceil(
@@ -235,11 +246,18 @@ internal class ReaderWordSyncBoundaryScheduler(
 				publishCurrentAndSchedule(verified)
 				return@schedule
 			}
+			// The page's narration ended (also when a late wake coalesced past it): the page end
+			// owns this wake; a pause refreshes the timeline, otherwise keep scheduling words.
+			if (pageEndTransition != null && verified.positionMs >= pageEndTransition.audioTimeMs) {
+				onPageEnd(verified)
+				scheduleNext(verified)
+				return@schedule
+			}
 			val verifiedIndex = currentBoundaryIndex(verified)
 			if (verifiedIndex >= 0) {
 				val firstMissedStartIndex = when (transition) {
 					is ScheduledTransition.Start -> transition.index
-					is ScheduledTransition.End -> currentIndex + 1
+					is ScheduledTransition.End, is ScheduledTransition.PageEnd -> currentIndex + 1
 				}
 				publishBoundary(
 					index = verifiedIndex,

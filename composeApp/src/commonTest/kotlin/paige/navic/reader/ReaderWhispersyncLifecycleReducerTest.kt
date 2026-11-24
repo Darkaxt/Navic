@@ -172,12 +172,13 @@ class ReaderWhispersyncLifecycleReducerTest {
 		assertEquals(ReaderReadaloudPlaybackCommand.Pause, ended.readaloudPlaybackCommand)
 		assertEquals(ReaderWhispersyncPlaybackIntent.Enabled, ended.controller.state.whispersync.playbackIntent)
 		assertEquals(ReaderWhispersyncTransportPhase.BoundaryPaused, ended.controller.state.whispersync.transportPhase)
-		assertFalse(ended.controller.state.whispersync.canStartPlayback)
+		// The finished spread may be replayed from its first visible word.
+		assertTrue(ended.controller.state.whispersync.canStartPlayback)
 		assertTrue(ended.engineCommands.none { it is ReaderEngineCommand.TurnPage })
 	}
 
 	@Test
-	fun boundaryPausedCannotRestartFinishedSpread() {
+	fun boundaryPausedPlayReplaysFromFirstVisibleWord() {
 		val boundaryPaused = startedController().onReadaloudPlaybackState(
 			ReaderReadaloudPlaybackUiState(
 				isAvailable = true,
@@ -186,21 +187,28 @@ class ReaderWhispersyncLifecycleReducerTest {
 				positionMs = 3_500L
 			)
 		).controller
+		assertEquals(ReaderWhispersyncTransportPhase.BoundaryPaused, boundaryPaused.state.whispersync.transportPhase)
 
 		val play = boundaryPaused.onWhispersyncPlaybackCommand(ReaderReadaloudPlaybackCommand.Play)
 		val control = readerWhispersyncPlaybackControlState(
 			status = boundaryPaused.state.whispersync.status,
 			playbackState = stoppedPlaybackState(),
-			hasPreparedVisibleTarget = true,
-			transportPhase = ReaderWhispersyncTransportPhase.BoundaryPaused
+			hasPreparedVisibleTarget = true
 		)
 
-		assertEquals(boundaryPaused, play.controller)
+		assertNull(boundaryPaused.whispersyncPlayBlocker())
+		assertEquals(ReaderWhispersyncTransportPhase.Preparing, play.controller.state.whispersync.transportPhase)
+		assertTrue(play.controller.state.whispersync.playbackStartPending)
 		assertNull(play.whispersyncAudioSeekTarget)
 		assertNull(play.readaloudPlaybackCommand)
-		assertTrue(play.engineCommands.isEmpty())
-		assertFalse(control.enabled)
-		assertNull(control.command)
+		val apply = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(play.engineCommands.single())
+		assertTrue(control.enabled)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, control.command)
+
+		val confirmed = play.controller.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment = apply.fragment))
+		// The page's first visible cue, not the paused page-end position.
+		assertEquals(1_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, confirmed.readaloudPlaybackCommand)
 	}
 
 	@Test
@@ -377,6 +385,38 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
+	fun transportPageTurnCarriesAudioFromExplicitPause() {
+		val paused = playingController().onWhispersyncPlaybackCommand(
+			ReaderReadaloudPlaybackCommand.Pause
+		).controller.onReadaloudPlaybackState(stoppedPlaybackState(positionMs = 1_500L)).controller
+		assertTransportTurnPlaysDestination(paused)
+	}
+
+	@Test
+	fun transportPageTurnCarriesAudioFromStoppedOrNeverStarted() {
+		assertTransportTurnPlaysDestination(preparedController())
+		assertTransportTurnPlaysDestination(
+			startedController().onWhispersyncPlaybackCommand(ReaderReadaloudPlaybackCommand.StopAndReset).controller
+		)
+	}
+
+	private fun assertTransportTurnPlaysDestination(start: ReaderController) {
+		val turn = start.onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next, withAudio = true))
+		assertTrue(turn.engineCommands.any { it is ReaderEngineCommand.TurnPage })
+		val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
+		val relocated = turn.controller.onEngineEvent(destinationRelocation(sequence)).controller
+		val destination = relocated.onEngineEvent(destinationVisibleRange(sequence))
+
+		assertEquals(ReaderWhispersyncPlaybackIntent.Enabled, destination.controller.state.whispersync.playbackIntent)
+		val apply = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(destination.engineCommands.single())
+		val confirmed = destination.controller.onEngineEvent(
+			ReaderEngineEvent.MediaOverlayActive(fragment = apply.fragment)
+		)
+		assertEquals(3_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, confirmed.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun stalePageTurnSequenceCannotCommitPrepareOrSeek() {
 		val turn = preparedController().onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)
@@ -534,8 +574,7 @@ class ReaderWhispersyncLifecycleReducerTest {
 				message = ReaderWhispersyncStatusMessage.Ready
 			),
 			playbackState = stoppedPlaybackState(),
-			hasPreparedVisibleTarget = true,
-			transportPhase = ReaderWhispersyncTransportPhase.Ready
+			hasPreparedVisibleTarget = true
 		)
 
 		assertTrue(control.enabled)

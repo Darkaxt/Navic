@@ -26,6 +26,15 @@ data class ReaderWordSyncRawPoint(
 	}
 }
 
+/** When the visible page's narration ends on one audio track, and which rule decided it. */
+internal data class ReaderWordSyncPageEnd(
+	val audioTrackIndex: Int,
+	val audioTimeMs: Long,
+	val source: String,
+	val trailingWordCount: Int,
+	val trailingStatuses: String
+)
+
 sealed interface ReaderWordSyncEffect {
 	val generation: Long
 
@@ -347,16 +356,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 			clearedThroughBoundaryByRequestId =
 				clearedThroughBoundaryByRequestId + (requestId to clearedThrough)
 		)
-		// The last visible word just ended and no later word on this page follows it: pause now
-		// instead of playing on through unmatched narration until the next page's first word.
-		if (endsLastVisibleWord(controller, playback, boundarySequence)) {
-			val ended = controller.pauseAtWhispersyncVisiblePageEnd(
-				playbackState = controller.state.chrome.readaloudPlayback.copy(positionMs = playback.positionMs),
-				sync = controller.state.whispersync.sync,
-				detail = null
-			)
-			return fenced.coordinate(ended, playback)
-		}
+		// A word end is not the page end: unmatched narration of the page's tail may follow it.
+		// The page ends on the scheduler's PageEnd transition (visiblePageEnd / coordinatePageEnd).
 		// Persistent played text keeps the page highlight through the silence between words and
 		// cues (#38): only the late-word fence is recorded, the presentation stays.
 		if (
@@ -386,26 +387,80 @@ data class ReaderWordSyncPlaybackCoordinator(
 		)
 	}
 
-	private fun endsLastVisibleWord(
+	/**
+	 * The audio time at which the visible page's narration ends. All track words count (any
+	 * status: the aligner still places unmatched/review audio in the ebook). After the page's
+	 * last matched word, the first word placed at or past the visible end ends the page at its
+	 * start; with none, the chapter's narration ends here: the later of the track's last word end
+	 * and the coarse sidecar cue over the visible bytes (covers text the aligner emitted no word for).
+	 */
+	internal fun visiblePageEnd(
 		controller: ReaderController,
-		playback: ReaderWordSyncPlaybackIdentity,
-		boundarySequence: Long
-	): Boolean {
-		val whispersync = controller.state.whispersync
-		if (whispersync.transportPhase != ReaderWhispersyncTransportPhase.Playing) return false
-		val visibleRange = whispersync.visibleTextRange ?: return false
-		val visibleEnd = visibleRange.rawByteEnd ?: return false
-		val boundaries = boundariesForPlayback(playback)
-		val index = boundarySequence.toInt()
-		val ended = boundaries.getOrNull(index)?.word ?: return false
-		val verified = verifiedTracksForPlayback(playback).singleOrNull { verifiedTrack ->
-			ended in verifiedTrack.track.words
-		}?.verified ?: return false
-		if (visibleRange.rawProvenanceId != verified.descriptor.id || ended.ebookStart >= visibleEnd) return false
-		val next = boundaries.getOrNull(index + 1)?.word ?: return true
-		return next.audioTrackIndex != ended.audioTrackIndex ||
-			next.ebookHref != ended.ebookHref ||
-			next.ebookStart >= visibleEnd
+		playback: ReaderWordSyncPlaybackIdentity
+	): ReaderWordSyncPageEnd? {
+		val range = controller.state.whispersync.visibleTextRange ?: return null
+		val provenanceId = range.rawProvenanceId ?: return null
+		val visibleStart = range.rawByteStart ?: return null
+		val visibleEnd = range.rawByteEnd?.takeIf { it > visibleStart } ?: return null
+		val words = verifiedTracksForPlayback(playback)
+			.singleOrNull { it.verified.descriptor.id == provenanceId }
+			?.track?.words ?: return null
+		val lastVisible = words.indexOfLast { word ->
+			word.status in 1..4 && word.ebookStart >= visibleStart && word.ebookStart < visibleEnd
+		}
+		if (lastVisible < 0) return null
+		val after = words.subList(lastVisible + 1, words.size)
+		val beyond = after.indexOfFirst { it.ebookStart >= visibleEnd }
+		val trailing = if (beyond >= 0) after.subList(0, beyond) else after
+		val trailingStatuses = trailing.map { it.status }.distinct().sorted().joinToString(",")
+		if (beyond >= 0) {
+			return ReaderWordSyncPageEnd(
+				playback.audioTrackIndex, after[beyond].audioStartMs, "next-word", trailing.size, trailingStatuses
+			)
+		}
+		val lastWordEnd = words.maxOf { maxOf(it.audioEndMs, it.audioStartMs) }
+		val cueEnd = controller.state.whispersync.timeline?.segments.orEmpty()
+			.filter { segment ->
+				segment.rawProvenanceId == provenanceId &&
+					(segment.audioTrackIndex == null || segment.audioTrackIndex == playback.audioTrackIndex) &&
+					(segment.textEnd ?: -1).let { end -> end > visibleStart && end <= visibleEnd }
+			}
+			.maxOfOrNull { it.endMs }
+		return if (cueEnd != null && cueEnd > lastWordEnd) {
+			ReaderWordSyncPageEnd(playback.audioTrackIndex, cueEnd, "cue-end", trailing.size, trailingStatuses)
+		} else {
+			ReaderWordSyncPageEnd(playback.audioTrackIndex, lastWordEnd, "track-end", trailing.size, trailingStatuses)
+		}
+	}
+
+	/** The scheduler's PageEnd transition: pause once the visible page's narration has ended. */
+	internal fun coordinatePageEnd(
+		controller: ReaderController,
+		playback: ReaderWordSyncPlaybackIdentity
+	): ReaderWordSyncDecision {
+		val remembered = copy(lastPlayback = playback)
+		val pageEnd = visiblePageEnd(controller, playback)
+		if (
+			controller.state.whispersync.transportPhase != ReaderWhispersyncTransportPhase.Playing ||
+			pageEnd == null ||
+			pageEnd.audioTrackIndex != playback.audioTrackIndex ||
+			playback.positionMs < pageEnd.audioTimeMs
+		) {
+			return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
+		}
+		Logger.i(
+			WhispersyncSyncLogTag,
+			"WordSync page end state=reached source=${pageEnd.source} pageEndMs=${pageEnd.audioTimeMs} " +
+				"atMs=${playback.positionMs} trailingWords=${pageEnd.trailingWordCount} " +
+				"trailingStatuses=${pageEnd.trailingStatuses}"
+		)
+		val ended = controller.pauseAtWhispersyncVisiblePageEnd(
+			playbackState = controller.state.chrome.readaloudPlayback.copy(positionMs = playback.positionMs),
+			sync = controller.state.whispersync.sync,
+			detail = null,
+			reason = "visible-narration-ended"
+		)
+		return remembered.coordinate(ended, playback)
 	}
 
 	internal fun coordinateBoundary(
@@ -449,7 +504,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 			val ended = controller.pauseAtWhispersyncVisiblePageEnd(
 				playbackState = controller.state.chrome.readaloudPlayback.copy(positionMs = playback.positionMs),
 				sync = controller.state.whispersync.sync,
-				detail = cueFragment.label
+				detail = cueFragment.label,
+				reason = "first-word-past-page"
 			)
 			return remembered.coordinate(ended, playback)
 		}

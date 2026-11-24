@@ -15,6 +15,10 @@ class ReaderWordSyncBoundaryRuntimeSourceTest {
 		assertContains(source, "coordinator.wordSyncBoundaries(")
 		assertContains(source, "coordinator.onWordSyncBoundary(dispatch)")
 		assertContains(source, "coordinator.onWordSyncClear(timeline)")
+		assertContains(source, "coordinator.onWordSyncPageEnd(timeline)")
+		assertContains(source, "coordinator.wordSyncVisiblePageEnd(")
+		assertContains(source, "replaceTimeline(scheduledWordSyncBoundaries, scheduledWordSyncPageEnd)")
+		assertContains(source, "onWhispersyncPageReadiness(holdReason)")
 		assertContains(
 			source,
 			"publishOverlayProgress = !coordinator.hasExactWordSyncBoundaryPresentation("

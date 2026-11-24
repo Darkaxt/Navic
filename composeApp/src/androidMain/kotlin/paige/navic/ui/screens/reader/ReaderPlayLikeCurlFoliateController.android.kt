@@ -927,6 +927,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var retainedInlineHandoffSnapshot: RetainedInlineHandoffSnapshot? = null
 	private val livePresentationRecoveryRequest =
 		ReaderPageLivePresentationRecoveryRequest()
+	// The deck load holding the recovery claim. While it is in flight a newer request must load
+	// rather than call the deck current: superseding the claimed load would drop the only retry.
+	private var livePresentationRecoveryLoadRequest: Long? = null
 	private var foliateSessionRelocationPending = false
 	private var hostResumed = false
 	private var preparationPhase = ReaderPagePreparationPhase.Idle
@@ -2815,6 +2818,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
+		livePresentationRecoveryLoadRequest = null
 		latestWhispersyncAnchorReceipt = null
 		latestWhispersyncPresentationProof = null
 		whispersyncOverlayClearPending = false
@@ -4229,6 +4233,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			!livePresentationRecoveryRequest.pending &&
 			// A rejected live page still needs its recovery deck: never call the deck current then.
 			failedLivePresentationGeneration == null &&
+			livePresentationRecoveryLoadRequest == null &&
+			// A blocked reader only leaves the cover through a completed load; skipping strands it.
+			readinessState.interaction != ReaderPageInteractionState.BlockingProfileRegeneration &&
 			currentPages?.profile == profile &&
 			currentPages.centerOrdinal == centerOrdinal &&
 			currentPages.deck.pageIndices.containsAll(pageIndices) &&
@@ -4268,6 +4275,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				return
 			}
 		val claimedLivePresentationRecovery = livePresentationRecoveryRequest.claimPreparation()
+		if (claimedLivePresentationRecovery) livePresentationRecoveryLoadRequest = request
 		val publicationFence = rasterPublicationFence(
 			profile = profile,
 			centerOrdinal = centerOrdinal,
@@ -4295,9 +4303,12 @@ internal class ReaderPlayLikeCurlFoliateController(
 		rasterScope.launch {
 			val preparationResult = awaitRasterPreparation(preparation)
 			withContext(Dispatchers.Main.immediate) {
+				if (livePresentationRecoveryLoadRequest?.let { it <= request } == true) {
+					livePresentationRecoveryLoadRequest = null
+				}
 				if (settlementMutationFence.deferRefreshIfBlocked(activeGestureId)) {
 					preparationResult.getOrNull()?.close()
-					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+					if (claimedLivePresentationRecovery) {
 						livePresentationRecoveryRequest.request()
 					}
 					logActivationState(
@@ -4308,7 +4319,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				if (isAwaitingAuthoritativeRelocation()) {
 					preparationResult.getOrNull()?.close()
-					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+					if (claimedLivePresentationRecovery) {
 						livePresentationRecoveryRequest.request()
 					}
 					logActivationState(
@@ -4406,7 +4417,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					deck.close()
 					// A superseded load must hand its recovery claim back, or the newer request
 					// finds the deck current and the rejected page is never retried (stuck reader).
-					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+					if (claimedLivePresentationRecovery) {
 						livePresentationRecoveryRequest.request()
 					}
 					return@withContext
@@ -5088,7 +5099,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 					"WordSync native overlay state=accepted reason=surface " +
 						"targets=${targets.size} masks=${overlays.size} " +
 						"colorVisible=${(whispersyncHighlightColorArgb ushr 24) != 0} " +
-						"shield=${inlineRasterShield.ownsPresentation()}"
+						"shield=${inlineRasterShield.ownsPresentation()} " +
+						"surfaceVisible=${surfaceView.alpha > 0f}"
 				)
 			}
 			else -> {
@@ -6114,8 +6126,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 		livePresentationRecoveryRequest.request()
 		inlineRasterShield.dismiss()
 		hideSurface()
+		// The rejected curl pixels are hidden and the live WebView is authoritative: keep reading
+		// possible while the recovery deck rebuilds, and block only when no usable deck exists.
 		updateReadiness(
-			interaction = ReaderPageInteractionState.BlockingProfileRegeneration,
+			interaction = if (hasUsablePreparedActiveDeck()) {
+				ReaderPageInteractionState.RefillingWorkingSet
+			} else {
+				ReaderPageInteractionState.BlockingProfileRegeneration
+			},
 			reason = "visual-handoff-content-rejection-blocked"
 		)
 		requestPrewarmIfIdle(reason)

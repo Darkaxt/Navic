@@ -68,6 +68,7 @@ class ReaderWhispersyncDiagnosticsSourceTest {
 			"WordSync native overlay state=rejected",
 			"colorVisible=",
 			"shield=",
+			"surfaceVisible=",
 			"reason=targets",
 			"reason=masks",
 			"reason=surface",

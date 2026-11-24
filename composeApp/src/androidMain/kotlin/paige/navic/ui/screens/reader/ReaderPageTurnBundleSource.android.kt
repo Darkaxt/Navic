@@ -532,6 +532,98 @@ internal fun readerPageLiveRasterMatchesExpected(
 	}
 }
 
+/** Where a rejected live capture differs from its target, for the rejection log only. */
+internal data class ReaderPageLiveRasterRejectionDetail(
+	val leftFarPixels: Long,
+	val rightFarPixels: Long,
+	val left: Int,
+	val top: Int,
+	val right: Int,
+	val bottom: Int,
+	val candidateChroma: Long,
+	val targetChroma: Long
+) {
+	fun privacySafeMetrics(): String =
+		"leftFar=$leftFarPixels rightFar=$rightFarPixels box=$left,$top-$right,$bottom " +
+			"candidateChroma=$candidateChroma targetChroma=$targetChroma"
+}
+
+private fun readerPageRasterChroma(color: Int): Int {
+	val red = color ushr 16 and 0xff
+	val green = color ushr 8 and 0xff
+	val blue = color and 0xff
+	return maxOf(red, green, blue) - minOf(red, green, blue)
+}
+
+/**
+ * Samples every second pixel of every second row: far pixels per spread half, their bounding box
+ * and the mean chroma of each side over them (a colour live page against a monochrome target
+ * shows a high candidate and a low target chroma). The box is empty (-1) without far pixels.
+ */
+internal fun readerPageLiveRasterRejectionDetail(
+	candidate: ReaderPageRasterPixels,
+	expectedTarget: ReaderPageRasterPixels,
+	cancellationCheck: () -> Unit = {}
+): ReaderPageLiveRasterRejectionDetail? {
+	val width = candidate.width
+	val height = candidate.height
+	if (width <= 0 || height <= 0 || width != expectedTarget.width || height != expectedTarget.height) {
+		return null
+	}
+	val rowCapacity = minOf(LiveValidationStripRows, height)
+	val capacity = width.toLong() * rowCapacity
+	if (capacity > Int.MAX_VALUE) return null
+	val candidatePixels = IntArray(capacity.toInt())
+	val targetPixels = IntArray(capacity.toInt())
+	val half = width / 2
+	var leftFar = 0L
+	var rightFar = 0L
+	var left = width
+	var top = height
+	var right = -1
+	var bottom = -1
+	var candidateChroma = 0L
+	var targetChroma = 0L
+	var stripTop = 0
+	while (stripTop < height) {
+		cancellationCheck()
+		val rowCount = minOf(rowCapacity, height - stripTop)
+		candidate.readRows(stripTop, rowCount, candidatePixels)
+		expectedTarget.readRows(stripTop, rowCount, targetPixels)
+		for (row in 0 until rowCount) {
+			val y = stripTop + row
+			if (y % 2 != 0) continue
+			val offset = row * width
+			for (x in 0 until width step 2) {
+				val candidateColor = candidatePixels[offset + x]
+				val targetColor = targetPixels[offset + x]
+				if (readerPageRasterColorDistance(candidateColor, targetColor) <= LiveValidationFarDistance) {
+					continue
+				}
+				if (x < half) leftFar += 1 else rightFar += 1
+				left = minOf(left, x)
+				top = minOf(top, y)
+				right = maxOf(right, x)
+				bottom = maxOf(bottom, y)
+				candidateChroma += readerPageRasterChroma(candidateColor)
+				targetChroma += readerPageRasterChroma(targetColor)
+			}
+		}
+		stripTop += rowCount
+	}
+	val far = (leftFar + rightFar).coerceAtLeast(1L)
+	return ReaderPageLiveRasterRejectionDetail(
+		leftFarPixels = leftFar,
+		rightFarPixels = rightFar,
+		left = if (right < 0) -1 else left,
+		top = if (bottom < 0) -1 else top,
+		right = right,
+		bottom = bottom,
+		candidateChroma = candidateChroma / far,
+		targetChroma = targetChroma / far
+	)
+}
+
 internal fun <T : ReaderPageRasterPixels> readerPageSemanticLiveValidationResult(
 	candidate: T?,
 	expectedTarget: ReaderPageRasterPixels,
@@ -1074,6 +1166,23 @@ private fun readerPageLiveCaptureMatchesExpected(
 			ReaderPageTurnBundleSourceTag,
 			"Live page-turn renderer capture metrics " + candidate.diagnostics.privacySafeMetrics()
 		)
+		runCatching {
+			readerPageLiveRasterRejectionDetail(
+				candidate = ReaderPageBitmapRasterPixels(captured.bitmap),
+				expectedTarget = ReaderPageBitmapRasterPixels(expectedTarget.bitmap),
+				cancellationCheck = cancellationCheck
+			)
+		}.onSuccess { detail ->
+			if (detail != null) {
+				Logger.w(
+					ReaderPageTurnBundleSourceTag,
+					"Live page-turn validation rejection detail " + detail.privacySafeMetrics() +
+						" targetSplit=${ReaderPagePaperRegistry.isSplitDecoded(expectedTarget.bitmap)}"
+				)
+			}
+		}.onFailure { failure ->
+			if (failure is CancellationException) throw failure
+		}
 		return rejected("RasterMismatch")
 	}
 	return true

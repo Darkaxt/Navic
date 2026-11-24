@@ -48,6 +48,24 @@ internal fun ReaderCoordinator.onWordSyncClear(
 	)
 )
 
+internal fun ReaderCoordinator.wordSyncVisiblePageEnd(
+	playbackIdentity: ReaderWordSyncPlaybackIdentity?
+): ReaderWordSyncPageEnd? = playbackIdentity?.let { wordSync.visiblePageEnd(controller, it) }
+
+internal fun ReaderCoordinator.onWordSyncPageEnd(
+	timeline: ReaderWordSyncTimelineSnapshot
+): ReaderCoordinatorStep = applyWordSyncDecision(
+	wordSync.coordinatePageEnd(
+		controller = controller,
+		playback = ReaderWordSyncPlaybackIdentity(
+			audioResourceId = timeline.audioResourceId,
+			audioTrackIndex = timeline.audioTrackIndex,
+			positionMs = timeline.positionMs,
+			playbackSpeed = timeline.playbackSpeed
+		)
+	)
+)
+
 internal fun ReaderCoordinator.onWordSyncBoundary(
 	dispatch: ReaderWordSyncBoundaryDispatch
 ): ReaderCoordinatorStep = applyWordSyncDecision(

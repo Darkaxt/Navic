@@ -56,6 +56,7 @@ import paige.navic.reader.ReaderLocator
 import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.onPageCurlTurnPhase
+import paige.navic.reader.onWhispersyncPageReadiness
 import paige.navic.reader.whispersyncPlayBlocker
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
@@ -89,6 +90,7 @@ import paige.navic.reader.encodeReaderReadingProgress
 import paige.navic.reader.onReadaloudPlaybackState
 import paige.navic.reader.onWordSyncBoundary
 import paige.navic.reader.onWordSyncClear
+import paige.navic.reader.onWordSyncPageEnd
 import paige.navic.reader.onWordSyncChapterFailed
 import paige.navic.reader.onWordSyncChapterVerified
 import paige.navic.reader.onWordSyncIndexFailed
@@ -105,6 +107,7 @@ import paige.navic.reader.withReaderListeningSettings
 import paige.navic.reader.whispersyncLogValue
 import paige.navic.reader.wordSyncBoundaries
 import paige.navic.reader.wordSyncBoundaryInputDiagnostic
+import paige.navic.reader.wordSyncVisiblePageEnd
 import paige.navic.shared.AudiobookPlaybackManager
 import paige.navic.shared.AudiobookPlaybackTimelineSnapshot
 import paige.navic.ui.core.AudiobookMiniPlayerUiState
@@ -458,6 +461,10 @@ fun ReaderScreen(reader: Screen.Reader) {
 		rememberUpdatedState<(ReaderWordSyncTimelineSnapshot) -> Unit> { timeline ->
 			applyCoordinatorStep(coordinator.onWordSyncClear(timeline))
 		}
+	val currentWordSyncPageEndHandler =
+		rememberUpdatedState<(ReaderWordSyncTimelineSnapshot) -> Unit> { timeline ->
+			applyCoordinatorStep(coordinator.onWordSyncPageEnd(timeline))
+		}
 	val wordSyncBoundaryScheduler = remember(
 		reader.bookId,
 		reader.resourceHref,
@@ -478,7 +485,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 				ReaderWordSyncBoundaryCancellation(job::cancel)
 			},
 			onBoundary = { dispatch -> currentWordSyncBoundaryHandler.value(dispatch) },
-			onClear = { timeline -> currentWordSyncClearHandler.value(timeline) }
+			onClear = { timeline -> currentWordSyncClearHandler.value(timeline) },
+			onPageEnd = { timeline -> currentWordSyncPageEndHandler.value(timeline) }
 		)
 	}
 	val currentPlaybackTimelineSnapshot =
@@ -494,6 +502,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 	val scheduledWordSyncBoundaries = coordinator.wordSyncBoundaries(
 		currentWordSyncPlaybackIdentity
 	)
+	val scheduledWordSyncPageEnd = coordinator.wordSyncVisiblePageEnd(currentWordSyncPlaybackIdentity)
 
 	LaunchedEffect(wordSyncBoundaryScheduler, wordSyncBoundaryInputDiagnostic) {
 		Logger.i(
@@ -510,14 +519,15 @@ fun ReaderScreen(reader: Screen.Reader) {
 				"presentableWords=${wordSyncBoundaryInputDiagnostic.presentableWordCount}"
 		)
 	}
-	LaunchedEffect(wordSyncBoundaryScheduler, scheduledWordSyncBoundaries) {
+	LaunchedEffect(wordSyncBoundaryScheduler, scheduledWordSyncBoundaries, scheduledWordSyncPageEnd) {
 		Logger.i(
 			WhispersyncSyncLogTag,
 			"WordSync boundary state=timeline matched=${currentWordSyncTimeline != null} " +
 				"active=${scheduledWordSyncBoundaries.isNotEmpty()} " +
-				"count=${scheduledWordSyncBoundaries.size}"
+				"count=${scheduledWordSyncBoundaries.size} " +
+				"pageEnd=${scheduledWordSyncPageEnd?.let { "${it.source}@${it.audioTimeMs}" } ?: "none"}"
 		)
-		wordSyncBoundaryScheduler.replaceTimeline(scheduledWordSyncBoundaries)
+		wordSyncBoundaryScheduler.replaceTimeline(scheduledWordSyncBoundaries, scheduledWordSyncPageEnd)
 	}
 	LaunchedEffect(wordSyncBoundaryScheduler, playbackTimelineRevision) {
 		Logger.i(
@@ -967,6 +977,11 @@ fun ReaderScreen(reader: Screen.Reader) {
 			val step = coordinator.dispatch { onPageCurlTurnPhase(phase) }
 			Logger.i(ReaderScreenTag, "Reader page curl turn phase=$phase")
 			applyCoordinatorStep(step)
+		},
+		onPageReadinessChange = { holdReason ->
+			if (holdReason != coordinator.controller.state.whispersync.pageHoldReason) {
+				applyCoordinatorStep(coordinator.dispatch { onWhispersyncPageReadiness(holdReason) })
+			}
 		},
 		onWhispersyncPlaybackCommand = { command ->
 			Logger.i(

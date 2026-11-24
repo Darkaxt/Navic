@@ -65,6 +65,7 @@ internal object ReaderEngineLogProjector {
 	private val approvedWordSyncAnchorRejection = Regex("^wordsync-anchor-reject:[a-z-]{1,40}$")
 	private val approvedWordSyncAnchorGeometry = Regex("^wordsync-anchor-geometry:[0-9,;|\\-]{1,400}$")
 	private val approvedWordSyncSegment = Regex("^wordsync-segment:-?[0-9]{1,9}(,-?[0-9]{1,12}){4,5}$")
+	private val approvedWordSyncPaintProbe = Regex("^wordsync-paint-probe:-?[0-9]{1,9}(,-?[0-9]{1,12}){18}$")
 	private val approvedWordSyncProgressDegraded =
 		Regex("^wordsync-progress-degraded:progress-(outside-visible-page|paint-rejected)(,-?[0-9]{1,12}){6}$")
 	private val approvedWordSyncRelayoutAnchor = Regex("^wordsync-relayout-anchor:[01](,[01]){3}$")
@@ -94,6 +95,7 @@ internal object ReaderEngineLogProjector {
 					approvedWordSyncAnchorRejection.matches(it) ||
 					approvedWordSyncAnchorGeometry.matches(it) ||
 					approvedWordSyncSegment.matches(it) ||
+					approvedWordSyncPaintProbe.matches(it) ||
 					approvedWordSyncProgressDegraded.matches(it) ||
 					approvedWordSyncRelayoutAnchor.matches(it) ||
 					approvedRelayoutReadingAnchor.matches(it) ||

@@ -431,7 +431,7 @@ data class ReaderController(
 				)
 			)
 			ReaderViewerAction.NativeShellPrepared -> ReaderControllerStep(controller)
-			is ReaderViewerAction.TurnPage -> controller.turnPage(action.direction)
+			is ReaderViewerAction.TurnPage -> controller.turnPage(action.direction, action.withAudio)
 			is ReaderViewerAction.PreviewPageDrag -> controller.previewPageDrag(action)
 			is ReaderViewerAction.ScrollViewport -> controller.scrollViewport(action.direction)
 			is ReaderViewerAction.NavigateTo -> controller.navigateTo(action.locator)
@@ -571,7 +571,7 @@ data class ReaderController(
 						}
 				)
 			)
-			action == ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next) ||
+			(action is ReaderViewerAction.TurnPage && action.direction == ReaderPageTurnDirection.Next) ||
 				action == ReaderViewerAction.ScrollViewport(ReaderViewportScrollDirection.Down) -> {
 				val locator = state.pendingShellCoverDismissal?.locator
 					?: state.chrome.currentLocator
@@ -609,7 +609,7 @@ data class ReaderController(
 		}
 	}
 
-	private fun turnPage(direction: ReaderPageTurnDirection): ReaderControllerStep =
+	private fun turnPage(direction: ReaderPageTurnDirection, withAudio: Boolean = false): ReaderControllerStep =
 		if (
 			direction == ReaderPageTurnDirection.Previous &&
 			state.canReturnToShellCover &&
@@ -622,7 +622,7 @@ data class ReaderController(
 		) {
 			ReaderOverlayReducer.showNativeShellCover(this)
 		} else {
-			reserveTurnPageNavigation().let { controller ->
+			(if (withAudio) withTransportAudioCarry() else this).reserveTurnPageNavigation().let { controller ->
 				ReaderControllerStep(
 					controller = controller,
 					engineCommands = listOf(

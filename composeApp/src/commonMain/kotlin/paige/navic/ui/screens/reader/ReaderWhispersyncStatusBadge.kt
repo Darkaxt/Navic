@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -24,7 +25,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -35,13 +38,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import paige.navic.icons.Icons
+import paige.navic.icons.filled.Pause
+import paige.navic.icons.filled.Play
+import paige.navic.icons.filled.SkipNext
+import paige.navic.icons.filled.SkipPrevious
+import paige.navic.icons.filled.Stop
 import paige.navic.icons.outlined.Headset
 import paige.navic.icons.outlined.Visibility
 import paige.navic.icons.outlined.VisibilityOff
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.ReaderWhispersyncStatus
+import paige.navic.reader.ReaderWhispersyncTransportControls
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_pause_whispersync_audiobook
+import navic.composeapp.generated.resources.action_play_whispersync_audiobook
+import navic.composeapp.generated.resources.action_reader_next_page
+import navic.composeapp.generated.resources.action_reader_previous_page
+import navic.composeapp.generated.resources.action_reset_whispersync_audiobook
 import navic.composeapp.generated.resources.action_resync
 import org.jetbrains.compose.resources.stringResource
 
@@ -69,12 +84,10 @@ internal fun readerWhispersyncCueMapReportSurface(
 internal fun KomikkuWhispersyncPlaybackControl(
 	control: ReaderWhispersyncPlaybackControlState,
 	readerTheme: String?,
-	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onOpenPlayer: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val latestControl = rememberUpdatedState(control)
-	val latestOnCommand = rememberUpdatedState(onCommand)
+	// The headset is the status glyph and opens the full player; playback lives in the transport row.
 	val latestOnOpenPlayer = rememberUpdatedState(onOpenPlayer)
 	val accessibilityDescription = control.contentDescription.localizedDescription()
 	AnimatedVisibility(
@@ -85,24 +98,15 @@ internal fun KomikkuWhispersyncPlaybackControl(
 			.semantics {
 				contentDescription = accessibilityDescription
 				role = Role.Button
-				if (control.enabled) {
-					onClick(label = accessibilityDescription) {
-						latestControl.value.command?.let(latestOnCommand.value)
-						true
-					}
-				} else {
-					disabled()
+				onClick(label = accessibilityDescription) {
+					latestOnOpenPlayer.value()
+					true
 				}
 			}
 			.pointerInput(Unit) {
 				detectTapGestures(
 					onLongPress = { latestOnOpenPlayer.value() },
-					onTap = {
-						val currentControl = latestControl.value
-						if (currentControl.enabled) {
-							currentControl.command?.let(latestOnCommand.value)
-						}
-					}
+					onTap = { latestOnOpenPlayer.value() }
 				)
 			}
 	) {
@@ -227,5 +231,83 @@ internal fun KomikkuWhispersyncStatusBadge(
 				}
 			}
 		}
+	}
+}
+
+/** Back/forward step pages carrying the audio, play/pause keeps the position, stop resets to the page start. */
+@Composable
+internal fun KomikkuWhispersyncTransportControls(
+	transport: ReaderWhispersyncTransportControls,
+	readerTheme: String?,
+	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onTurnPageWithAudio: (ReaderPageTurnDirection) -> Unit,
+	modifier: Modifier = Modifier
+) {
+	val tint = readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)
+	Row(modifier = modifier) {
+		ReaderTransportGlyph(Icons.Filled.SkipPrevious, stringResource(Res.string.action_reader_previous_page), true, tint) {
+			onTurnPageWithAudio(ReaderPageTurnDirection.Previous)
+		}
+		ReaderTransportGlyph(
+			icon = if (transport.playing) Icons.Filled.Pause else Icons.Filled.Play,
+			description = stringResource(
+				if (transport.playing) {
+					Res.string.action_pause_whispersync_audiobook
+				} else {
+					Res.string.action_play_whispersync_audiobook
+				}
+			),
+			enabled = transport.playPause != null,
+			tint = tint
+		) { transport.playPause?.let(onCommand) }
+		ReaderTransportGlyph(
+			Icons.Filled.Stop,
+			stringResource(Res.string.action_reset_whispersync_audiobook),
+			transport.stopEnabled,
+			tint
+		) { onCommand(ReaderReadaloudPlaybackCommand.StopAndReset) }
+		ReaderTransportGlyph(Icons.Filled.SkipNext, stringResource(Res.string.action_reader_next_page), true, tint) {
+			onTurnPageWithAudio(ReaderPageTurnDirection.Next)
+		}
+	}
+}
+
+/** A transport glyph in the headset's style: a faint 22 dp glyph on the page, 48 dp touch target. */
+@Composable
+private fun ReaderTransportGlyph(
+	icon: ImageVector,
+	description: String,
+	enabled: Boolean,
+	tint: Color,
+	onTap: () -> Unit
+) {
+	val latestOnTap = rememberUpdatedState(onTap)
+	val latestEnabled = rememberUpdatedState(enabled)
+	Box(
+		modifier = Modifier
+			.size(48.dp)
+			.semantics {
+				contentDescription = description
+				role = Role.Button
+				if (enabled) {
+					onClick(label = description) {
+						latestOnTap.value()
+						true
+					}
+				} else {
+					disabled()
+				}
+			}
+			.pointerInput(Unit) {
+				detectTapGestures(onTap = { if (latestEnabled.value) latestOnTap.value() })
+			},
+		contentAlignment = Alignment.Center
+	) {
+		Icon(
+			imageVector = icon,
+			contentDescription = null,
+			tint = if (enabled) tint else tint.copy(alpha = 0.38f),
+			modifier = Modifier.size(22.dp)
+		)
 	}
 }
