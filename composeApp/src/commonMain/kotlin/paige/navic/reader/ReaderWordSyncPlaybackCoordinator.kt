@@ -391,8 +391,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 	/**
 	 * The audio time at which the visible page's narration ends. All track words count (any
 	 * status: the aligner still places unmatched/review audio in the ebook). After the page's
-	 * last matched word, the first word placed at or past the visible end ends the page at its
-	 * start; with none, the chapter's narration ends here: the later of the track's last word end
+	 * last matched word, the first word placed at or past the visible end ends the page in the
+	 * silence before it (midway from the page's last word end to its start); with none, the chapter's narration ends here: the later of the track's last word end
 	 * and the coarse sidecar cue over the visible bytes (covers text the aligner emitted no word for).
 	 */
 	internal fun visiblePageEnd(
@@ -415,8 +415,14 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val trailing = if (beyond >= 0) after.subList(0, beyond) else after
 		val trailingStatuses = trailing.map { it.status }.distinct().sorted().joinToString(",")
 		if (beyond >= 0) {
+			// Pause in the silence before the next page's first word, not at its ASR start: starts
+			// run late and the pause lands after the command, so "My name" of the next page was heard
+			// (tablet, v1.6.19). The midpoint keeps the page's own last word whole.
+			val nextStart = after[beyond].audioStartMs
+			val onPageEnd = (listOf(words[lastVisible]) + trailing).maxOf { maxOf(it.audioEndMs, it.audioStartMs) }
+			val pageEndMs = if (nextStart > onPageEnd) onPageEnd + (nextStart - onPageEnd) / 2 else nextStart
 			return ReaderWordSyncPageEnd(
-				playback.audioTrackIndex, after[beyond].audioStartMs, "next-word", trailing.size, trailingStatuses
+				playback.audioTrackIndex, pageEndMs, "next-word", trailing.size, trailingStatuses
 			)
 		}
 		val lastWordEnd = words.maxOf { maxOf(it.audioEndMs, it.audioStartMs) }

@@ -556,4 +556,14 @@ class ReaderWhispersyncProgressHighlightSourceTest {
 			File(path)
 		).firstOrNull(File::isFile)
 			?: error("Unable to locate $path")
+
+	// A sentence's last aligned word paints through the unaligned tail after it; the swept head must
+	// be the whole fragment or that tail waits for the next word (tablet, v1.6.19).
+	@Test
+	fun theSweptWordHeadIsTheWholeFragmentNotTheProgressCut() {
+		val provenance = readerAssetRoot().resolve("navic-reader-wordsync-provenance.js").readText()
+		assertTrue(provenance.contains("const head = flow ? this.resolveRange(fragment, { visibleRange }) : null"))
+		val nativeHead = provenance.substringAfter("const withReaderWordSyncHeadRects = ").substringBefore("const pages =")
+		assertTrue(nativeHead.contains("resolveRange(fragment, {") && !nativeHead.contains("applyProgress: true"))
+	}
 }

@@ -504,19 +504,20 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			lastWordEnded.controllerStep.controller.state.whispersync.transportPhase
 		)
 
-		// The visible page ends where the first word past it starts.
+		// The visible page ends in the silence before the first word past it (1 200 to 1 300), so the
+		// next page's first word is never heard before the pause lands.
 		val pageEnd = assertNotNull(onPage.coordinator.visiblePageEnd(onPage.controllerStep.controller, playback))
 		assertEquals("next-word", pageEnd.source)
-		assertEquals(1_300L, pageEnd.audioTimeMs)
+		assertEquals(1_250L, pageEnd.audioTimeMs)
 		assertEquals(0, pageEnd.trailingWordCount)
 		val early = onPage.coordinator.coordinatePageEnd(
 			controller = onPage.controllerStep.controller,
-			playback = playback.copy(positionMs = 1_290)
+			playback = playback.copy(positionMs = 1_240)
 		)
 		assertNull(early.controllerStep.readaloudPlaybackCommand)
 		val reached = onPage.coordinator.coordinatePageEnd(
 			controller = onPage.controllerStep.controller,
-			playback = playback.copy(positionMs = 1_300)
+			playback = playback.copy(positionMs = 1_250)
 		)
 		assertEquals(ReaderReadaloudPlaybackCommand.Pause, reached.controllerStep.readaloudPlaybackCommand)
 		assertEquals(

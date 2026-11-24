@@ -517,8 +517,8 @@ export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
 // over the word's audio time while the rest of the persistent span stays read.
 const withReaderWordSyncHeadRects = (runtime, fragment, receipt) => {
   if (!receipt) return receipt
+  // The whole fragment (not progress-cut): the native head uniform sweeps it in over its audio span.
   const head = runtime.rawTextProvenance.resolveRange(fragment, {
-    applyProgress: true,
     visibleRange: runtime.committedVisibleTextRange,
   })
   const pages = Array.isArray(receipt.captureGeometry?.pages) ? receipt.captureGeometry.pages : []
@@ -1586,7 +1586,10 @@ export class ReaderWordSyncProvenanceStore {
     const headKey = overlayKey + ReaderWordSyncFlowHeadKeySuffix
     try {
       content.overlayer.remove?.(headKey)
-      const head = flow ? this.resolveRange(fragment, { applyProgress: true, visibleRange }) : null
+      // The whole current fragment: the flow animation reveals it over the word's audio span. With
+      // progress applied it was cut to its first token, so the unaligned sentence tail painted after
+      // the word (see ReaderWordSyncBoundary.paintByteEnd) only appeared with the next word.
+      const head = flow ? this.resolveRange(fragment, { visibleRange }) : null
       if (!head) {
         content.overlayer.add(overlayKey, range, draw, options)
         return true
