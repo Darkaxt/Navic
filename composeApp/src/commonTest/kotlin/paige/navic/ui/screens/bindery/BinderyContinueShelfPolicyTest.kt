@@ -459,6 +459,7 @@ class BinderyContinueShelfPolicyTest {
 				bookId = "3816",
 				resourceHref = "/opds/books/3816/resources/ebook-435",
 				kind = ReaderPublicationKind.Ebook,
+				ebookBookFileId = "435",
 				mediaOverlayEnabled = false
 			),
 			items.single().ebookDestination

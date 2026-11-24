@@ -154,6 +154,8 @@ sealed interface Screen : NavKey {
 		val bookId: String,
 		val resourceHref: String,
 		val kind: ReaderPublicationKind,
+		/** The opened ebook's Bindery book file, so plates resolve for multi-file books without Whispersync. */
+		val ebookBookFileId: String? = null,
 		val publicationFormat: ReaderPublicationFormat = ReaderPublicationFormat.Epub,
 		val mediaOverlayEnabled: Boolean = false,
 		val startCfi: String? = null,

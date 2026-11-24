@@ -194,8 +194,8 @@ class ReaderIllustrationPlateSourceTest {
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		assertContains(preview, "illustrationsDigest: readerIllustrationsDigest(settings),")
-		assertContains(preview, "contentRenderRevision: 5,")
-		assertContains(renderProfile, "export const ReaderContentRenderRevision = 5")
+		assertContains(preview, "contentRenderRevision: 6,")
+		assertContains(renderProfile, "export const ReaderContentRenderRevision = 6")
 	}
 
 	@Test

@@ -2,6 +2,7 @@ package paige.navic.reader
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ReaderContentContrastLiftTest {
@@ -36,13 +37,30 @@ class ReaderContentContrastLiftTest {
 		// Revision 3: chapter illustration plates (Darkaxt/Navic#74) change content pixels.
 		// Revision 4: plate pages are no longer stored as monochrome paper/text splits (#58).
 		// Revision 5: mid-chapter plates (plate-before-block) and their spread spacers.
-		assertTrue(revision == "5", "mid-chapter plate pages must retire revision-4 rasters")
+		// Revision 6: NBSP-padded chapter numerals are centred.
+		assertTrue(revision == "6", "centred chapter numerals must retire revision-5 rasters")
 		assertContains(renderProfile, "contentRenderRevision: ReaderContentRenderRevision,")
 		val descriptor = preview
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		// The planned and realized raster keys must hash the same decoration state.
 		assertContains(descriptor, "contentRenderRevision: $revision,")
+	}
+
+	@Test
+	fun nbspPaddedChapterNumeralsAreCentredWithoutEditingTheirText() {
+		val typography = readerAssetRoot().resolve("navic-reader-typography.js").readText()
+		val centre = typography
+			.substringAfter("export const readerCentreSpacePaddedNumerals = doc => {")
+			.substringBefore("export const readerFontWeightValue")
+		// Only padding plus one short numeral, padding in its own elements; text nodes are never touched.
+		assertContains(centre, "!ReaderPaddedNumeralPattern.test(text)) continue")
+		assertContains(centre, "if (!padding.length || strayPadding) continue")
+		assertContains(centre, "child.style.setProperty('display', 'none', 'important')")
+		assertContains(centre, "block.style.setProperty('text-align', 'center', 'important')")
+		assertFalse(centre.contains("nodeValue ="))
+		assertFalse(centre.contains("textContent ="))
+		assertContains(renderProfile, "readerFitOverlongHeadingWords(doc)\n  readerCentreSpacePaddedNumerals(doc)")
 	}
 
 	@Test

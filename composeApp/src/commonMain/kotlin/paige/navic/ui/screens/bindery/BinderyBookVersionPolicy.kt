@@ -173,6 +173,7 @@ fun binderyReaderDestinationForVersionRow(
 			bookId = bookId,
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Readaloud,
+			ebookBookFileId = row.ebookBookFileId,
 			publicationFormat = ReaderPublicationFormat.Epub,
 			mediaOverlayEnabled = readaloudMediaOverlayEnabled,
 			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio)
@@ -183,6 +184,7 @@ fun binderyReaderDestinationForVersionRow(
 			bookId = bookId,
 			resourceHref = row.id,
 			kind = ReaderPublicationKind.Ebook,
+			ebookBookFileId = row.ebookBookFileId,
 			publicationFormat = row.format,
 			mediaOverlayEnabled = false,
 			fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio)
@@ -231,6 +233,7 @@ fun binderyWhispersyncReaderDestinationForMatch(
 		bookId = bookId,
 		resourceHref = resourceHref,
 		kind = ReaderPublicationKind.Ebook,
+		ebookBookFileId = ebookRow.ebookBookFileId,
 		publicationFormat = ebookRow.format,
 		mediaOverlayEnabled = false,
 		fullscreenCoverUrl = ebookRow.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio),
@@ -273,6 +276,7 @@ fun binderyWhispersyncReaderDestinationForRowMatch(
 				bookId = bookId,
 				resourceHref = resourceHref,
 				kind = ReaderPublicationKind.Ebook,
+				ebookBookFileId = match.oppositeEbookBookFileId,
 				publicationFormat = match.oppositeEbookFormat ?: ReaderPublicationFormat.Epub,
 				mediaOverlayEnabled = false,
 				fullscreenCoverUrl = row.fullscreenCoverUrl(opdsBaseUrl, fullscreenCoverTargetAspectRatio),

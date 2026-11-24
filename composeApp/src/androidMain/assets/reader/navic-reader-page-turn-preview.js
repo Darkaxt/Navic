@@ -511,7 +511,7 @@ function pageTurnRasterDescriptor(pageIndex) {
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
     illustrationsDigest: readerIllustrationsDigest(settings),
     // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
-    contentRenderRevision: 5,
+    contentRenderRevision: 6,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),

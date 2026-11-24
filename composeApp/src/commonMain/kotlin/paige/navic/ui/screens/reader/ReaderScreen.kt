@@ -253,7 +253,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 			runCatching {
 				illustrationResolver.resolve(
 					bookId = reader.bookId,
-					ebookBookFileId = reader.whispersyncWordSync?.identity?.ebookBookFileId,
+					ebookBookFileId = reader.whispersyncWordSync?.identity?.ebookBookFileId
+						?: reader.ebookBookFileId?.trim()?.toLongOrNull()?.takeIf { it > 0L },
 					enabled = illustrationsEnabled,
 					fetchMissing = illustrationsTurnedOnHere
 				)

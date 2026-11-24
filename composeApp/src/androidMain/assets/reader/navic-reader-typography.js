@@ -682,6 +682,34 @@ export const readerNormalizeChapterOpeningMargins = (doc, settings = {}) => {
   }
 }
 
+// Word exports fake a centred chapter number with a run of NBSPs (`<span>&nbsp;x14</span>1`), which
+// lands the numeral a third of the way across the column. Only a block whose whole text is padding
+// plus one short number or roman numeral qualifies, and only when every padding run sits in its own
+// child element: that padding is hidden (the text itself is never edited) and the numeral centred.
+// Verse and indented prose keep their spacing.
+const ReaderPaddedNumeralPattern = /^[\s\u00a0]*(?:\d{1,3}|(?=[mdclxvi])m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3}))\.?[\s\u00a0]*$/iu
+const ReaderPaddingOnlyPattern = /^[\s\u00a0]*$/u
+export const ReaderPaddedNumeralAttribute = 'data-navic-padded-numeral'
+
+export const readerCentreSpacePaddedNumerals = doc => {
+  let centred = 0
+  for (const block of doc?.body?.querySelectorAll?.('p, div') ?? []) {
+    const text = block.textContent || ''
+    if ((text.match(/\u00a0/gu)?.length ?? 0) < 4 || !ReaderPaddedNumeralPattern.test(text)) continue
+    if (block.querySelector('img, svg, figure, p, div, br')) continue
+    const padding = [...block.children].filter(child => ReaderPaddingOnlyPattern.test(child.textContent || ''))
+    const strayPadding = [...block.childNodes]
+      .some(node => node.nodeType === 3 && /\u00a0/u.test(node.nodeValue || ''))
+    if (!padding.length || strayPadding) continue
+    for (const child of padding) child.style.setProperty('display', 'none', 'important')
+    block.style.setProperty('text-align', 'center', 'important')
+    block.style.setProperty('text-indent', '0', 'important')
+    block.setAttribute(ReaderPaddedNumeralAttribute, 'true')
+    centred += 1
+  }
+  return centred
+}
+
 export const readerFontWeightValue = settings =>
   readerStyleNumber(settings, 'fontWeight', 400, 100, 900)
 
