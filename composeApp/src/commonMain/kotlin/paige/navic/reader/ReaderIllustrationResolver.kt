@@ -103,6 +103,7 @@ internal fun readerIllustrationSet(
 				sceneId = placement.sceneId,
 				spineIndex = placement.spineIndex,
 				ebookHref = placement.ebookHref,
+				position = placement.position,
 				ebookStart = placement.ebookStart,
 				width = placement.width,
 				height = placement.height,

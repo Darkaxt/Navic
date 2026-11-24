@@ -54,15 +54,21 @@ class ReaderIllustrationsTest {
 				placement("s1", shaA),
 				placement("s2", shaB, position = "inline"),
 				placement("s3", shaB, ebookStart = 120),
-				placement("s4", "not-a-hash")
+				placement("s4", "not-a-hash"),
+				placement("s5", shaB, position = ReaderIllustrationPositionPlateBeforeBlock, ebookStart = 4812),
+				placement("s6", shaB, position = ReaderIllustrationPositionPlateBeforeBlock, ebookStart = -1)
 			),
 			expectedBookId = 7,
 			expectedEbookBookFileId = 11
 		)
 
-		assertEquals(listOf("s1"), index.placements.map { it.sceneId })
-		assertEquals(3, index.rejectedPlacementCount)
+		assertEquals(listOf("s1", "s5"), index.placements.map { it.sceneId })
+		assertEquals(4, index.rejectedPlacementCount)
 		assertEquals("digest-1", index.digest)
+		// A mid-chapter plate keeps its kind and offset; a chapter plate stays at byte 0.
+		assertEquals(ReaderIllustrationPositionPlateBeforeChapter, index.placements[0].position)
+		assertEquals(ReaderIllustrationPositionPlateBeforeBlock, index.placements[1].position)
+		assertEquals(4812, index.placements[1].ebookStart)
 	}
 
 	@Test

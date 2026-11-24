@@ -37,7 +37,7 @@ const paperSplitLayers = () => Array.from(document.querySelectorAll('*')).filter
 
 // A split stores one coverage plane, so any picture on the page would lose its colour (#58): the
 // soft-colour plates fit the residual check and were stored monochrome. Such pages stay full PNGs.
-const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]'
+const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]:not([data-navic-illustration-spacer])'
 
 // Foliate's paginated iframe is as wide as the whole section, so a rect inside it says nothing
 // about the visible column: map it through the frame's own top-level rect. A frame that cannot

@@ -922,7 +922,7 @@ class ReaderPassiveRasterPrototypeTest {
 		// before fingerprinting, so the host keeps the full composite PNG.
 		assertContains(
 			script,
-			"const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]'"
+			"const paperSplitMediaSelector = 'img, picture, svg, canvas, video, [data-navic-illustration]:not([data-navic-illustration-spacer])'"
 		)
 		assertTrue(
 			describe.indexOf("if (paperSplitHasVisibleMedia(view)) return null") in

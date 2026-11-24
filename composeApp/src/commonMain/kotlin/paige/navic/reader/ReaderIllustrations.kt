@@ -1,15 +1,16 @@
 package paige.navic.reader
 
 /**
- * One Bindery chapter-illustration plate (bindery.illustrations.index.v1), resolved to an image
- * already on disk. The reader shows it as a full page before the chapter (Darkaxt/Navic#74).
- * [ebookStart] is a UTF-8 byte offset in the bindery-epub-text v1 basis (as Whispersync); the
- * agreed contract places plates at 0, before the chapter.
+ * One Bindery illustration plate (bindery.illustrations.index.v1), resolved to an image already on
+ * disk. The reader shows it as a full page before the chapter (Darkaxt/Navic#74) or, for
+ * `plate-before-block`, before the block containing [ebookStart] mid-chapter. [ebookStart] is a
+ * UTF-8 byte offset in the bindery-epub-text v1 basis (as Whispersync).
  */
 data class ReaderIllustrationPlacement(
 	val sceneId: String,
 	val spineIndex: Int,
 	val ebookHref: String,
+	val position: String,
 	val ebookStart: Int,
 	val width: Int,
 	val height: Int,

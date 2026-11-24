@@ -1648,6 +1648,7 @@ private fun ReaderIllustrationSet.toIllustrationsJsonObject(): JsonObject =
 							put("sceneId", placement.sceneId)
 							put("spineIndex", placement.spineIndex)
 							put("ebookHref", placement.ebookHref)
+							put("position", placement.position)
 							put("ebookStart", placement.ebookStart)
 							put("width", placement.width)
 							put("height", placement.height)

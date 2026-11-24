@@ -11,6 +11,8 @@ import paige.navic.util.core.Logger
 
 const val ReaderIllustrationIndexSchema = "bindery.illustrations.index.v1"
 const val ReaderIllustrationPositionPlateBeforeChapter = "plate-before-chapter"
+/** A full-page plate before the block (paragraph, heading) containing `ebookStart`, mid-chapter. */
+const val ReaderIllustrationPositionPlateBeforeBlock = "plate-before-block"
 
 private const val ReaderIllustrationIndexTag = "ReaderIllustrationIndex"
 private const val ReaderIllustrationExtractor = "bindery-epub-text"
@@ -45,6 +47,8 @@ data class ReaderIllustrationIndexPlacement(
 	val sceneId: String,
 	val spineIndex: Int,
 	val ebookHref: String,
+	/** [ReaderIllustrationPositionPlateBeforeChapter] or [ReaderIllustrationPositionPlateBeforeBlock]. */
+	val position: String,
 	val ebookStart: Int,
 	val width: Int,
 	val height: Int,
@@ -100,8 +104,9 @@ fun decodeBinderyIllustrationReadiness(json: String, expectedBookId: Long): Bind
 
 /**
  * Decodes and validates bindery.illustrations.index.v1. Unknown schema, another book or file, or an
- * unsupported coordinate basis fail the whole index. A placement that is not `plate-before-chapter`
- * at `ebookStart` 0, or that has invalid fields, is logged and skipped so it is never misplaced.
+ * unsupported coordinate basis fail the whole index. A placement that is neither `plate-before-chapter`
+ * at `ebookStart` 0 nor `plate-before-block` at a non-negative `ebookStart`, or that has invalid
+ * fields, is logged and skipped so it is never misplaced.
  * [expectedEbookBookFileId] null accepts the index's own file (used for local fixtures).
  */
 fun decodeReaderIllustrationIndex(
@@ -153,8 +158,13 @@ fun decodeReaderIllustrationIndex(
 }
 
 private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement? {
-	if (string("position") != ReaderIllustrationPositionPlateBeforeChapter) return null
-	if (long("ebookStart") != 0L) return null
+	val position = string("position")
+	val ebookStart = long("ebookStart") ?: return null
+	when (position) {
+		ReaderIllustrationPositionPlateBeforeChapter -> if (ebookStart != 0L) return null
+		ReaderIllustrationPositionPlateBeforeBlock -> if (ebookStart !in 0L..Int.MAX_VALUE.toLong()) return null
+		else -> return null
+	}
 	val sha256 = string("sha256")?.takeIf(String::isReaderIllustrationSha256) ?: return null
 	val spineIndex = long("spineIndex")?.takeIf { it in 0L..Int.MAX_VALUE.toLong() } ?: return null
 	val width = long("width")?.takeIf { it in 1L..Int.MAX_VALUE.toLong() } ?: return null
@@ -163,7 +173,8 @@ private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement
 		sceneId = string("sceneId")?.takeIf { it.isNotBlank() } ?: return null,
 		spineIndex = spineIndex.toInt(),
 		ebookHref = string("ebookHref")?.takeIf { it.isNotBlank() } ?: return null,
-		ebookStart = 0,
+		position = position,
+		ebookStart = ebookStart.toInt(),
 		width = width.toInt(),
 		height = height.toInt(),
 		imageHref = string("imageHref"),

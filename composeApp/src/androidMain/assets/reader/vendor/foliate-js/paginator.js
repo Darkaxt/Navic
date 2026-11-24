@@ -575,6 +575,7 @@ class View {
         const documentElement = doc?.documentElement
         const contentRoot = documentStyleRoot(doc)
         if (!documentElement?.isConnected || !contentRoot?.isConnected) return false
+        this.#alignNavicIllustrationPlates()
         this.#contentRange.selectNodeContents(contentRoot)
 
         const side = this.#column
@@ -648,6 +649,32 @@ class View {
         this.#layoutSignature = signature
         if (this.#committed) this.onExpand()
         return true
+    }
+    // Navic mid-chapter plates (navic-reader-render-profile.js) face their text in a two-page
+    // spread: each plate must start a left (even) column. Its hidden blank-page spacer shifts it by
+    // exactly one column, so a plate on an odd column toggles its spacer. Idempotent, so the
+    // resize this causes re-expands without further change.
+    #alignNavicIllustrationPlates() {
+        const doc = this.document
+        const spacers = doc?.querySelectorAll?.('[data-navic-illustration-spacer]') || []
+        if (!spacers.length) return
+        const { width, columnWidth, gap } = this.#layout || {}
+        const pitch = columnWidth + gap
+        const spread = this.#column && !this.#vertical && !this.#rtl &&
+            pitch > 0 && Math.round(width / pitch) === 2
+        if (!spread) {
+            for (const spacer of spacers) spacer.setAttribute('data-navic-illustration-spacer', 'off')
+            return
+        }
+        for (const figure of doc.querySelectorAll('figure[data-navic-illustration-block]')) {
+            const spacer = figure.previousElementSibling
+            if (!spacer?.hasAttribute('data-navic-illustration-spacer')) continue
+            const rootLeft = doc.documentElement.getBoundingClientRect().left
+            const column = Math.round((figure.getBoundingClientRect().left - rootLeft - gap / 2) / pitch)
+            if (column % 2 === 0) continue
+            const on = spacer.getAttribute('data-navic-illustration-spacer') === 'on'
+            spacer.setAttribute('data-navic-illustration-spacer', on ? 'off' : 'on')
+        }
     }
     // The overlay must sit over the iframe (one padding page in), not at the element's origin.
     // An overlayer attached after the last expand() gets the current geometry here; otherwise a

@@ -1129,6 +1129,38 @@ const exactDomProjection = (doc, extracted) => {
   }
 }
 
+// Mid-chapter illustration plates (plate-before-block) are anchored at the extracted-text byte of
+// the first letter or digit of their block. Map it on the document's own projection (plates skip
+// themselves): the atom at that byte must start a word in a text node, or nothing is placed.
+const ReaderWordStartAtomPattern = /^[\p{L}\p{N}]$/u
+
+const utf8ByteLength = text => {
+  let length = 0
+  for (const character of text) {
+    const codePoint = character.codePointAt(0)
+    length += codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4
+  }
+  return length
+}
+
+export const readerExtractedByteWordStartPoint = (doc, byteOffset) => {
+  if (!doc?.documentElement || !Number.isSafeInteger(byteOffset) || byteOffset < 0) return null
+  let byte = 0
+  let previous = null
+  for (const atom of normalizeDomProjectionAtoms(doc, '')) {
+    if (byte > byteOffset) return null
+    if (byte === byteOffset) {
+      const node = atom.startPoint?.node
+      if (!ReaderWordStartAtomPattern.test(atom.text)) return null
+      if (previous && ReaderWordStartAtomPattern.test(previous.text)) return null
+      return node?.nodeType === 3 || node?.nodeType === 4 ? atom.startPoint : null
+    }
+    byte += utf8ByteLength(atom.text)
+    previous = atom
+  }
+  return null
+}
+
 const pointByte = (byNode, node, offset) => byNode.get(node)?.get(offset)
 
 // Page boundaries often fall inside a collapsed whitespace run or on an element-level offset, which

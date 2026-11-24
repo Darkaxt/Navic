@@ -18,6 +18,7 @@ import {
   readerFitOverlongHeadingWords,
 } from './navic-reader-typography.js'
 import { stableHash } from './navic-reader-identity.js'
+import { readerExtractedByteWordStartPoint } from './navic-reader-wordsync-provenance.js'
 import {
   ReaderFlowScrolled,
   ReaderFlowScrolledGaps,
@@ -28,7 +29,7 @@ import {
 
 // Bump when the content render changes pixels for the same settings, so cached rasters retire.
 // Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
-export const ReaderContentRenderRevision = 4
+export const ReaderContentRenderRevision = 5
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -155,8 +156,9 @@ export const applyReaderDocumentRenderDirection = (doc, direction) => {
 // Chapter illustration plates (Darkaxt/Navic#74): one full-page plate before an illustrated
 // chapter. Foliate renders each spine item as its own document starting at column 0, so a plate
 // inserted as the first child of the section body is the left page of the opening spread (the
-// page before the chapter in one-page layout). Only ebookStart 0 ("plate-before-chapter") is
-// supported; anything that cannot be matched exactly to the section fails closed (no plate).
+// page before the chapter in one-page layout). "plate-before-chapter" sits at ebookStart 0;
+// "plate-before-block" is a full-page plate mid-chapter, before the block holding ebookStart.
+// Anything that cannot be matched exactly to the section or its text fails closed (no plate).
 export const ReaderIllustrationAttribute = 'data-navic-illustration'
 export const ReaderIllustrationImageAttribute = 'data-navic-illustration-image'
 export const ReaderIllustrationSelector = `[${ReaderIllustrationAttribute}]`
@@ -199,17 +201,32 @@ export const readerIllustrationSectionIdentity = (book, sectionIndex) => {
 
 const positiveInteger = value => Number.isSafeInteger(value) && value > 0
 
-export const readerIllustrationPlacementForSection = (settings, identity) => {
-  if (!identity) return null
-  return readerIllustrationPlacements(settings).find(placement =>
+const ReaderIllustrationPositionChapter = 'plate-before-chapter'
+const ReaderIllustrationPositionBlock = 'plate-before-block'
+export const ReaderIllustrationBlockAttribute = 'data-navic-illustration-block'
+export const ReaderIllustrationSpacerAttribute = 'data-navic-illustration-spacer'
+
+const readerIllustrationPlacementKind = placement => {
+  const position = placement.position ?? ReaderIllustrationPositionChapter
+  if (position === ReaderIllustrationPositionChapter) return placement.ebookStart === 0 ? position : null
+  if (position === ReaderIllustrationPositionBlock) {
+    return Number.isSafeInteger(placement.ebookStart) && placement.ebookStart >= 0 ? position : null
+  }
+  return null
+}
+
+// Chapter plates first (byte 0), then mid-chapter plates in reading order.
+export const readerIllustrationPlacementsForSection = (settings, identity) => {
+  if (!identity) return []
+  return readerIllustrationPlacements(settings).filter(placement =>
     placement && typeof placement === 'object' &&
     placement.spineIndex === identity.spineIndex &&
-    placement.ebookStart === 0 &&
+    readerIllustrationPlacementKind(placement) !== null &&
     normalizedIllustrationHref(placement.ebookHref) === identity.href &&
     typeof placement.sceneId === 'string' && placement.sceneId.trim() !== '' &&
     typeof placement.imageUrl === 'string' && placement.imageUrl.trim() !== '' &&
     positiveInteger(placement.width) && positiveInteger(placement.height)
-  ) || null
+  ).sort((left, right) => left.ebookStart - right.ebookStart)
 }
 
 const readerIllustrationPlateHeight = settings => {
@@ -223,7 +240,10 @@ const readerIllustrationPlateHeight = settings => {
 
 const readerIllustrationPlateMatches = (figure, placement, height) => {
   const image = figure?.firstElementChild
-  return figure.getAttribute(ReaderIllustrationAttribute) === placement.sceneId &&
+  return figure.localName === 'figure' &&
+    figure.getAttribute(ReaderIllustrationAttribute) === placement.sceneId &&
+    figure.hasAttribute(ReaderIllustrationBlockAttribute) ===
+      (readerIllustrationPlacementKind(placement) === ReaderIllustrationPositionBlock) &&
     figure.childNodes.length === 1 &&
     image?.hasAttribute?.(ReaderIllustrationImageAttribute) === true &&
     image.getAttribute('src') === placement.imageUrl &&
@@ -232,23 +252,26 @@ const readerIllustrationPlateMatches = (figure, placement, height) => {
     figure.style.getPropertyValue('height') === height
 }
 
-export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {
-  const body = doc?.body
-  if (!body) return null
-  const placement = readerIllustrationPlacementForSection(
-    settings,
-    readerIllustrationSectionIdentity(book, sectionIndex),
-  )
-  const existing = Array.from(body.querySelectorAll(ReaderIllustrationSelector))
-  const height = placement ? readerIllustrationPlateHeight(settings) : ''
-  if (
-    placement && existing.length === 1 && existing[0] === body.firstChild &&
-    readerIllustrationPlateMatches(existing[0], placement, height)
-  ) return existing[0]
-  for (const element of existing) element.remove()
-  if (!placement) return null
+const ReaderIllustrationAnchorBlockSelector =
+  'p, h1, h2, h3, h4, h5, h6, blockquote, li, dt, dd, pre, table, figure, div, section, article, header, aside'
+
+// The block a mid-chapter plate goes before: the innermost block holding the anchor's first
+// letter, or the body child holding it when the text sits directly in the body.
+const readerIllustrationAnchorBlock = (doc, placement) => {
+  const point = readerExtractedByteWordStartPoint(doc, placement.ebookStart)
+  const body = doc.body
+  if (!point || !body?.contains(point.node)) return null
+  const block = point.node.parentElement?.closest?.(ReaderIllustrationAnchorBlockSelector)
+  if (block && block !== body && body.contains(block)) return block
+  let node = point.node
+  while (node.parentNode && node.parentNode !== body) node = node.parentNode
+  return node.parentNode === body ? node : null
+}
+
+const createReaderIllustrationPlate = (doc, placement, height, block) => {
   const figure = doc.createElement('figure')
   figure.setAttribute(ReaderIllustrationAttribute, placement.sceneId)
+  if (block) figure.setAttribute(ReaderIllustrationBlockAttribute, '')
   figure.setAttribute('aria-hidden', 'true')
   figure.style.setProperty('height', height, 'important')
   const image = doc.createElement('img')
@@ -259,8 +282,62 @@ export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = 
   image.setAttribute('alt', '')
   image.setAttribute('decoding', 'sync')
   figure.append(image)
-  body.insertBefore(figure, body.firstChild)
   return figure
+}
+
+// A mid-chapter plate brings a hidden blank page. The paginator shows it (vendor paginator.js
+// #alignNavicIllustrationPlates) when the plate would fall on the right page of a two-page spread,
+// so the plate faces its text. Toggling an attribute, not inserting nodes, keeps WordSync's DOM
+// points valid after mapping.
+const createReaderIllustrationSpacer = (doc, placement, height) => {
+  const spacer = doc.createElement('div')
+  spacer.setAttribute(ReaderIllustrationAttribute, placement.sceneId)
+  spacer.setAttribute(ReaderIllustrationSpacerAttribute, 'off')
+  spacer.setAttribute('aria-hidden', 'true')
+  spacer.style.setProperty('height', height, 'important')
+  return spacer
+}
+
+// Plates are mapped once against the publication's own text; a re-theme keeps matching plates in
+// place instead of re-mapping (later typography normalisation may restructure paragraphs). A
+// mid-chapter offset that does not land on the start of a word places nothing.
+export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {
+  const body = doc?.body
+  if (!body) return null
+  const placements = readerIllustrationPlacementsForSection(
+    settings,
+    readerIllustrationSectionIdentity(book, sectionIndex),
+  )
+  const existing = Array.from(body.querySelectorAll(ReaderIllustrationSelector))
+  const figures = existing.filter(element => !element.hasAttribute(ReaderIllustrationSpacerAttribute))
+  const height = placements.length ? readerIllustrationPlateHeight(settings) : ''
+  if (
+    placements.length &&
+    figures.every(figure => placements.some(placement => readerIllustrationPlateMatches(figure, placement, height))) &&
+    (readerIllustrationPlacementKind(placements[0]) !== ReaderIllustrationPositionChapter ||
+      figures[0] === body.firstChild) &&
+    body.dataset.navicIllustrationsMapped === readerIllustrationsDigest(settings)
+  ) return figures[0] || null
+  for (const element of existing) element.remove()
+  delete body.dataset.navicIllustrationsMapped
+  if (!placements.length) return null
+  const inserted = []
+  for (const placement of placements) {
+    if (readerIllustrationPlacementKind(placement) === ReaderIllustrationPositionChapter) {
+      const figure = createReaderIllustrationPlate(doc, placement, height, false)
+      body.insertBefore(figure, body.firstChild)
+      inserted.push(figure)
+      continue
+    }
+    const block = readerIllustrationAnchorBlock(doc, placement)
+    if (!block) continue
+    const figure = createReaderIllustrationPlate(doc, placement, height, true)
+    block.parentNode.insertBefore(createReaderIllustrationSpacer(doc, placement, height), block)
+    block.parentNode.insertBefore(figure, block)
+    inserted.push(figure)
+  }
+  body.dataset.navicIllustrationsMapped = readerIllustrationsDigest(settings)
+  return inserted[0] || null
 }
 
 const ReaderIllustrationEdgeMask =
@@ -316,6 +393,29 @@ export const readerIllustrationCss = () => `
     mask-composite: intersect;
     mask-repeat: no-repeat;
     mask-size: 100% 100%;
+  }
+  html body figure${ReaderIllustrationSelector}[${ReaderIllustrationBlockAttribute}] {
+    break-before: column !important;
+    page-break-before: always !important;
+    -webkit-column-break-before: always !important;
+  }
+  html body [${ReaderIllustrationSpacerAttribute}] {
+    display: none !important;
+  }
+  html body [${ReaderIllustrationSpacerAttribute}="on"] {
+    display: block !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    break-before: column !important;
+    page-break-before: always !important;
+    -webkit-column-break-before: always !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+    pointer-events: none !important;
   }
 `
 

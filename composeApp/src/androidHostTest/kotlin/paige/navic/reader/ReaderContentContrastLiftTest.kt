@@ -35,7 +35,8 @@ class ReaderContentContrastLiftTest {
 		assertTrue(revision != null, "render profile must declare the content render revision")
 		// Revision 3: chapter illustration plates (Darkaxt/Navic#74) change content pixels.
 		// Revision 4: plate pages are no longer stored as monochrome paper/text splits (#58).
-		assertTrue(revision == "4", "colour plate pages must retire revision-3 split rasters")
+		// Revision 5: mid-chapter plates (plate-before-block) and their spread spacers.
+		assertTrue(revision == "5", "mid-chapter plate pages must retire revision-4 rasters")
 		assertContains(renderProfile, "contentRenderRevision: ReaderContentRenderRevision,")
 		val descriptor = preview
 			.substringAfter("function pageTurnRasterDescriptor(")

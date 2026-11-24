@@ -19,11 +19,16 @@ class ReaderIllustrationPlateSourceTest {
 	@Test
 	fun plateIsInsertedFirstInBodyOnlyForTheExactSectionAtByteZero() {
 		val match = renderProfile
-			.substringAfter("export const readerIllustrationPlacementForSection")
+			.substringAfter("export const readerIllustrationPlacementsForSection")
 			.substringBefore("const readerIllustrationPlateHeight")
 		assertContains(match, "placement.spineIndex === identity.spineIndex")
-		assertContains(match, "placement.ebookStart === 0")
+		assertContains(match, "readerIllustrationPlacementKind(placement) !== null")
 		assertContains(match, "normalizedIllustrationHref(placement.ebookHref) === identity.href")
+		val kind = renderProfile
+			.substringAfter("const readerIllustrationPlacementKind = placement => {")
+			.substringBefore("\n}")
+		assertContains(kind, "if (position === ReaderIllustrationPositionChapter) return placement.ebookStart === 0 ? position : null")
+		assertContains(kind, "Number.isSafeInteger(placement.ebookStart) && placement.ebookStart >= 0 ? position : null")
 		val identity = renderProfile
 			.substringAfter("export const readerIllustrationSectionIdentity")
 			.substringBefore("const positiveInteger")
@@ -34,13 +39,63 @@ class ReaderIllustrationPlateSourceTest {
 		assertContains(plate, "readerIllustrationSectionIdentity(book, sectionIndex)")
 	}
 
+	// Mid-chapter plates (plate-before-block): a full page before the block holding the anchor's
+	// first letter, mapped on the document's own WordSync projection, failing closed.
+	@Test
+	fun blockPlateGoesBeforeTheBlockHoldingItsWordStartByte() {
+		val anchorBlock = renderProfile
+			.substringAfter("const readerIllustrationAnchorBlock = (doc, placement) => {")
+			.substringBefore("\n}")
+		assertContains(anchorBlock, "readerExtractedByteWordStartPoint(doc, placement.ebookStart)")
+		assertContains(anchorBlock, "point.node.parentElement?.closest?.(ReaderIllustrationAnchorBlockSelector)")
+		assertContains(plate, "if (!block) continue")
+		assertContains(plate, "block.parentNode.insertBefore(createReaderIllustrationSpacer(doc, placement, height), block)")
+		assertContains(plate, "block.parentNode.insertBefore(figure, block)")
+		val point = wordSync
+			.substringAfter("export const readerExtractedByteWordStartPoint = (doc, byteOffset) => {")
+			.substringBefore("\n}")
+		assertContains(point, "normalizeDomProjectionAtoms(doc, '')")
+		assertContains(point, "if (!ReaderWordStartAtomPattern.test(atom.text)) return null")
+		assertContains(point, "if (previous && ReaderWordStartAtomPattern.test(previous.text)) return null")
+		assertContains(wordSync, "const ReaderWordStartAtomPattern = /^[\\p{L}\\p{N}]$/u")
+	}
+
+	@Test
+	fun blockPlateStartsAPageAndFacesItsTextInTwoPageSpreads() {
+		val css = renderProfile
+			.substringAfter("export const readerIllustrationCss")
+			.substringBefore("export const applyReaderContentDocumentRenderProfile")
+		assertContains(css, "figure\${ReaderIllustrationSelector}[\${ReaderIllustrationBlockAttribute}] {\n    break-before: column !important;")
+		assertContains(css, "[\${ReaderIllustrationSpacerAttribute}] {\n    display: none !important;")
+		assertContains(css, "[\${ReaderIllustrationSpacerAttribute}=\"on\"] {\n    display: block !important;")
+		// The spacer is plate chrome: WordSync, highlights and chapter-opening detection skip it.
+		val spacer = renderProfile
+			.substringAfter("const createReaderIllustrationSpacer = ")
+			.substringBefore("export const applyReaderIllustrationPlate")
+		assertContains(spacer, "spacer.setAttribute(ReaderIllustrationAttribute, placement.sceneId)")
+		assertContains(spacer, "spacer.setAttribute(ReaderIllustrationSpacerAttribute, 'off')")
+		val paginator = root.resolve("vendor/foliate-js/paginator.js").readText()
+		val expand = paginator.substringAfter("    expand() {").substringBefore("this.#contentRange.selectNodeContents")
+		assertContains(expand, "this.#alignNavicIllustrationPlates()")
+		val align = paginator
+			.substringAfter("    #alignNavicIllustrationPlates() {")
+			.substringBefore("\n    }\n")
+		assertContains(align, "Math.round(width / pitch) === 2")
+		assertContains(align, "if (column % 2 === 0) continue")
+		assertContains(align, "spacer.setAttribute('data-navic-illustration-spacer', on ? 'off' : 'on')")
+		// A blank spacer page is no picture: it must not force a full-colour raster.
+		val passive = root.resolve("passive-raster-prototype/passive-raster-prototype.js").readText()
+		assertContains(passive, "[data-navic-illustration]:not([data-navic-illustration-spacer])")
+	}
+
 	@Test
 	fun plateIsIdempotentReplacedOnChangeAndRemovedWhenDisabled() {
-		assertContains(plate, "existing[0] === body.firstChild")
-		assertContains(plate, "readerIllustrationPlateMatches(existing[0], placement, height)")
+		assertContains(plate, "figures[0] === body.firstChild")
+		assertContains(plate, "placements.some(placement => readerIllustrationPlateMatches(figure, placement, height))")
+		assertContains(plate, "body.dataset.navicIllustrationsMapped === readerIllustrationsDigest(settings)")
 		assertTrue(
 			plate.indexOf("for (const element of existing) element.remove()") <
-				plate.indexOf("if (!placement) return null"),
+				plate.indexOf("if (!placements.length) return null"),
 			"Stale or disabled plates are removed before the no-placement exit."
 		)
 		assertContains(settingsCore, "settings?.illustrationsEnabled !== false")
@@ -48,9 +103,14 @@ class ReaderIllustrationPlateSourceTest {
 
 	@Test
 	fun plateCarriesNoTextNoAltAndNoCaption() {
-		assertContains(plate, "image.setAttribute('alt', '')")
-		assertContains(plate, "image.setAttribute('decoding', 'sync')")
-		assertContains(plate, "figure.append(image)")
+		val create = renderProfile
+			.substringAfter("const createReaderIllustrationPlate = ")
+			.substringBefore("const createReaderIllustrationSpacer")
+		assertContains(create, "image.setAttribute('alt', '')")
+		assertContains(create, "image.setAttribute('decoding', 'sync')")
+		assertFalse(create.contains("createTextNode"))
+		assertFalse(create.contains("textContent"))
+		assertContains(renderProfile, "figure.append(image)")
 		assertFalse(plate.contains("createTextNode"))
 		assertFalse(plate.contains("figcaption"))
 		assertFalse(plate.contains("textContent"))
@@ -134,8 +194,8 @@ class ReaderIllustrationPlateSourceTest {
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		assertContains(preview, "illustrationsDigest: readerIllustrationsDigest(settings),")
-		assertContains(preview, "contentRenderRevision: 4,")
-		assertContains(renderProfile, "export const ReaderContentRenderRevision = 4")
+		assertContains(preview, "contentRenderRevision: 5,")
+		assertContains(renderProfile, "export const ReaderContentRenderRevision = 5")
 	}
 
 	@Test
