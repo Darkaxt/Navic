@@ -125,8 +125,7 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 			.substringAfter("private class KomikkuReaderNativeFrameRoot")
 			.substringBefore("private class KomikkuReaderNativeViewerContainer")
 		val transportBody = transport
-			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
-			.substringBefore("internal fun KomikkuWhispersyncStatusBadge(")
+			.substringAfter("private fun ReaderTransportGlyph(")
 
 		val readerLayer = Regex("""addView\(\s*readerContainer,""")
 			.find(frameRoot)?.range?.first ?: -1
@@ -138,7 +137,7 @@ class ReaderPlayLikeCurlSurfaceBoundsTest {
 		assertContains(frameRoot, "composeOverlay.bringToFront()")
 		assertContains(frameHost.substringAfter("update = { root ->"), "root.setComposeOverlay(hostedComposeOverlay)")
 		assertContains(transportBody, ".semantics {")
-		assertContains(transportBody, "onClick(label = accessibilityDescription)")
+		assertContains(transportBody, "onClick(label = description)")
 		assertContains(transportBody, ".pointerInput(Unit)")
 		assertContains(transportBody, "detectTapGestures(")
 		assertContains(retry, "TextButton(onClick = onRetry")

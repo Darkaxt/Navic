@@ -159,10 +159,10 @@ class ReaderViewerTest {
 			File("src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncStatusBadge.kt").readText()
 
 		assertTrue(
-			rootSource.contains("KomikkuWhispersyncPlaybackControl") &&
-				rootSource.contains("onOpenPlayer = onWhispersyncPlayer") &&
-				whispersyncChromeSource.contains("Icons.Outlined.Headset"),
-			"The reader chrome must expose a Komikku-owned headset overlay when Whispersync is available."
+			!rootSource.contains("KomikkuWhispersyncPlaybackControl") &&
+				rootSource.contains("onWhispersyncPlayer = onWhispersyncPlayer.takeIf {") &&
+				whispersyncChromeSource.contains("KomikkuWhispersyncTransportControls("),
+			"The reader chrome must expose the in-page transport and open the player from the menu bar."
 		)
 		assertTrue(
 			rootSource.contains("ReaderControllerDialog.WhispersyncPlayer") &&

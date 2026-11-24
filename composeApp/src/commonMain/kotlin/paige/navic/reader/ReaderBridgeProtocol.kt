@@ -265,6 +265,7 @@ data class ReaderSettings(
 	val whispersyncHighlightColorArgb: Int? = null,
 	val whispersyncHighlightLoading: String? = null,
 	val whispersyncHighlightStyle: String? = null,
+	val whispersyncPageBoundary: String? = ReaderWhispersyncPageBoundaryBehavior.PauseAtVisiblePageEnd.value,
 	val volumeKeyPageTurns: Boolean? = null,
 	val webContentsDebuggingEnabled: Boolean? = null,
 	val illustrationsEnabled: Boolean? = null,

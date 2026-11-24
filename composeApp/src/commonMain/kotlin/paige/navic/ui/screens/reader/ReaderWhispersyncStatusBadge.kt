@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,9 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
@@ -43,12 +40,10 @@ import paige.navic.icons.filled.Play
 import paige.navic.icons.filled.SkipNext
 import paige.navic.icons.filled.SkipPrevious
 import paige.navic.icons.filled.Stop
-import paige.navic.icons.outlined.Headset
 import paige.navic.icons.outlined.Visibility
 import paige.navic.icons.outlined.VisibilityOff
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
-import paige.navic.reader.ReaderWhispersyncPlaybackControlState
 import paige.navic.reader.ReaderWhispersyncStatus
 import paige.navic.reader.ReaderWhispersyncTransportControls
 import navic.composeapp.generated.resources.Res
@@ -79,70 +74,6 @@ internal fun readerWhispersyncCueMapReportSurface(
 ): ReaderWhispersyncCueMapReportSurface? =
 	diagnosticLabel.takeIf { enabled && it.isNotBlank() }
 		?.let(::ReaderWhispersyncCueMapReportSurface)
-
-@Composable
-internal fun KomikkuWhispersyncPlaybackControl(
-	control: ReaderWhispersyncPlaybackControlState,
-	readerTheme: String?,
-	onOpenPlayer: () -> Unit,
-	modifier: Modifier = Modifier
-) {
-	// The headset is the status glyph and opens the full player; playback lives in the transport row.
-	val latestOnOpenPlayer = rememberUpdatedState(onOpenPlayer)
-	val accessibilityDescription = control.contentDescription.localizedDescription()
-	AnimatedVisibility(
-		visible = control.visible,
-		enter = fadeIn(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
-		exit = fadeOut(animationSpec = readerWhispersyncBadgeFadeAnimationSpec),
-		modifier = modifier
-			.semantics {
-				contentDescription = accessibilityDescription
-				role = Role.Button
-				onClick(label = accessibilityDescription) {
-					latestOnOpenPlayer.value()
-					true
-				}
-			}
-			.pointerInput(Unit) {
-				detectTapGestures(
-					onLongPress = { latestOnOpenPlayer.value() },
-					onTap = { latestOnOpenPlayer.value() }
-				)
-			}
-	) {
-		val glyphColor = if (control.noAudioCueOnPage) {
-			MaterialTheme.colorScheme.error
-		} else {
-			readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)
-		}
-		Box(
-			modifier = Modifier.size(48.dp),
-			contentAlignment = Alignment.Center
-		) {
-			Icon(
-				imageVector = Icons.Outlined.Headset,
-				contentDescription = null,
-				tint = glyphColor,
-				modifier = Modifier.size(22.dp)
-			)
-			if (control.crossed) {
-				Canvas(
-					modifier = Modifier
-						.matchParentSize()
-						.padding(13.dp)
-				) {
-					drawLine(
-						color = glyphColor,
-						start = Offset(size.width * 0.14f, size.height * 0.86f),
-						end = Offset(size.width * 0.86f, size.height * 0.14f),
-						strokeWidth = 2.dp.toPx(),
-						cap = StrokeCap.Round
-					)
-				}
-			}
-		}
-	}
-}
 
 @Composable
 internal fun KomikkuWhispersyncCueMapControl(
@@ -258,7 +189,9 @@ internal fun KomikkuWhispersyncTransportControls(
 				}
 			),
 			enabled = transport.playPause != null,
-			tint = tint
+			// Red: this page has no narration to play.
+			tint = if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint,
+			disabledAlpha = if (transport.noAudioCueOnPage) 0.86f else 0.38f
 		) { transport.playPause?.let(onCommand) }
 		ReaderTransportGlyph(
 			Icons.Filled.Stop,
@@ -272,13 +205,14 @@ internal fun KomikkuWhispersyncTransportControls(
 	}
 }
 
-/** A transport glyph in the headset's style: a faint 22 dp glyph on the page, 48 dp touch target. */
+/** A transport glyph: a faint 22 dp glyph on the page, 48 dp touch target. */
 @Composable
 private fun ReaderTransportGlyph(
 	icon: ImageVector,
 	description: String,
 	enabled: Boolean,
 	tint: Color,
+	disabledAlpha: Float = 0.38f,
 	onTap: () -> Unit
 ) {
 	val latestOnTap = rememberUpdatedState(onTap)
@@ -306,7 +240,7 @@ private fun ReaderTransportGlyph(
 		Icon(
 			imageVector = icon,
 			contentDescription = null,
-			tint = if (enabled) tint else tint.copy(alpha = 0.38f),
+			tint = if (enabled) tint else tint.copy(alpha = disabledAlpha),
 			modifier = Modifier.size(22.dp)
 		)
 	}

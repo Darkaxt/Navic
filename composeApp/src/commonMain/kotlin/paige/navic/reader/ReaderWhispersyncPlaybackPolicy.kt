@@ -125,7 +125,8 @@ private fun ReaderReadaloudPlaybackUiState.whispersyncHeadsetCommand(
 data class ReaderWhispersyncTransportControls(
 	val playPause: ReaderReadaloudPlaybackCommand?,
 	val playing: Boolean,
-	val stopEnabled: Boolean
+	val stopEnabled: Boolean,
+	val noAudioCueOnPage: Boolean = false
 )
 
 fun readerWhispersyncTransportControls(
@@ -137,7 +138,8 @@ fun readerWhispersyncTransportControls(
 	playPause = control.command?.takeIf { control.enabled },
 	playing = playbackState?.isPlaying == true,
 	stopEnabled = playbackState?.isPlaying == true || userPaused ||
-		transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused
+		transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused,
+	noAudioCueOnPage = control.noAudioCueOnPage
 )
 
 fun readerWhispersyncPlaybackCommandForSeekTarget(

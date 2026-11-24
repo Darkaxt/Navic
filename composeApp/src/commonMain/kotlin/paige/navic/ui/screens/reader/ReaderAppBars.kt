@@ -47,6 +47,7 @@ import paige.navic.icons.Icons
 import paige.navic.icons.outlined.ArrowBack
 import paige.navic.icons.outlined.Bookmark
 import paige.navic.icons.outlined.BookmarkBorder
+import paige.navic.icons.outlined.Headset
 import paige.navic.icons.outlined.FormatListNumbered
 import paige.navic.icons.outlined.Search
 import paige.navic.icons.outlined.Settings
@@ -76,6 +77,7 @@ internal fun KomikkuReaderAppBars(
 	onNavigateBack: () -> Unit,
 	onSettings: () -> Unit,
 	onToggleCurrentBookmark: () -> Unit,
+	onWhispersyncPlayer: (() -> Unit)? = null,
 	modifier: Modifier = Modifier
 ) {
 	// Ported from Komikku ReaderAppBars: all controls are overlays, never content padding.
@@ -115,6 +117,7 @@ internal fun KomikkuReaderAppBars(
 				canBookmark = controllerState.canBookmarkCurrentLocation,
 				onNavigateBack = onNavigateBack,
 				onToggleBookmarked = onToggleCurrentBookmark,
+				onWhispersyncPlayer = onWhispersyncPlayer,
 				modifier = Modifier
 					.fillMaxWidth()
 					.background(backgroundColor)
@@ -240,6 +243,7 @@ private fun KomikkuReaderTopBar(
 	canBookmark: Boolean,
 	onNavigateBack: () -> Unit,
 	onToggleBookmarked: () -> Unit,
+	onWhispersyncPlayer: (() -> Unit)?,
 	modifier: Modifier = Modifier
 ) {
 	KomikkuReaderAppBar(
@@ -250,7 +254,15 @@ private fun KomikkuReaderTopBar(
 		navigateUp = onNavigateBack,
 		actions = {
 			KomikkuReaderAppBarActions(
-				actions = listOf(
+				actions = listOfNotNull(
+					// The Whispersync player lives beside the bookmark; the page keeps only the transport.
+					onWhispersyncPlayer?.let { openPlayer ->
+						KomikkuReaderAppBarAction.Action(
+							title = "Whispersync player",
+							icon = Icons.Outlined.Headset,
+							onClick = openPlayer
+						)
+					},
 					KomikkuReaderAppBarAction.Action(
 						title = if (bookmarked) "Remove bookmark" else "Bookmark",
 						icon = if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,

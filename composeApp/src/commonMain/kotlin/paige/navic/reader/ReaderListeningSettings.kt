@@ -18,7 +18,8 @@ enum class ReaderWhispersyncHighlightStyle(val value: String) {
 }
 
 enum class ReaderWhispersyncPageBoundaryBehavior(val value: String) {
-	PauseAtVisiblePageEnd("pause-at-visible-page-end")
+	PauseAtVisiblePageEnd("pause-at-visible-page-end"),
+	TurnPageAutomatically("turn-page-automatically")
 }
 
 enum class ReaderWhispersyncLongPressBehavior(val value: String) {
@@ -85,7 +86,8 @@ fun ReaderSettings.withReaderListeningSettings(settings: ReaderListeningSettings
 		whispersyncHighlightLeadMs = normalized.highlightLeadMs,
 		whispersyncHighlightColorArgb = normalized.highlightColorArgb,
 		whispersyncHighlightLoading = normalized.highlightLoading.value,
-		whispersyncHighlightStyle = normalized.highlightStyle.value
+		whispersyncHighlightStyle = normalized.highlightStyle.value,
+		whispersyncPageBoundary = normalized.pageBoundaryBehavior.value
 	)
 }
 

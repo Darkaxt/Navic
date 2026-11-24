@@ -1984,46 +1984,25 @@ class ReaderKomikkuBackboneResetTest {
 			readerScreenText.contains("coordinator.dispatch { onWhispersyncPlaybackCommand(command) }"),
 			"The app-boundary command handler must route Play and Stop through ReaderController lifecycle policy."
 		)
-		assertTrue(
-			readerRootText.contains("KomikkuWhispersyncPlaybackControl("),
-			"ReaderRoot must render the native top-left Whispersync playback affordance."
+		val appBarsText = root.resolve(
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderAppBars.kt"
+		).readText()
+		assertFalse(
+			readerRootText.contains("KomikkuWhispersyncPlaybackControl(") ||
+				statusBadgeText.contains("internal fun KomikkuWhispersyncPlaybackControl("),
+			"The page carries only the transport row; the page-level headset glyph is retired."
 		)
 		assertTrue(
-			readerRootText.contains("onOpenPlayer = onWhispersyncPlayer"),
-			"The full Whispersync player route must stay anchored to the page-level headset, not a duplicate Komikku bottom-bar shortcut."
+			readerRootText.contains("onWhispersyncPlayer = onWhispersyncPlayer.takeIf {") &&
+				appBarsText.contains("icon = Icons.Outlined.Headset") &&
+				appBarsText.contains("onClick = openPlayer"),
+			"The full Whispersync player opens from the reader menu bar beside the bookmark."
 		)
 		assertTrue(
-			statusBadgeText.contains("ReaderWhispersyncPlaybackControlState"),
-			"The Whispersync UI file must contain a dedicated playback control instead of overloading the mismatch badge."
-		)
-		assertTrue(
-			statusBadgeText.contains("KomikkuWhispersyncPlaybackControl") &&
+			statusBadgeText.contains("if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint") &&
 				statusBadgeText.contains(".semantics {") &&
-				statusBadgeText.contains("role = Role.Button") &&
-				statusBadgeText.contains("contentDescription = accessibilityDescription") &&
-				statusBadgeText.contains("onClick(label = accessibilityDescription)"),
-			"The visible Whispersync playback control must shield its own touch area and expose an accessible button action."
-		)
-		val playbackControlBody = statusBadgeText
-			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
-			.substringBefore("@Composable\ninternal fun KomikkuWhispersyncCueMapControl(")
-		assertTrue(
-			playbackControlBody.contains("readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)") &&
-				!playbackControlBody.contains("MaterialTheme.colorScheme.onSurface") &&
-				!playbackControlBody.contains("0.42f"),
-			"The page-level Whispersync headset must use the readable foreground of the active reader theme."
-		)
-		assertTrue(
-			playbackControlBody.contains("Icons.Outlined.Headset") &&
-				!playbackControlBody.contains("Icons.Outlined.Audiobooks"),
-			"The page-level Whispersync affordance must render a headset glyph, not the audiobook/library icon."
-		)
-		assertTrue(
-			playbackControlBody.contains("onOpenPlayer: () -> Unit") &&
-				playbackControlBody.contains("onLongPress = { latestOnOpenPlayer.value() }") &&
-				playbackControlBody.contains("onTap = { latestOnOpenPlayer.value() }") &&
-				!playbackControlBody.contains("onCommand"),
-			"The page-level headset must open the full player on tap and long press; playback lives in the transport row."
+				statusBadgeText.contains("role = Role.Button"),
+			"The transport play glyph turns red on a page without narration and stays an accessible button."
 		)
 		assertTrue(
 			readerRootText.contains("KomikkuWhispersyncTransportControls(") &&
@@ -2032,23 +2011,24 @@ class ReaderKomikkuBackboneResetTest {
 				readerRootText.contains("ReaderViewerAction.TurnPage(direction, withAudio = true)") &&
 				statusBadgeText.contains("onCommand(ReaderReadaloudPlaybackCommand.StopAndReset)") &&
 				statusBadgeText.contains("transport.playPause?.let(onCommand)"),
-			"The Whispersync transport row must offer back/forward page, play/pause and stop beside the headset."
+			"The Whispersync transport row must offer back/forward page, play/pause and stop."
 		)
 		assertTrue(
 			readerRootText.contains("openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered") &&
 				readerRootText.contains("onPageReadinessChange(pageReadinessHoldReason)"),
 			"Read-along audio must hold while the page is not ready, including the unanswered opening question."
 		)
+		val transportControlsBody = statusBadgeText.substringAfter("internal fun KomikkuWhispersyncTransportControls(")
 		assertFalse(
-			playbackControlBody.contains("Surface(") ||
-				playbackControlBody.contains("RoundedCornerShape(") ||
-				playbackControlBody.contains("CircularProgressIndicator(") ||
-				playbackControlBody.contains("IconButton(") ||
-				playbackControlBody.contains(".background(") ||
-				playbackControlBody.contains(".border(") ||
-				playbackControlBody.contains(".clip(") ||
-				playbackControlBody.contains("color = MaterialTheme.colorScheme.surface"),
-			"The page-level Whispersync headset must not render a circular button, pill, progress ring, outline, clipped container, or Material background."
+			transportControlsBody.contains("Surface(") ||
+				transportControlsBody.contains("RoundedCornerShape(") ||
+				transportControlsBody.contains("CircularProgressIndicator(") ||
+				transportControlsBody.contains("IconButton(") ||
+				transportControlsBody.contains(".background(") ||
+				transportControlsBody.contains(".border(") ||
+				transportControlsBody.contains(".clip(") ||
+				transportControlsBody.contains("color = MaterialTheme.colorScheme.surface"),
+			"The page-level Whispersync transport must not render a circular button, pill, progress ring, outline, clipped container, or Material background."
 		)
 		assertTrue(
 			statusBadgeText.contains("onRepairMismatch: () -> Unit"),

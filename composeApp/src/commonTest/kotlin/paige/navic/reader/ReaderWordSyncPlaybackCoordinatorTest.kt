@@ -542,6 +542,37 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 			ReaderWhispersyncTransportPhase.BoundaryPaused,
 			pastPage.controllerStep.controller.state.whispersync.transportPhase
 		)
+
+		// "Turn page" mode: the same page end pauses, then turns to the next page carrying the
+		// narration (the transport Next path), for both page-end transitions.
+		val autoController = onPage.controllerStep.controller.let { paging ->
+			paging.copy(
+				state = paging.state.copy(
+					chrome = paging.state.chrome.copy(
+						settings = paging.state.chrome.settings.copy(
+							whispersyncPageBoundary = ReaderWhispersyncPageBoundaryBehavior.TurnPageAutomatically.value
+						)
+					)
+				)
+			)
+		}
+		val autoReached = onPage.coordinator.coordinatePageEnd(
+			controller = autoController,
+			playback = playback.copy(positionMs = 1_250)
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, autoReached.controllerStep.readaloudPlaybackCommand)
+		assertEquals(ReaderEngineCommand.ClearMediaOverlay, autoReached.controllerStep.engineCommands.first())
+		val autoTurn = assertIs<ReaderEngineCommand.TurnPage>(autoReached.controllerStep.engineCommands.last())
+		assertEquals(ReaderPageTurnDirection.Next, autoTurn.direction)
+		val carried = autoReached.controllerStep.controller.state.whispersync
+		assertEquals(ReaderWhispersyncPlaybackIntent.Enabled, carried.playbackIntent)
+		assertEquals(false, carried.userPaused)
+		val autoPastPage = current.coordinator.coordinateBoundary(
+			controller = autoController,
+			playback = playback.copy(positionMs = 1_300),
+			boundary = boundaries.single { it.audioStartMs == 1_300L }
+		)
+		assertIs<ReaderEngineCommand.TurnPage>(autoPastPage.controllerStep.engineCommands.last())
 	}
 
 	@Test

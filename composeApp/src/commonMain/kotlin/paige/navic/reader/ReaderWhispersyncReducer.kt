@@ -2153,5 +2153,30 @@ internal fun ReaderController.pauseAtWhispersyncVisiblePageEnd(
 		),
 		engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay),
 		readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
+	).turnedAutomaticallyAtPageEnd(reason)
+}
+
+/** Narration reaching the page's end; not a cue landing off a page the reader browsed to. */
+private val ReaderWhispersyncAutoTurnReasons = setOf("visible-narration-ended", "first-word-past-page")
+
+/**
+ * "Turn page" boundary mode: the page end turns to the next page carrying the narration, the
+ * transport Next path (pause here, resume from the new page's first visible word once it settles).
+ */
+private fun ReaderControllerStep.turnedAutomaticallyAtPageEnd(reason: String): ReaderControllerStep {
+	if (
+		reason !in ReaderWhispersyncAutoTurnReasons ||
+		normalizedReaderWhispersyncPageBoundaryBehavior(controller.state.chrome.settings.whispersyncPageBoundary) !=
+		ReaderWhispersyncPageBoundaryBehavior.TurnPageAutomatically
+	) {
+		return this
+	}
+	Logger.i(WhispersyncSyncLogTag, "Whispersync page end auto-turn reason=$reason direction=next")
+	val turned = controller.onViewerAction(
+		ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next, withAudio = true)
+	)
+	return turned.copy(
+		engineCommands = engineCommands + turned.engineCommands,
+		readaloudPlaybackCommand = readaloudPlaybackCommand
 	)
 }

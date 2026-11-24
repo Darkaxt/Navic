@@ -2085,38 +2085,28 @@ class ReaderRuntimeCommonChromeTest {
 	}
 
 	@Test
-	fun commonWhispersyncPlaybackControlBlendsIntoPageInsteadOfRenderingChromePill() {
+	fun commonWhispersyncTransportBlendsIntoPageInsteadOfRenderingChromePill() {
 		val readerRootText = readerCommonUiFile("ReaderRoot.kt").readText()
 		val whispersyncControlText = readerCommonUiFile("ReaderWhispersyncStatusBadge.kt").readText()
-		val playbackControlBody = whispersyncControlText
-			.substringAfter("internal fun KomikkuWhispersyncPlaybackControl(")
-			.substringBefore("\n}\n\n@Composable\ninternal fun KomikkuWhispersyncCueMapControl(")
+		val transportBody = whispersyncControlText
+			.substringAfter("internal fun KomikkuWhispersyncTransportControls(")
 
-		assertContains(readerRootText, "KomikkuWhispersyncPlaybackControl(")
+		assertFalse(readerRootText.contains("KomikkuWhispersyncPlaybackControl("))
 		assertContains(readerRootText, ".align(Alignment.TopStart)")
 		assertContains(readerRootText, "readerTheme = controllerState.chrome.settings.theme")
-		assertContains(playbackControlBody, "readerTheme: String?")
-		assertContains(playbackControlBody, "readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)")
-		assertContains(playbackControlBody, "control.noAudioCueOnPage")
-		assertContains(playbackControlBody, "MaterialTheme.colorScheme.error")
-		assertTrue(
-			playbackControlBody.indexOf("control.noAudioCueOnPage") <
-				playbackControlBody.indexOf("MaterialTheme.colorScheme.error"),
-			"Only the explicit no-current-page-cue state should select the error tint."
-		)
-		assertFalse(playbackControlBody.contains("MaterialTheme.colorScheme.onSurface"))
-		assertFalse(playbackControlBody.contains("0.42f"))
-		assertContains(playbackControlBody, "Modifier.size(48.dp)")
-		assertContains(playbackControlBody, "Modifier.size(22.dp)")
-		assertContains(playbackControlBody, "Icons.Outlined.Headset")
-		assertContains(playbackControlBody, "drawLine(")
+		assertContains(transportBody, "readerTheme: String?")
+		assertContains(transportBody, "readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)")
+		// Only the explicit no-current-page-cue state selects the error tint.
+		assertContains(transportBody, "if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint")
+		assertFalse(transportBody.contains("MaterialTheme.colorScheme.onSurface"))
+		assertContains(transportBody, ".size(48.dp)")
+		assertContains(transportBody, "Modifier.size(22.dp)")
 		assertFalse(
-			playbackControlBody.contains("Surface(") ||
-				playbackControlBody.contains("RoundedCornerShape(") ||
-				playbackControlBody.contains("MaterialTheme.colorScheme.surface.copy") ||
-				playbackControlBody.contains("CircularProgressIndicator(") ||
-				playbackControlBody.contains("IconButton("),
-			"The page-scoped Whispersync control should be a faint headset glyph on the paper surface, not a persistent chrome pill/circle."
+			transportBody.contains("Surface(") ||
+				transportBody.contains("RoundedCornerShape(") ||
+				transportBody.contains("CircularProgressIndicator(") ||
+				transportBody.contains("IconButton("),
+			"The page-scoped transport should be faint glyphs on the paper surface, not a persistent chrome pill/circle."
 		)
 	}
 
@@ -2132,12 +2122,12 @@ class ReaderRuntimeCommonChromeTest {
 		val transportBlock = composeOverlayBody
 			.substringAfter("if (whispersyncPlaybackControl.visible) {")
 			.substringBefore("\n\t\t\t}")
-		assertContains(transportBlock, "KomikkuWhispersyncPlaybackControl(")
+		assertContains(transportBlock, "KomikkuWhispersyncTransportControls(")
 		assertFalse(
 			composeOverlayBody
 				.substringAfter("if (!controllerState.shellCoverVisible) {")
 				.substringBefore("if (whispersyncPlaybackControl.visible) {")
-				.contains("KomikkuWhispersyncPlaybackControl("),
+				.contains("KomikkuWhispersyncTransportControls("),
 			"The active transport must be composed after the shell/content guard, not inside it."
 		)
 	}

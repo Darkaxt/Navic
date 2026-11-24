@@ -193,9 +193,16 @@ internal fun KomikkuListeningSettingsPage(
 		)
 		SettingsSelectableChipRow(
 			title = "Page boundary",
-			options = listOf("pause-at-visible-page-end" to "Pause at page end"),
+			options = listOf(
+				ReaderWhispersyncPageBoundaryBehavior.PauseAtVisiblePageEnd.value to "Pause at page end",
+				ReaderWhispersyncPageBoundaryBehavior.TurnPageAutomatically.value to "Turn page"
+			),
 			selectedValue = listeningSettings.pageBoundaryBehavior.value,
-			onSelect = {}
+			onSelect = { behavior ->
+				ReaderWhispersyncPageBoundaryBehavior.entries
+					.firstOrNull { it.value == behavior }
+					?.let { onListeningSettingsChange(listeningSettings.copy(pageBoundaryBehavior = it)) }
+			}
 		)
 		SettingsSelectableChipRow(
 			title = "Long press",

@@ -587,6 +587,9 @@ private fun KomikkuComposeOverlay(
 			onNavigateBack = onNavigateBack,
 			onSettings = onSettings,
 			onToggleCurrentBookmark = onToggleCurrentBookmark,
+			onWhispersyncPlayer = onWhispersyncPlayer.takeIf {
+				whispersyncPlaybackControl.visible || controllerState.whispersync.available
+			},
 			modifier = Modifier.matchParentSize()
 		)
 		KomikkuPaginationProfileStatusBadge(
@@ -625,25 +628,19 @@ private fun KomikkuComposeOverlay(
 					.align(Alignment.TopStart)
 					.padding(top = 28.dp, start = 28.dp)
 			) {
+				// The in-page transport is the whole player surface; the full player opens from the menu bar.
 				if (whispersyncPlaybackControl.visible) {
-					KomikkuWhispersyncPlaybackControl(
-						control = whispersyncPlaybackControl,
+					KomikkuWhispersyncTransportControls(
+						transport = readerWhispersyncTransportControls(
+							control = whispersyncPlaybackControl,
+							playbackState = readaloudPlaybackState,
+							userPaused = controllerState.whispersync.userPaused,
+							transportPhase = controllerState.whispersync.transportPhase
+						),
 						readerTheme = controllerState.chrome.settings.theme,
-						onOpenPlayer = onWhispersyncPlayer
+						onCommand = onWhispersyncPlaybackCommand,
+						onTurnPageWithAudio = onTurnPageWithAudio
 					)
-					if (!whispersyncPlaybackControl.loading) {
-						KomikkuWhispersyncTransportControls(
-							transport = readerWhispersyncTransportControls(
-								control = whispersyncPlaybackControl,
-								playbackState = readaloudPlaybackState,
-								userPaused = controllerState.whispersync.userPaused,
-								transportPhase = controllerState.whispersync.transportPhase
-							),
-							readerTheme = controllerState.chrome.settings.theme,
-							onCommand = onWhispersyncPlaybackCommand,
-							onTurnPageWithAudio = onTurnPageWithAudio
-						)
-					}
 				}
 				if (cueMapAvailable) {
 					val cueMapDiagnosticSurface = controllerState.whispersync.cueMap.productionDiagnosticSurface(
