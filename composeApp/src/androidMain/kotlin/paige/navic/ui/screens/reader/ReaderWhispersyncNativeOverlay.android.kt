@@ -2,7 +2,11 @@ package paige.navic.ui.screens.reader
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Shader
 import paige.navic.reader.ReaderPageTurnCaptureGeometry
 import paige.navic.reader.ReaderPageTurnLayoutMode
 import paige.navic.reader.ReaderPageTurnPageRole
@@ -162,18 +166,68 @@ internal fun readerWhispersyncViewportHighlightMask(
 	colorArgb = colorArgb
 )
 
+/** Reading order of the first sliver of the current word; 0 is reserved for already-read text. */
+internal const val ReaderWhispersyncFlowOrderStart = 0.05f
+
+/** The renderer's flow head for [progress] through the current word (see PageRenderer). */
+internal fun readerWhispersyncFlowHead(progress: Float): Float =
+	0.01f + 0.95f * progress.coerceIn(0f, 1f)
+
+/**
+ * The flow-encoded page mask: opaque alpha marks highlighted text, red over alpha its reading
+ * order. Already-read text is order 0 (always shown); the current word ramps from
+ * [ReaderWhispersyncFlowOrderStart] to 1 left to right, so the renderer's head uniform sweeps
+ * it in over the word's audio time. The highlight colour comes from the renderer uniform.
+ */
 internal fun readerWhispersyncHighlightMask(
 	receipt: ReaderWhispersyncAnchorReceipt,
 	target: ReaderWhispersyncNativeOverlayTarget,
 	bitmapWidth: Int,
-	bitmapHeight: Int,
-	colorArgb: Int
-): Bitmap? = readerWhispersyncMaskBitmap(
-	rects = receipt.maskRectsFor(target.role, bitmapWidth, bitmapHeight),
-	bitmapWidth = bitmapWidth,
-	bitmapHeight = bitmapHeight,
-	colorArgb = colorArgb
-)
+	bitmapHeight: Int
+): Bitmap? {
+	val bitmap = readerWhispersyncMaskBitmap(
+		rects = receipt.maskRectsFor(target.role, bitmapWidth, bitmapHeight),
+		bitmapWidth = bitmapWidth,
+		bitmapHeight = bitmapHeight,
+		colorArgb = ReaderWhispersyncFlowReadColorArgb
+	) ?: return null
+	val heads = receipt.headMaskSpansFor(target.role, bitmapWidth, bitmapHeight)
+	if (heads.isEmpty()) return bitmap
+	val canvas = Canvas(bitmap)
+	val paint = Paint().apply {
+		style = Paint.Style.FILL
+		isAntiAlias = false
+		xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+	}
+	heads.forEach { head ->
+		val rect = head.rect
+		paint.shader = LinearGradient(
+			rect.left.toFloat(),
+			0f,
+			rect.right.toFloat(),
+			0f,
+			readerWhispersyncFlowOrderColor(head.startFraction),
+			readerWhispersyncFlowOrderColor(head.endFraction),
+			Shader.TileMode.CLAMP
+		)
+		canvas.drawRect(
+			rect.left.toFloat(),
+			rect.top.toFloat(),
+			rect.right.toFloat(),
+			rect.bottom.toFloat(),
+			paint
+		)
+	}
+	return bitmap
+}
+
+private const val ReaderWhispersyncFlowReadColorArgb = 0xFF000000.toInt()
+
+private fun readerWhispersyncFlowOrderColor(fraction: Double): Int {
+	val order = ReaderWhispersyncFlowOrderStart +
+		(1f - ReaderWhispersyncFlowOrderStart) * fraction.toFloat().coerceIn(0f, 1f)
+	return (0xFF shl 24) or ((order * 255f).toInt().coerceIn(1, 255) shl 16)
+}
 
 private fun readerWhispersyncMaskBitmap(
 	rects: List<ReaderPageTurnPixelRect>,

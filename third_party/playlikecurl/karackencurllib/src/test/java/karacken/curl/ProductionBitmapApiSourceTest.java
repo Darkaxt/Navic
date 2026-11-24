@@ -358,6 +358,23 @@ public class ProductionBitmapApiSourceTest {
         assertFalse(rendererSource.contains("overlayMesh"));
     }
 
+    @Test
+    public void flowMaskRevealsOnlyTheMatchingBoundaryAndQueuesAheadOfReplacement()
+            throws IOException {
+        String rendererSource = source("PageRenderer.java");
+        String surfaceSource = source("PageSurfaceView.java");
+        String applyFlow = methodBody(rendererSource, "private void applyOverlayFlow(");
+        String setFlow = methodBody(surfaceSource, "public void setPageOverlayFlow(");
+
+        assertTrue(rendererSource.contains("float order = overlay.r / max(overlay.a, 0.001)"));
+        assertTrue(applyFlow.contains("instanceof DynamicPageOverlayTexture"));
+        assertTrue(applyFlow.contains("overlayBoundary == overlayFlowBoundaryGeneration"));
+        assertTrue(applyFlow.contains("overlayBoundary < overlayFlowBoundaryGeneration ? 1f : 0f"));
+        assertTrue(setFlow.contains("requireMainThread()"));
+        assertTrue(setFlow.contains("queueEvent("));
+        assertTrue(setFlow.contains("requestRender()"));
+    }
+
     private static String source(String fileName) throws IOException {
         return Files.readString(
                 Path.of("src/main/java/karacken/curl/" + fileName),

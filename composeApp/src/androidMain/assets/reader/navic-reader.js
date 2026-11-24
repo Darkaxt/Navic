@@ -177,6 +177,7 @@ import {
   applyReaderWordSyncOverlayFragment,
   paintReaderWordSyncActiveOverlay,
   paintReaderWordSyncOverlayTextRange,
+  ReaderWordSyncFlowHeadKeySuffix,
   postReaderWordSyncOverlayActive,
   readerLivePresentationReceiptAndRepublishActiveMediaOverlayAnchor,
   readerMediaOverlayAnchorReceipt,
@@ -1203,6 +1204,7 @@ class NavicReaderRuntime {
     let removedAny = false
     for (const content of this.contentEntries()) {
       content.overlayer?.remove?.(ReaderMediaOverlayActiveRangeKey)
+      content.overlayer?.remove?.(ReaderMediaOverlayActiveRangeKey + ReaderWordSyncFlowHeadKeySuffix)
       if (!preservePlayed) {
         for (const key of this.mediaOverlayPlayedFragments.keys()) {
           content.overlayer?.remove?.(key)

@@ -1683,6 +1683,13 @@ private fun JsonObject.toWhispersyncAnchorReceipt(
 		(element as? JsonObject)?.toWhispersyncPageLocalRect()
 	}
 	if (pageLocalRects.isEmpty() || pageLocalRects.any { it == null }) return null
+	// Optional: older pages and cue receipts carry no head; a malformed entry drops the head only.
+	val pageLocalHeadRects = (get("pageLocalHeadRects") as? JsonArray)
+		?.map { element -> (element as? JsonObject)?.toWhispersyncPageLocalRect() }
+		?.takeIf { rects -> rects.none { it == null } }
+		?.filterNotNull()
+		?.filter { rect -> captureGeometry.pages.any { it.role == rect.role } }
+		.orEmpty()
 	return runCatching {
 		ReaderWhispersyncAnchorReceipt(
 			foliateSessionId = stringValue("foliateSessionId") ?: return null,
@@ -1705,7 +1712,8 @@ private fun JsonObject.toWhispersyncAnchorReceipt(
 			layoutFingerprint = stringValue("layoutFingerprint") ?: return null,
 			readerSettingsRasterKey = stringValue("readerSettingsRasterKey") ?: return null,
 			captureGeometry = captureGeometry,
-			pageLocalRects = pageLocalRects.filterNotNull()
+			pageLocalRects = pageLocalRects.filterNotNull(),
+			pageLocalHeadRects = pageLocalHeadRects
 		)
 	}.getOrNull()
 }

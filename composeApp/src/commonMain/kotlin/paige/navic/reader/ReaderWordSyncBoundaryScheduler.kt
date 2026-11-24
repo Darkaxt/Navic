@@ -24,22 +24,30 @@ internal data class ReaderWordSyncTimelineSnapshot(
 	}
 }
 
+/**
+ * A word's highlight boundary. [flowStartMs]/[flowEndMs] are the scheduled (flow) times: smoothed
+ * across neighbouring words and gapless inside a phrase (see [withReaderWordSyncFlowTiming]); they
+ * default to the raw ASR word times.
+ */
 internal data class ReaderWordSyncBoundary(
 	val sequence: Long,
 	val wordOrdinalWithinTrack: Int,
-	val word: WordSyncWord
+	val word: WordSyncWord,
+	val flowStartMs: Long = word.audioStartMs,
+	val flowEndMs: Long = maxOf(word.audioEndMs, word.audioStartMs)
 ) {
 	init {
 		require(sequence >= 0L)
 		require(wordOrdinalWithinTrack >= 0)
 		require(word.status in 1..4)
+		require(flowEndMs >= flowStartMs)
 	}
 
 	val audioStartMs: Long
-		get() = word.audioStartMs
+		get() = flowStartMs
 
 	val audioEndMs: Long
-		get() = word.audioEndMs
+		get() = flowEndMs
 }
 
 internal data class ReaderWordSyncBoundaryDispatch(

@@ -100,7 +100,55 @@ export const routeReaderOverlayCoordinateMode = (fragment, handlers) => {
   return handlers.reject(fragment)
 }
 
-export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKey, { startByte = null } = {}) => {
+// The current word's audio span (smoothed flow times from the native boundary scheduler): the head
+// sweeps across the word over that span instead of the whole word appearing at once.
+export const ReaderWordSyncFlowHeadKeySuffix = ':flow-head'
+
+const readerWordSyncFlowNow = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+
+const readerWordSyncFlowTiming = fragment => {
+  const begin = Number(fragment?.clipBeginSeconds)
+  const end = Number(fragment?.clipEndSeconds)
+  const speed = Number(fragment?.playbackSpeed) > 0 ? Number(fragment.playbackSpeed) : 1
+  if (!Number.isFinite(begin) || !Number.isFinite(end) || end <= begin) return null
+  const durationMs = (end - begin) * 1000 / speed
+  const fraction = Number(fragment?.rawProgressFraction)
+  const elapsedMs = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) * durationMs : 0
+  return { durationMs, elapsedMs, startedAt: readerWordSyncFlowNow() }
+}
+
+// Wraps a highlight draw so each drawn shape grows left to right over its share of the word's
+// span; redraws (relayout) resume from the current audio time, not from the word start.
+export const readerWordSyncFlowDraw = (draw, flow) => (rects, options) => {
+  const group = draw(rects, options)
+  const shapes = Array.from(group?.children || [])
+  if (!flow || shapes.length === 0 || typeof shapes[0].animate !== 'function') return group
+  if (options?.writingMode && !String(options.writingMode).startsWith('horizontal')) return group
+  const elapsedMs = flow.elapsedMs + Math.max(0, readerWordSyncFlowNow() - flow.startedAt)
+  if (elapsedMs >= flow.durationMs) return group
+  const widths = shapes.map(shape => Math.max(0, Number(shape.getAttribute('width')) || 0))
+  const total = widths.reduce((sum, width) => sum + width, 0)
+  let offset = 0
+  shapes.forEach((shape, index) => {
+    const share = total > 0 ? widths[index] / total : 1 / shapes.length
+    const from = Math.min(1, offset)
+    const to = Math.max(from, Math.min(1, offset + share))
+    offset += share
+    shape.style.transformBox = 'fill-box'
+    shape.style.transformOrigin = 'left center'
+    const animation = shape.animate([
+      { transform: 'scaleX(0)', offset: 0 },
+      { transform: 'scaleX(0)', offset: from },
+      { transform: 'scaleX(1)', offset: to },
+      { transform: 'scaleX(1)', offset: 1 },
+    ], { duration: flow.durationMs, easing: 'linear', fill: 'forwards' })
+    animation.currentTime = elapsedMs
+  })
+  return group
+}
+
+export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKey, { startByte = null, flow = false } = {}) => {
   const mode = validatedReaderOverlayCoordinateMode(fragment)
   if (mode === ReaderCueV1DomUtf16Mode) return null
   if (mode !== ReaderWordSyncV1ExtractedUtf8Mode) return false
@@ -108,6 +156,7 @@ export const paintReaderWordSyncOverlayTextRange = (runtime, fragment, overlayKe
     overlayKey: fragment?.overlayKey || overlayKey,
     visibleRange: runtime.committedVisibleTextRange,
     startByte,
+    flow: flow ? readerWordSyncFlowTiming(fragment) : null,
     draw: runtime.readerMediaOverlayHighlightDraw(),
     options: {
       color: runtime.readerMediaOverlayHighlightColor(),
@@ -123,7 +172,7 @@ export const paintReaderWordSyncActiveOverlay = (runtime, fragment, overlayKey) 
   const startByte = readerWordSyncPersistentStartByte(
     runtime.wordSyncPlayedAnchor, fragment, runtime.committedVisibleTextRange, persistent
   )
-  const highlighted = paintReaderWordSyncOverlayTextRange(runtime, fragment, overlayKey, { startByte })
+  const highlighted = paintReaderWordSyncOverlayTextRange(runtime, fragment, overlayKey, { startByte, flow: true })
   runtime.mediaOverlayActiveFragment = highlighted ? fragment : null
   if (highlighted) {
     runtime.wordSyncPlayedAnchor = readerWordSyncNextAnchor(
@@ -358,6 +407,59 @@ export const readerMediaOverlayAnchorReceipt = (runtime, fragment, ranges) => {
   )
 }
 
+// The current word alone, in the receipt's page-local space: the native flow mask sweeps it in
+// over the word's audio time while the rest of the persistent span stays read.
+const withReaderWordSyncHeadRects = (runtime, fragment, receipt) => {
+  if (!receipt) return receipt
+  const head = runtime.rawTextProvenance.resolveRange(fragment, {
+    applyProgress: true,
+    visibleRange: runtime.committedVisibleTextRange,
+  })
+  const pages = Array.isArray(receipt.captureGeometry?.pages) ? receipt.captureGeometry.pages : []
+  const rangeDocument = head?.startContainer?.ownerDocument || head?.commonAncestorContainer?.ownerDocument
+  const rangeFrame = rangeDocument?.defaultView?.frameElement
+  const frameRect = rangeFrame?.getBoundingClientRect?.()
+  const frameLeft = rangeFrame ? Number(frameRect?.left) : 0
+  const frameTop = rangeFrame ? Number(frameRect?.top) : 0
+  const pageLocalHeadRects = []
+  if (head && typeof head.getClientRects === 'function' && Number.isFinite(frameLeft) && Number.isFinite(frameTop)) {
+    for (const clientRect of Array.from(head.getClientRects())) {
+      const clientLeft = Number(clientRect?.left) + frameLeft
+      const clientTop = Number(clientRect?.top) + frameTop
+      const clientRight = Number(clientRect?.right) + frameLeft
+      const clientBottom = Number(clientRect?.bottom) + frameTop
+      if (
+        ![clientLeft, clientTop, clientRight, clientBottom].every(Number.isFinite) ||
+        clientRight <= clientLeft || clientBottom <= clientTop
+      ) continue
+      for (const page of pages) {
+        const pageLeft = Number(page?.left)
+        const pageTop = Number(page?.top)
+        const pageWidth = Number(page?.width)
+        const pageHeight = Number(page?.height)
+        if (
+          !['full', 'left', 'right'].includes(page?.role) ||
+          ![pageLeft, pageTop, pageWidth, pageHeight].every(Number.isFinite) ||
+          pageWidth <= 0 || pageHeight <= 0
+        ) continue
+        const left = Math.max(clientLeft, pageLeft)
+        const top = Math.max(clientTop, pageTop)
+        const right = Math.min(clientRight, pageLeft + pageWidth)
+        const bottom = Math.min(clientBottom, pageTop + pageHeight)
+        if (right <= left || bottom <= top) continue
+        pageLocalHeadRects.push({
+          role: page.role,
+          left: left - pageLeft,
+          top: top - pageTop,
+          width: right - left,
+          height: bottom - top,
+        })
+      }
+    }
+  }
+  return { ...receipt, pageLocalHeadRects }
+}
+
 // The native page mask is what the reader sees, so it must cover the same persistent span the DOM
 // overlay paints (page anchor to live progress), not only the current segment.
 const readerWordSyncReceiptRange = (runtime, fragment) => runtime.rawTextProvenance.resolveRange(fragment, {
@@ -377,26 +479,26 @@ const readerWordSyncAnchorReceiptFromAuthority = (
   authority
 ) => {
   const range = readerWordSyncReceiptRange(runtime, fragment)
-  return readerMediaOverlayAnchorReceiptFromPresentation(
+  return withReaderWordSyncHeadRects(runtime, fragment, readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
     range ? [range] : [],
     authority?.presentation,
     authority?.canonicalCommit
-  )
+  ))
 }
 
 export const readerWordSyncAnchorReceipt = (runtime, fragment) => {
   const range = readerWordSyncReceiptRange(runtime, fragment)
   const authority = readerLivePresentationAnchorAuthority(runtime)
   if (!authority) return rejectWordSyncAnchor(liveAnchorAuthorityAbsenceGuard(runtime))
-  return readerMediaOverlayAnchorReceiptFromPresentation(
+  return withReaderWordSyncHeadRects(runtime, fragment, readerMediaOverlayAnchorReceiptFromPresentation(
     runtime,
     fragment,
     range ? [range] : [],
     authority.presentation,
     authority.canonicalCommit
-  )
+  ))
 }
 
 export const postReaderWordSyncOverlayActive = (
@@ -1352,7 +1454,7 @@ export class ReaderWordSyncProvenanceStore {
       actualTokens.every((token, index) => token.text === expectedTokens[index].text)
   }
 
-  paint(fragment, contents, { overlayKey = 'navic-media-overlay-active', draw, options, visibleRange, startByte = null } = {}) {
+  paint(fragment, contents, { overlayKey = 'navic-media-overlay-active', draw, options, visibleRange, startByte = null, flow = null } = {}) {
     const range = this.resolveRange(fragment, { applyProgress: true, visibleRange, startByte })
     if (!range) return false
     const ready = this.readyById.get(fragment.rawProvenanceId)
@@ -1360,8 +1462,20 @@ export class ReaderWordSyncProvenanceStore {
       candidate?.doc === ready?.doc && Number(candidate.index) === ready.mapping.compactIndex
     )
     if (!content?.overlayer || typeof content.overlayer.add !== 'function') return false
+    const headKey = overlayKey + ReaderWordSyncFlowHeadKeySuffix
     try {
-      content.overlayer.add(overlayKey, range, draw, options)
+      content.overlayer.remove?.(headKey)
+      const head = flow ? this.resolveRange(fragment, { applyProgress: true, visibleRange }) : null
+      if (!head) {
+        content.overlayer.add(overlayKey, range, draw, options)
+        return true
+      }
+      // Already-read text (page anchor up to the current word) stays static; the word sweeps in.
+      const played = range.cloneRange()
+      played.setEnd(head.startContainer, head.startOffset)
+      if (played.collapsed) content.overlayer.remove?.(overlayKey)
+      else content.overlayer.add(overlayKey, played, draw, options)
+      content.overlayer.add(headKey, head, readerWordSyncFlowDraw(draw, flow), options)
       return true
     } catch (_) {
       return false

@@ -64,10 +64,13 @@ import paige.navic.reader.ReaderSettingsScope
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncStatusMessage
+import paige.navic.reader.ReaderWordSyncBoundary
 import paige.navic.reader.ReaderWordSyncBoundaryCancellation
 import paige.navic.reader.ReaderWordSyncBoundaryDispatch
 import paige.navic.reader.ReaderWordSyncBoundaryScheduler
 import paige.navic.reader.ReaderWordSyncEffect
+import paige.navic.reader.ReaderWordSyncFlowClock
+import paige.navic.reader.flowClock
 import paige.navic.reader.ReaderWordSyncPlaybackIdentity
 import paige.navic.reader.ReaderWordSyncTimelineSnapshot
 import paige.navic.reader.WordSyncPublicationVerificationSession
@@ -403,10 +406,16 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 
 	val currentWhispersyncPlaybackPlan = rememberUpdatedState(whispersyncPlaybackPlan)
+	// The native flow highlight's audio clock: the last dispatched word, re-anchored on every
+	// playback timeline revision (play, pause, seek, speed).
+	var wordSyncFlowBoundary by remember(reader.bookId) { mutableStateOf<ReaderWordSyncBoundary?>(null) }
+	var wordSyncFlowClock by remember(reader.bookId) { mutableStateOf<ReaderWordSyncFlowClock?>(null) }
 	val currentWordSyncBoundaryHandler =
 		rememberUpdatedState<(ReaderWordSyncBoundaryDispatch) -> Unit> { dispatch ->
 			val previousCommandKey =
 				coordinator.viewState.overlayCommandKeyOrNull()
+			wordSyncFlowBoundary = dispatch.boundary
+			wordSyncFlowClock = dispatch.boundary.flowClock(dispatch.timeline)
 			val step = coordinator.onWordSyncBoundary(dispatch)
 			val nextCommandKey =
 				step.coordinator.viewState.overlayCommandKeyOrNull()
@@ -491,6 +500,12 @@ fun ReaderScreen(reader: Screen.Reader) {
 				"active=${scheduledWordSyncBoundaries.isNotEmpty()} " +
 				"reason=$currentWordSyncTimelineReason count=${scheduledWordSyncBoundaries.size}"
 		)
+		wordSyncFlowBoundary?.let { boundary ->
+			val timeline = audiobookPlaybackManager.currentPlaybackTimelineSnapshot()
+				?.toReaderWordSyncTimelineSnapshot(whispersyncPlaybackPlan)
+			wordSyncFlowClock = timeline?.let(boundary::flowClock)
+				?: wordSyncFlowClock?.copy(playing = false, anchorPositionMs = boundary.flowEndMs)
+		}
 		wordSyncBoundaryScheduler.refreshTimeline()
 	}
 	DisposableEffect(wordSyncBoundaryScheduler) {
@@ -894,6 +909,7 @@ fun ReaderScreen(reader: Screen.Reader) {
 		whispersyncCapable = reader.whispersyncLaunchAttachment() != null,
 		listeningSettings = listeningSettings,
 		readaloudPlaybackState = whispersyncReadaloudPlaybackState,
+		wordSyncFlowClock = wordSyncFlowClock,
 		onEngineHostEvent = { event -> handleEngineHostEvent(event) },
 		onViewerAction = { action ->
 			val beforeMenuVisible = coordinator.controller.state.menuVisible

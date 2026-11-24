@@ -583,6 +583,30 @@ public class PageSurfaceView extends GLSurfaceView {
         return PageOverlayUpdateResult.ACCEPTED;
     }
 
+    /**
+     * Sets the flow-mask presentation of dynamic page overlays. When enabled, overlay bitmaps
+     * encode reading order in red over alpha (0 = already read) and {@code head} in [0, 1]
+     * reveals the overlay whose boundary generation matches; older overlays show complete and
+     * newer ones wait. Queued ahead of a later overlay replacement, so a new mask never
+     * renders with a stale head.
+     */
+    public void setPageOverlayFlow(
+            boolean enabled,
+            int colorArgb,
+            long boundaryGeneration,
+            float head) {
+        requireMainThread();
+        if (disposed) {
+            return;
+        }
+        queueEvent(() -> renderer.setPageOverlayFlow(
+                enabled,
+                colorArgb,
+                boundaryGeneration,
+                head));
+        requestRender();
+    }
+
     private static boolean isValidOverlayBitmap(PageImage<?> page, Bitmap bitmap) {
         return page != null
                 && !bitmap.isRecycled()

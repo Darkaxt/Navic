@@ -77,6 +77,7 @@ import paige.navic.reader.ReaderTapZoneAction
 import paige.navic.reader.ReaderTextureDeckState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.normalizeReaderPageBitmapQuality
@@ -365,6 +366,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
+	whispersyncFlowClock: ReaderWordSyncFlowClock?,
 	whispersyncHighlightColorArgb: Int,
 	whispersyncCueMapState: ReaderWhispersyncCueMapState,
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
@@ -523,6 +525,7 @@ actual fun KomikkuReaderNativeFrameHost(
 						whispersyncAnchorReceipt,
 						whispersyncHighlightColorArgb
 					)
+					setWhispersyncFlowClock(whispersyncFlowClock)
 					setWhispersyncCueMap(
 						whispersyncCueMapState,
 						onHoldOutcome = { sourceOrdinal, outcome ->
@@ -579,6 +582,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					whispersyncAnchorReceipt,
 					whispersyncHighlightColorArgb
 				)
+				root.setWhispersyncFlowClock(whispersyncFlowClock)
 				root.setWhispersyncCueMap(
 					whispersyncCueMapState,
 					onHoldOutcome = { sourceOrdinal, outcome ->
@@ -867,6 +871,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		highlightColorArgb: Int
 	) {
 		viewerContainer.setWhispersyncOverlay(active, receipt, highlightColorArgb)
+	}
+
+	fun setWhispersyncFlowClock(clock: ReaderWordSyncFlowClock?) {
+		viewerContainer.setWhispersyncFlowClock(clock)
 	}
 
 	fun setWhispersyncCueMap(
@@ -2109,6 +2117,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		playLikeCurlController.updatePaginationReadiness(
 			readerPagePaginationReadiness(status)
 		)
+	}
+
+	fun setWhispersyncFlowClock(clock: ReaderWordSyncFlowClock?) {
+		playLikeCurlController.setWhispersyncFlowClock(clock)
 	}
 
 	fun setWhispersyncOverlay(

@@ -53,6 +53,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "uniform sampler2D uTexture;\n"
                     + "uniform sampler2D uOverlayTexture;\n"
                     + "uniform float uHasOverlay;\n"
+                    + "uniform float uOverlayFlow;\n"
+                    + "uniform vec4 uOverlayFlowColor;\n"
+                    + "uniform float uOverlayFlowHead;\n"
                     + "uniform float uIsFiller;\n"
                     + "uniform vec4 uFillerColor;\n"
                     + "uniform vec4 uReversePaperColor;\n"
@@ -65,6 +68,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "  } else {\n"
                     + "    vec4 base = texture2D(uTexture, vTextureCoordinate);\n"
                     + "    vec4 overlay = texture2D(uOverlayTexture, vTextureCoordinate);\n"
+                    + "    if (uOverlayFlow > 0.5) {\n"
+                    + "      float order = overlay.r / max(overlay.a, 0.001);\n"
+                    + "      float shown = clamp((uOverlayFlowHead + 0.04 - order) / 0.04, 0.0, 1.0);\n"
+                    + "      overlay = uOverlayFlowColor * (overlay.a * shown);\n"
+                    + "    }\n"
                     + "    frontColor = mix(base, overlay + base * (1.0 - overlay.a), uHasOverlay);\n"
                     + "  }\n"
                     + "  gl_FragColor = mix(frontColor, uReversePaperColor, uReverseMaterialMix);\n"
@@ -142,6 +150,15 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int textureUniform;
     private int overlayTextureUniform;
     private int hasOverlayUniform;
+    private int overlayFlowUniform;
+    private int overlayFlowColorUniform;
+    private int overlayFlowHeadUniform;
+    // Flow-mask mode for dynamic overlays: red/alpha encodes reading order (0 = already read),
+    // the head uniform reveals the current word progressively. GL thread only.
+    private boolean overlayFlowEnabled;
+    private int overlayFlowColorArgb;
+    private long overlayFlowBoundaryGeneration = -1L;
+    private float overlayFlowHead = 1f;
     private int isFillerUniform;
     private int fillerColorUniform;
     private int reversePaperColorUniform;
@@ -645,6 +662,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             overlayTextureUniform =
                     GLES20.glGetUniformLocation(program, "uOverlayTexture");
             hasOverlayUniform = GLES20.glGetUniformLocation(program, "uHasOverlay");
+            overlayFlowUniform = GLES20.glGetUniformLocation(program, "uOverlayFlow");
+            overlayFlowColorUniform =
+                    GLES20.glGetUniformLocation(program, "uOverlayFlowColor");
+            overlayFlowHeadUniform =
+                    GLES20.glGetUniformLocation(program, "uOverlayFlowHead");
             isFillerUniform = GLES20.glGetUniformLocation(program, "uIsFiller");
             fillerColorUniform = GLES20.glGetUniformLocation(program, "uFillerColor");
             reversePaperColorUniform =
@@ -1608,6 +1630,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 GLES20.GL_TEXTURE_2D,
                 overlayTexture == null ? 0 : overlayTexture.textureId);
         GLES20.glUniform1f(hasOverlayUniform, overlayTexture == null ? 0f : 1f);
+        applyOverlayFlow(overlayTexture);
         if (resource.isFiller()) {
             int color = resource.getFillerColorArgb();
             GLES20.glUniform1f(isFillerUniform, 1f);
@@ -1621,6 +1644,44 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             GLES20.glUniform4f(fillerColorUniform, 0f, 0f, 0f, 0f);
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+    }
+
+    /** GL thread: flow state for the dynamic overlay whose boundary generation matches. */
+    void setPageOverlayFlow(
+            boolean enabled,
+            int colorArgb,
+            long boundaryGeneration,
+            float head) {
+        overlayFlowEnabled = enabled;
+        overlayFlowColorArgb = colorArgb;
+        overlayFlowBoundaryGeneration = boundaryGeneration;
+        overlayFlowHead = Math.max(0f, Math.min(1f, head));
+    }
+
+    private void applyOverlayFlow(GpuTexture overlayTexture) {
+        if (overlayFlowUniform < 0) {
+            return;
+        }
+        boolean flow = overlayFlowEnabled
+                && overlayTexture instanceof DynamicPageOverlayTexture;
+        GLES20.glUniform1f(overlayFlowUniform, flow ? 1f : 0f);
+        if (!flow) {
+            return;
+        }
+        long overlayBoundary =
+                ((DynamicPageOverlayTexture) overlayTexture).ownership.getBoundaryGeneration();
+        // An older mask than the flow clock is complete; a newer one has not started yet.
+        float head = overlayBoundary == overlayFlowBoundaryGeneration
+                ? overlayFlowHead
+                : overlayBoundary < overlayFlowBoundaryGeneration ? 1f : 0f;
+        float alpha = colorChannel(overlayFlowColorArgb, 24);
+        GLES20.glUniform4f(
+                overlayFlowColorUniform,
+                colorChannel(overlayFlowColorArgb, 16) * alpha,
+                colorChannel(overlayFlowColorArgb, 8) * alpha,
+                colorChannel(overlayFlowColorArgb, 0) * alpha,
+                alpha);
+        GLES20.glUniform1f(overlayFlowHeadUniform, head);
     }
 
     private static float colorChannel(int color, int shift) {

@@ -101,6 +101,7 @@ class ReaderWhispersyncCompanionProgressSourceTest {
 
 		assertContains(root, "KomikkuWhispersyncCueMapControl(")
 		assertContains(root, "cueMapAvailable = controllerState.whispersync.available")
+		assertContains(root, "cueMapAvailable = controllerState.whispersync.available && komikkuReaderDebugToolsEnabled()")
 		assertContains(root, "onToggleWhispersyncCueMap")
 		assertContains(root, "productionDiagnosticSurface(")
 		assertContains(root, "diagnosticLabel = cueMapDiagnosticSurface.label")

@@ -12,6 +12,7 @@ import paige.navic.reader.ReaderPageCurlTurnPhase
 import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderPageTurnSettlementAck
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
 
@@ -43,6 +44,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
+	whispersyncFlowClock: ReaderWordSyncFlowClock?,
 	whispersyncHighlightColorArgb: Int,
 	whispersyncCueMapState: ReaderWhispersyncCueMapState,
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,

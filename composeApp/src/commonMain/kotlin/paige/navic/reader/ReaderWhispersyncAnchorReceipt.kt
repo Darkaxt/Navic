@@ -3,6 +3,13 @@ package paige.navic.reader
 import kotlin.math.ceil
 import kotlin.math.floor
 
+/** A head (current word) mask rect and the share of the word's reading order it covers. */
+data class ReaderWhispersyncHeadMaskSpan(
+	val rect: ReaderPageTurnPixelRect,
+	val startFraction: Double,
+	val endFraction: Double
+)
+
 data class ReaderWhispersyncPageLocalRect(
 	val role: ReaderPageTurnPageRole,
 	val left: Double,
@@ -38,7 +45,9 @@ data class ReaderWhispersyncAnchorReceipt(
 	val layoutFingerprint: String,
 	val readerSettingsRasterKey: String,
 	val captureGeometry: ReaderPageTurnCaptureGeometry,
-	val pageLocalRects: List<ReaderWhispersyncPageLocalRect>
+	val pageLocalRects: List<ReaderWhispersyncPageLocalRect>,
+	/** The current word alone, in reading order; the native flow mask sweeps it in. */
+	val pageLocalHeadRects: List<ReaderWhispersyncPageLocalRect> = emptyList()
 ) {
 	init {
 		require(foliateSessionId.isNotBlank() && foliateSessionId == foliateSessionId.trim())
@@ -69,12 +78,41 @@ data class ReaderWhispersyncAnchorReceipt(
 		role: ReaderPageTurnPageRole,
 		bitmapWidth: Int,
 		bitmapHeight: Int
+	): List<ReaderPageTurnPixelRect> = pixelRectsFor(pageLocalRects, role, bitmapWidth, bitmapHeight)
+
+	/**
+	 * The current word's mask rects on [role], each with the share of the word's reading order
+	 * (0 to 1, across every head rect on every page) it spans, left to right.
+	 */
+	fun headMaskSpansFor(
+		role: ReaderPageTurnPageRole,
+		bitmapWidth: Int,
+		bitmapHeight: Int
+	): List<ReaderWhispersyncHeadMaskSpan> {
+		val total = pageLocalHeadRects.sumOf { it.width }
+		if (total <= 0.0) return emptyList()
+		var consumed = 0.0
+		return pageLocalHeadRects.mapNotNull { rect ->
+			val start = consumed / total
+			consumed += rect.width
+			if (rect.role != role) return@mapNotNull null
+			pixelRectsFor(listOf(rect), role, bitmapWidth, bitmapHeight).singleOrNull()?.let { pixel ->
+				ReaderWhispersyncHeadMaskSpan(pixel, start, consumed / total)
+			}
+		}
+	}
+
+	private fun pixelRectsFor(
+		rects: List<ReaderWhispersyncPageLocalRect>,
+		role: ReaderPageTurnPageRole,
+		bitmapWidth: Int,
+		bitmapHeight: Int
 	): List<ReaderPageTurnPixelRect> {
 		if (bitmapWidth <= 0 || bitmapHeight <= 0) return emptyList()
 		val page = captureGeometry.pages.firstOrNull { it.role == role }
 			?.takeIf { it.width.isFinite() && it.width > 0.0 && it.height.isFinite() && it.height > 0.0 }
 			?: return emptyList()
-		return pageLocalRects.asSequence()
+		return rects.asSequence()
 			.filter { it.role == role }
 			.mapNotNull { rect ->
 				val localLeft = rect.left.coerceIn(0.0, page.width)

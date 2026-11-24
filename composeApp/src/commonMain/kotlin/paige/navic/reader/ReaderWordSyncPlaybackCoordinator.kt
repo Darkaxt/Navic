@@ -324,6 +324,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 				.thenBy { it.word.spineIndex }
 				.thenBy { it.word.ebookStart }
 		)
+		.withReaderWordSyncFlowTiming()
 		.mapIndexed { index, boundary -> boundary.copy(sequence = index.toLong()) }
 
 	internal fun coordinateClear(
@@ -384,7 +385,7 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val word = boundary.word
 		if (
 			word.audioTrackIndex != playback.audioTrackIndex ||
-			word.audioStartMs > playback.positionMs
+			boundary.audioStartMs > playback.positionMs
 		) {
 			return ReaderWordSyncDecision(remembered, ReaderControllerStep(controller))
 		}
@@ -424,7 +425,9 @@ data class ReaderWordSyncPlaybackCoordinator(
 		val rawFragment = candidate.toOverlayFragment(
 			cueFragment = cueFragment,
 			playback = playback,
-			boundarySequence = boundary.sequence
+			boundarySequence = boundary.sequence,
+			audioStartMs = boundary.flowStartMs,
+			audioEndMs = boundary.flowEndMs
 		)
 		return ReaderWordSyncDecision(
 			coordinator = remembered.copy(
@@ -778,7 +781,10 @@ private data class ReaderWordSyncCandidate(
 		cueFragment: ReaderOverlayFragment,
 		playback: ReaderWordSyncPlaybackIdentity?,
 		runtimeAudioResource: String? = null,
-		boundarySequence: Long? = null
+		boundarySequence: Long? = null,
+		// The smoothed flow span (ReaderWordSyncFlow): the WebView sweeps the word over it.
+		audioStartMs: Long = word.audioStartMs,
+		audioEndMs: Long = word.audioEndMs
 	): ReaderOverlayFragment {
 		val byteStart = word.ebookStart
 		val byteEnd = word.ebookEnd
@@ -786,10 +792,10 @@ private data class ReaderWordSyncCandidate(
 			it.audioTrackIndex == word.audioTrackIndex
 		}
 		val progress = compatiblePlayback
-			?.takeIf { word.audioEndMs > word.audioStartMs }
+			?.takeIf { audioEndMs > audioStartMs }
 			?.let {
-				((it.positionMs - word.audioStartMs).toDouble() /
-					(word.audioEndMs - word.audioStartMs).toDouble()).coerceIn(0.0, 1.0)
+				((it.positionMs - audioStartMs).toDouble() /
+					(audioEndMs - audioStartMs).toDouble()).coerceIn(0.0, 1.0)
 			}
 		return ReaderOverlayFragment(
 			resourceHref = runtimeAudioResource ?: compatiblePlayback?.audioResourceId ?: word.audioResourceId,
@@ -797,8 +803,8 @@ private data class ReaderWordSyncCandidate(
 			overlayRequestId = cueFragment.overlayRequestId,
 			wordBoundarySequence = boundarySequence,
 			textHref = word.ebookHref,
-			clipBeginSeconds = word.audioStartMs / 1000.0,
-			clipEndSeconds = word.audioEndMs / 1000.0,
+			clipBeginSeconds = audioStartMs / 1000.0,
+			clipEndSeconds = audioEndMs / 1000.0,
 			playbackSpeed = playback?.playbackSpeed ?: cueFragment.playbackSpeed,
 			label = cueFragment.label,
 			rawProvenanceId = verified.descriptor.id,

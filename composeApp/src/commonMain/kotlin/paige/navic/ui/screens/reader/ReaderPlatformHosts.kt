@@ -22,6 +22,7 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderReadaloudReaderInteraction
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderWhispersyncAnchorReceipt
+import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.ReaderWhispersyncCueMapHoldOutcome
 import paige.navic.reader.ReaderWhispersyncCueMapState
 import paige.navic.reader.WordSyncPublicationVerifier
@@ -55,6 +56,7 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageTurnSettlementAck: ReaderPageTurnSettlementAck?,
 	whispersyncOverlayActive: Boolean,
 	whispersyncAnchorReceipt: ReaderWhispersyncAnchorReceipt?,
+	whispersyncFlowClock: ReaderWordSyncFlowClock?,
 	whispersyncHighlightColorArgb: Int,
 	whispersyncCueMapState: ReaderWhispersyncCueMapState,
 	onWhispersyncCueMapHoldOutcome: (Int, ReaderWhispersyncCueMapHoldOutcome) -> Unit,
@@ -122,6 +124,11 @@ expect fun KomikkuAdaptiveSheet(
 @Composable
 @ReadOnlyComposable
 expect fun komikkuReaderIsTabletUi(): Boolean
+
+/** Debug-only reader tools (the Whispersync cue-map eye); release builds return false. */
+@Composable
+@ReadOnlyComposable
+expect fun komikkuReaderDebugToolsEnabled(): Boolean
 
 @Composable
 expect fun ReaderPublicationRuntimeHost(

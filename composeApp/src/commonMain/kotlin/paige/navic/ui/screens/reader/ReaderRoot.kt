@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderAnnotation
 import paige.navic.reader.ReaderBookmark
+import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.ReaderBridgeEvent
 import paige.navic.reader.ReaderControllerDialog
 import paige.navic.reader.ReaderControllerState
@@ -83,6 +84,7 @@ internal fun KomikkuReaderRoot(
 	whispersyncCapable: Boolean,
 	listeningSettings: ReaderListeningSettings,
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
+	wordSyncFlowClock: ReaderWordSyncFlowClock?,
 	onEngineHostEvent: (ReaderEngineHostEvent) -> Unit,
 	onViewerAction: (ReaderViewerAction) -> Unit,
 	onPageTurnBoundary: (ReaderPageTurnDirection) -> Unit,
@@ -182,7 +184,7 @@ internal fun KomikkuReaderRoot(
 			shellCoverVisible = controllerState.shellCoverVisible,
 			mediaOverlayAvailable = mediaOverlayAvailable
 		)
-		val cueMapAvailable = controllerState.whispersync.available
+		val cueMapAvailable = controllerState.whispersync.available && komikkuReaderDebugToolsEnabled()
 		val overlayVisible = controllerState.hasVisibleReaderOverlay() ||
 			whispersyncPlaybackControl.visible || cueMapAvailable
 		LaunchedEffect(
@@ -243,6 +245,7 @@ internal fun KomikkuReaderRoot(
 			pageTurnSettlementAck = controllerState.pageTurnSettlementAck,
 			whispersyncOverlayActive = controllerState.whispersyncAnchorAuthorityOverlayActive,
 			whispersyncAnchorReceipt = controllerState.activeMediaOverlayAnchorReceipt,
+			whispersyncFlowClock = wordSyncFlowClock,
 			whispersyncHighlightColorArgb =
 				controllerState.chrome.settings.whispersyncHighlightColorArgb
 					?: DefaultReaderWhispersyncHighlightColorArgb,
@@ -501,7 +504,7 @@ private fun KomikkuComposeOverlay(
 	onDismissDialog: () -> Unit,
 	modifier: Modifier = Modifier
 ) {
-	val cueMapAvailable = controllerState.whispersync.available
+	val cueMapAvailable = controllerState.whispersync.available && komikkuReaderDebugToolsEnabled()
 	val bookId = controllerState.publication?.bookId
 	val bookmarks = if (bookId == null) {
 		emptyList()

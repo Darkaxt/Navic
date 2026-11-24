@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -41,6 +42,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderPageBitmapQuality
 import paige.navic.reader.ReaderPageInteractionState
@@ -1078,6 +1080,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var whispersyncHighlightColorArgb = DefaultReaderWhispersyncHighlightColorArgb
 	private var whispersyncOverlayClearPending = false
 	private var publishedWhispersyncOverlay: ReaderWhispersyncOverlayPublication? = null
+	// The audio clock of the current WordSync word; the renderer sweeps that word's mask in.
+	private var whispersyncFlowClock: ReaderWordSyncFlowClock? = null
+	private var whispersyncFlowFrameScheduled = false
+	private var sentWhispersyncFlow: Triple<Long, Int, Float>? = null
+	private val whispersyncFlowFrame = Choreographer.FrameCallback {
+		whispersyncFlowFrameScheduled = false
+		pushWhispersyncFlowHead(force = false)
+		scheduleWhispersyncFlowFrameIfAnimating()
+	}
 	private var lastActivationTrace: String? = null
 	private val persistentRefillCoordinator = ReaderPagePersistentRefillCoordinator(
 		protectedWindowForCenter = { centerOrdinal ->
@@ -1808,6 +1819,43 @@ internal class ReaderPlayLikeCurlFoliateController(
 		latestWhispersyncPresentationProof = receipt?.nativePresentationProof()
 		whispersyncHighlightColorArgb = highlightColorArgb
 		publishLatestWhispersyncOverlayIfIdle()
+	}
+
+	fun setWhispersyncFlowClock(clock: ReaderWordSyncFlowClock?) {
+		if (clock == whispersyncFlowClock) return
+		whispersyncFlowClock = clock
+		pushWhispersyncFlowHead(force = false)
+		scheduleWhispersyncFlowFrameIfAnimating()
+	}
+
+	/**
+	 * Sends the flow head to the renderer, keyed by the clock's boundary sequence: an overlay
+	 * older than the clock shows complete, a newer one waits with its word hidden, so a mask
+	 * and the audio clock arriving in either order never flash a stale head. Without a clock
+	 * every overlay shows complete.
+	 */
+	private fun pushWhispersyncFlowHead(force: Boolean) {
+		if (destroyed) return
+		val clock = whispersyncFlowClock
+		val sequence = clock?.boundarySequence ?: Long.MAX_VALUE
+		val head = clock?.let { readerWhispersyncFlowHead(it.progress()) } ?: 1f
+		val sent = sentWhispersyncFlow
+		if (
+			!force &&
+			sent != null &&
+			sent.first == sequence &&
+			sent.second == whispersyncHighlightColorArgb &&
+			kotlin.math.abs(sent.third - head) < 0.005f
+		) return
+		surfaceView.setPageOverlayFlow(true, whispersyncHighlightColorArgb, sequence, head)
+		sentWhispersyncFlow = Triple(sequence, whispersyncHighlightColorArgb, head)
+	}
+
+	private fun scheduleWhispersyncFlowFrameIfAnimating() {
+		if (destroyed || whispersyncFlowFrameScheduled) return
+		if (whispersyncFlowClock?.animating() != true) return
+		whispersyncFlowFrameScheduled = true
+		Choreographer.getInstance().postFrameCallback(whispersyncFlowFrame)
 	}
 
 	private fun unavailableGestureOutcome(): ReaderPageGestureTerminalOutcome =
@@ -2830,6 +2878,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 			latestWhispersyncPresentationProof = null
 			whispersyncOverlayClearPending = false
 			publishedWhispersyncOverlay = null
+			// A pending flow frame sees destroyed and stops; no Choreographer call off the main thread.
+			whispersyncFlowClock = null
 		},
 		advanceGenerations = {
 			requestGeneration += 1L
@@ -4988,8 +5038,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				receipt = receipt,
 				target = target,
 				bitmapWidth = image.bitmap.width,
-				bitmapHeight = image.bitmap.height,
-				colorArgb = whispersyncHighlightColorArgb
+				bitmapHeight = image.bitmap.height
 			) ?: return@all false
 			overlays += PageOverlayImage(
 				generationId,
@@ -5014,9 +5063,13 @@ internal class ReaderPlayLikeCurlFoliateController(
 			clearWhispersyncOverlayIfNeeded(generationId)
 			return
 		}
+		// The flow masks carry reading order, not colour: the flow state must reach the renderer
+		// first (same GL queue), so a new mask never draws without it.
+		pushWhispersyncFlowHead(force = true)
 		when (surfaceView.replacePageOverlays(generationId, overlays)) {
 			PageOverlayUpdateResult.ACCEPTED -> {
 				publishedWhispersyncOverlay = publication
+				scheduleWhispersyncFlowFrameIfAnimating()
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
 					"WordSync native overlay state=accepted reason=surface " +
