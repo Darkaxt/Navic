@@ -509,6 +509,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setBookPreparationRetryKey(bookPreparationRetryKey)
 					setBookPreparationAlternate(bookPreparationAlternate)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
+					setBookCacheProgress { progress -> currentOnBookPreparationProgress(progress) }
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
 					setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
@@ -566,6 +567,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setBookPreparationRetryKey(bookPreparationRetryKey)
 				root.setBookPreparationAlternate(bookPreparationAlternate)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
+				root.setBookCacheProgress { progress -> currentOnBookPreparationProgress(progress) }
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
 				root.setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
@@ -825,6 +827,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		viewerContainer.setPageCacheOptions(scope, layouts)
+	}
+
+	fun setBookCacheProgress(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
+		viewerContainer.setBookCacheProgress(listener)
 	}
 
 	/** #66: the reader stays awake while it prepares the whole book. */
@@ -2022,6 +2028,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	/** Background-preparation options (#57); host-only, so they never regenerate the layout. */
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		pageRasterPreparationController.updatePageCacheOptions(scope, layouts)
+	}
+
+	fun setBookCacheProgress(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
+		pageRasterPreparationController.bookCacheProgressListener = listener
 	}
 
 	private var bookPreparationListener: ((ReaderBookPreparationProgress) -> Unit)? = null

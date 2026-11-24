@@ -4,11 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +22,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
+import navic.composeapp.generated.resources.action_reader_cache_this_chapter
+import navic.composeapp.generated.resources.action_reader_cache_whole_book
+import navic.composeapp.generated.resources.info_reader_book_cache_progress
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
 import navic.composeapp.generated.resources.info_reader_preparation_detail
@@ -51,7 +57,9 @@ internal fun ReaderOpeningPreparationScreen(
 	state: ReaderPagePreparationState,
 	profile: ReaderPaginationProfileStatus,
 	onRetry: () -> Unit,
-	modifier: Modifier = Modifier
+	modifier: Modifier = Modifier,
+	/** "Book" cache scope: the share of the whole book already cached, shown under the chapter's bar. */
+	bookCacheFraction: Float? = null
 ) {
 	val failed = state.phase == ReaderPagePreparationPhase.Failed
 	val ready = state.phase == ReaderPagePreparationPhase.Ready
@@ -87,7 +95,16 @@ internal fun ReaderOpeningPreparationScreen(
 					state.hasDeterminateProgress -> state.progress
 					else -> null
 				}
-				if (progress != null) {
+				if (bookCacheFraction != null) {
+					ReaderOpeningPreparationBar(
+						label = stringResource(Res.string.action_reader_cache_this_chapter),
+						progress = progress
+					)
+					ReaderOpeningPreparationBar(
+						label = stringResource(Res.string.action_reader_cache_whole_book),
+						progress = bookCacheFraction
+					)
+				} else if (progress != null) {
 					LinearProgressIndicator(
 						progress = { progress.coerceIn(0f, 1f) },
 						modifier = Modifier.fillMaxWidth(),
@@ -141,6 +158,79 @@ internal fun ReaderOpeningPreparationScreen(
 				TextButton(onClick = onRetry) {
 					Text(stringResource(Res.string.action_retry), color = ReaderOpeningPreparationAccent)
 				}
+			}
+		}
+	}
+}
+
+/** One labelled bar of the opening screen ("Chapter", "Book"); indeterminate while [progress] is unknown. */
+@Composable
+private fun ReaderOpeningPreparationBar(label: String, progress: Float?) {
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		Text(
+			text = label,
+			style = MaterialTheme.typography.labelMedium,
+			color = ReaderOpeningPreparationMuted,
+			modifier = Modifier.widthIn(min = 64.dp)
+		)
+		if (progress != null) {
+			LinearProgressIndicator(
+				progress = { progress.coerceIn(0f, 1f) },
+				modifier = Modifier.weight(1f),
+				color = ReaderOpeningPreparationAccent,
+				trackColor = ReaderOpeningPreparationAccent.copy(alpha = 0.2f)
+			)
+			Text(
+				text = "${(progress.coerceIn(0f, 1f) * 100f).toInt()}%",
+				style = MaterialTheme.typography.labelMedium,
+				color = ReaderOpeningPreparationText,
+				modifier = Modifier.widthIn(min = 40.dp)
+			)
+		} else {
+			LinearProgressIndicator(
+				modifier = Modifier.weight(1f),
+				color = ReaderOpeningPreparationAccent,
+				trackColor = ReaderOpeningPreparationAccent.copy(alpha = 0.2f)
+			)
+		}
+	}
+}
+
+/**
+ * "Book" cache scope, after the book has opened: the rest of the book is cached in the background,
+ * and this small pill shows how far that is, without buttons, until the whole book is cached.
+ */
+@Composable
+internal fun ReaderBookCacheProgressPill(fraction: Float, modifier: Modifier = Modifier) {
+	Box(modifier = modifier) {
+		Surface(
+			shape = RoundedCornerShape(16.dp),
+			color = ReaderOpeningPreparationBackground.copy(alpha = 0.88f),
+			modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp)
+		) {
+			Column(
+				modifier = Modifier.widthIn(min = 180.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+				verticalArrangement = Arrangement.spacedBy(6.dp)
+			) {
+				Text(
+					text = stringResource(
+						Res.string.info_reader_book_cache_progress,
+						"${(fraction.coerceIn(0f, 1f) * 100f).toInt()}%"
+					),
+					style = MaterialTheme.typography.labelMedium,
+					color = ReaderOpeningPreparationText
+				)
+				LinearProgressIndicator(
+					progress = { fraction.coerceIn(0f, 1f) },
+					modifier = Modifier.fillMaxWidth(),
+					color = ReaderOpeningPreparationAccent,
+					trackColor = ReaderOpeningPreparationAccent.copy(alpha = 0.2f),
+					drawStopIndicator = {}
+				)
 			}
 		}
 	}

@@ -39,6 +39,8 @@ import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderSearchResult
 import paige.navic.reader.ReaderSettings
 import paige.navic.reader.ReaderSettingsScope
+import paige.navic.reader.ReaderPageCacheScope
+import paige.navic.reader.normalizeReaderPageCacheScope
 import paige.navic.reader.ReaderTocItem
 import paige.navic.reader.ReaderViewerAction
 import paige.navic.reader.ReaderWhispersyncPlaybackControlState
@@ -150,6 +152,15 @@ internal fun KomikkuReaderRoot(
 	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
 	var bookPreparationRetryKey by remember { mutableStateOf(0) }
 	val bookPreparationActive = reader.prepareBookPages
+	// "Book" cache scope: the whole book's cached share, read again as pages are cached.
+	val bookCacheScope = !bookPreparationActive &&
+		normalizeReaderPageCacheScope(controllerState.chrome.settings.pageCacheScope) == ReaderPageCacheScope.FullBook
+	val bookCacheCoverage = rememberReaderPageCacheCoverage(
+		destinations = if (bookCacheScope) listOf(reader) else emptyList(),
+		refreshKey = pagePreparationState.completedCount to bookPreparationProgress.preparedPages
+	)
+	val bookCacheFraction = bookCacheCoverage?.takeIf { bookCacheScope && it.totalPages > 0 }
+		?.let { coverage -> coverage.cachedPages.toFloat() / coverage.totalPages }
 	// The cache scope is chosen on the open sheet before the reader starts; the opening screen only
 	// shows progress and enters the book as soon as its pages are ready.
 	// Read-along audio holds while the page is not READY.
@@ -433,8 +444,15 @@ internal fun KomikkuReaderRoot(
 						state = pagePreparationState,
 						profile = controllerState.paginationProfile,
 						onRetry = { pagePreparationRetryKey += 1 },
-						modifier = Modifier.matchParentSize()
+						modifier = Modifier.matchParentSize(),
+						bookCacheFraction = bookCacheFraction ?: 0f.takeIf { bookCacheScope }
 					)
+				} else if (
+					bookCacheFraction != null && bookCacheFraction < 1f &&
+					bookPreparationProgress.plannedPages > bookPreparationProgress.preparedPages &&
+					!controllerState.menuVisible
+				) {
+					ReaderBookCacheProgressPill(fraction = bookCacheFraction, modifier = Modifier.matchParentSize())
 				}
 				if (bookPreparationActive) {
 					// A failed page preparation stops the book run, and this overlay covers that

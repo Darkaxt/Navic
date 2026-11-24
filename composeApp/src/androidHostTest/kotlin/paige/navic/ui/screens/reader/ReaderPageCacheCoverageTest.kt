@@ -36,6 +36,21 @@ class ReaderPageCacheCoverageTest {
 		}
 	}
 
+	@Test
+	fun twoPageLayoutsCountOnePreviewPerSpread() {
+		val root = Files.createTempDirectory("coverage-spread").toFile()
+		try {
+			val book = "book".readerPageRasterHash()
+			val layout = "spread".readerPageRasterHash()
+			ReaderPageRasterManifest(root).write(
+				listOf(0, 2, 4).map { ordinal -> entry(book, layout, ordinal = ordinal, pageCount = 10, lastAccess = 5L) }
+			)
+			assertEquals(ReaderPageCacheCoverage(cachedPages = 3, totalPages = 5), readerPageCacheCoverage(root, setOf(book)))
+		} finally {
+			root.deleteRecursively()
+		}
+	}
+
 	private fun entry(
 		publicationHash: String,
 		paginationHash: String,

@@ -418,12 +418,7 @@ private fun BinderyReaderOpenCoverageLabel(coverage: ReaderPageCacheCoverage?) {
 		fullyPrepared -> stringResource(Res.string.info_reader_cache_coverage_ready)
 		coverage == null -> null
 		coverage.cachedPages == 0 -> stringResource(Res.string.info_reader_cache_coverage_none)
-		coverage.totalPages > 0 -> stringResource(
-			Res.string.info_reader_cache_coverage,
-			coverage.cachedPages.toString(),
-			coverage.totalPages.toString(),
-			"${coverage.percent}%"
-		)
+		coverage.totalPages > 0 -> stringResource(Res.string.info_reader_cache_coverage, "${coverage.percent}%")
 		else -> stringResource(Res.string.info_reader_cache_coverage_unknown, coverage.cachedPages.toString())
 	} ?: return
 	Text(
