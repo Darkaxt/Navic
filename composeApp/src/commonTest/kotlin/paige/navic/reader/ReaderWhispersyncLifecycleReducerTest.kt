@@ -417,6 +417,25 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
+	fun redisplayBeforeOverlayConfirmationKeepsThePageTurnStart() {
+		val turn = playingController().onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next))
+		val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
+		val relocated = turn.controller.onEngineEvent(destinationRelocation(sequence)).controller
+		val destination = relocated.onEngineEvent(destinationVisibleRange(sequence))
+		val apply = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(destination.engineCommands.single())
+		// The same page reports its range again (no causal sequence) before the overlay confirms.
+		val redisplayed = destination.controller.onEngineEvent(
+			destinationVisibleRange(sequence).copy(causalSequence = null)
+		).controller
+		assertTrue(redisplayed.state.whispersync.playbackStartPending)
+
+		val confirmed = redisplayed.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment = apply.fragment))
+
+		assertEquals(3_000L, confirmed.whispersyncAudioSeekTarget?.positionMs)
+		assertEquals(ReaderReadaloudPlaybackCommand.Play, confirmed.readaloudPlaybackCommand)
+	}
+
+	@Test
 	fun stalePageTurnSequenceCannotCommitPrepareOrSeek() {
 		val turn = preparedController().onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)

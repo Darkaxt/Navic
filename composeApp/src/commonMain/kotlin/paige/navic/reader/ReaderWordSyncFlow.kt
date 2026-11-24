@@ -68,13 +68,27 @@ private fun List<ReaderWordSyncBoundary>.flowTimedTrack(): List<ReaderWordSyncBo
 	return mapIndexed { index, boundary ->
 		val start = flowStarts[index]
 		val end = if (phraseBreakAfter[index]) {
-			val phraseEndMs = maxOf(ends[index], start + ReaderWordSyncFlowMinPhraseEndMs)
+			val phraseEndMs = maxOf(ends[index], start + ReaderWordSyncFlowMinPhraseEndMs, boundary.trailingSpeechEndMs())
 			if (index < lastIndex) minOf(phraseEndMs, flowStarts[index + 1]) else phraseEndMs
 		} else {
 			flowStarts[index + 1]
 		}
 		boundary.copy(flowStartMs = start, flowEndMs = maxOf(end, start))
 	}
+}
+
+/**
+ * When the narration of the unmatched text painted after a phrase's last word ends: the real audio
+ * end of unmatched words, else the word's own speaking rate over the extra bytes (capped at 1.5 s).
+ */
+private fun ReaderWordSyncBoundary.trailingSpeechEndMs(): Long {
+	val wordEnd = maxOf(word.audioEndMs, word.audioStartMs)
+	trailingAudioEndMs?.let { return maxOf(it, wordEnd) }
+	val extraBytes = paintByteEnd - word.ebookEnd
+	if (extraBytes <= 0) return wordEnd
+	val wordBytes = maxOf(word.ebookEnd - word.ebookStart, 1)
+	val msPerByte = (wordEnd - word.audioStartMs).toDouble() / wordBytes
+	return wordEnd + minOf((msPerByte * extraBytes).roundToLong(), 1_500L)
 }
 
 /**

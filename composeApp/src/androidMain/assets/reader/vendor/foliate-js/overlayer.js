@@ -44,22 +44,36 @@ export class Overlayer {
         })
         return splitRanges
     }
+    // Navic chapter illustration plates (#74) are inserted before the chapter text; a highlight
+    // range that spans them must paint the words only, never the plate's figure/image boxes.
+    #rectsFor(range) {
+        const zoom = this.#zoom
+        const doc = range?.startContainer?.ownerDocument ?? range?.startContainer
+        const plates = Array.from(doc?.querySelectorAll?.('[data-navic-illustration]') ?? [])
+            .map(plate => plate.getBoundingClientRect())
+        const insidePlate = rect => plates.some(plate =>
+            rect.left >= plate.left - 1 && rect.right <= plate.right + 1 &&
+            rect.top >= plate.top - 1 && rect.bottom <= plate.bottom + 1)
+        let rects = []
+        this.#splitRangeByParagraph(range).forEach((pRange) => {
+            const pRects = Array.from(pRange.getClientRects())
+                .filter(rect => !insidePlate(rect))
+                .map(rect => ({
+                    left: rect.left * zoom,
+                    top: rect.top * zoom,
+                    right: rect.right * zoom,
+                    bottom: rect.bottom * zoom,
+                    width: rect.width * zoom,
+                    height: rect.height * zoom,
+                }))
+            rects = rects.concat(pRects)
+        })
+        return rects
+    }
     add(key, range, draw, options) {
         if (this.#map.has(key)) this.remove(key)
         if (typeof range === 'function') range = range(this.#svg.getRootNode())
-        const zoom = this.#zoom
-        let rects = []
-        this.#splitRangeByParagraph(range).forEach((pRange) => {
-            const pRects = Array.from(pRange.getClientRects()).map(rect => ({
-                left: rect.left * zoom,
-                top: rect.top * zoom,
-                right: rect.right * zoom,
-                bottom: rect.bottom * zoom,
-                width: rect.width * zoom,
-                height: rect.height * zoom,
-            }))
-            rects = rects.concat(pRects)
-        })
+        const rects = this.#rectsFor(range)
         const element = draw(rects, options)
         this.#svg.append(element)
         this.#map.set(key, { range, draw, options, element, rects })
@@ -73,19 +87,7 @@ export class Overlayer {
         for (const obj of this.#map.values()) {
             const { range, draw, options, element } = obj
             this.#svg.removeChild(element)
-            const zoom = this.#zoom
-            let rects = []
-            this.#splitRangeByParagraph(range).forEach((pRange) => {
-                const pRects = Array.from(pRange.getClientRects()).map(rect => ({
-                    left: rect.left * zoom,
-                    top: rect.top * zoom,
-                    right: rect.right * zoom,
-                    bottom: rect.bottom * zoom,
-                    width: rect.width * zoom,
-                    height: rect.height * zoom,
-                }))
-                rects = rects.concat(pRects)
-            })
+            const rects = this.#rectsFor(range)
             const el = draw(rects, options)
             this.#svg.append(el)
             obj.element = el

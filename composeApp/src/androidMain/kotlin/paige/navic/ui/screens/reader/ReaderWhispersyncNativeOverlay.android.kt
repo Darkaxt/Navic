@@ -171,7 +171,7 @@ internal const val ReaderWhispersyncFlowOrderStart = 0.05f
 
 /** The renderer's flow head for [progress] through the current word (see PageRenderer). */
 internal fun readerWhispersyncFlowHead(progress: Float): Float =
-	0.01f + 0.95f * progress.coerceIn(0f, 1f)
+	0.01f + 0.99f * progress.coerceIn(0f, 1f)
 
 /**
  * The flow-encoded page mask: opaque alpha marks highlighted text, red over alpha its reading

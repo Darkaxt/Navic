@@ -222,11 +222,12 @@ data class ReaderWordSyncPlaybackCoordinator(
 			)
 		}
 
-		val boundarySequence = playbackForCue
+		val cueBoundary = playbackForCue
 			?.let(coordinatorWithDemand::boundariesForPlayback)
 			?.singleOrNull { boundary -> boundary.word === candidate.word }
-			?.sequence
+		val boundarySequence = cueBoundary?.sequence
 		val rawFragment = candidate.toOverlayFragment(
+			paintByteEnd = cueBoundary?.paintByteEnd ?: candidate.word.ebookEnd,
 			cueFragment = cueFragment,
 			playback = playbackForCue,
 			runtimeAudioResource = controllerStep.wordSyncRuntimeAudioResource(
@@ -515,7 +516,8 @@ data class ReaderWordSyncPlaybackCoordinator(
 			playback = playback,
 			boundarySequence = boundary.sequence,
 			audioStartMs = boundary.flowStartMs,
-			audioEndMs = boundary.flowEndMs
+			audioEndMs = boundary.flowEndMs,
+			paintByteEnd = boundary.paintByteEnd
 		)
 		return ReaderWordSyncDecision(
 			coordinator = remembered.copy(
@@ -872,10 +874,11 @@ private data class ReaderWordSyncCandidate(
 		boundarySequence: Long? = null,
 		// The smoothed flow span (ReaderWordSyncFlow): the WebView sweeps the word over it.
 		audioStartMs: Long = word.audioStartMs,
-		audioEndMs: Long = word.audioEndMs
+		audioEndMs: Long = word.audioEndMs,
+		paintByteEnd: Int = word.ebookEnd
 	): ReaderOverlayFragment {
 		val byteStart = word.ebookStart
-		val byteEnd = word.ebookEnd
+		val byteEnd = maxOf(paintByteEnd, word.ebookEnd)
 		val compatiblePlayback = playback?.takeIf {
 			it.audioTrackIndex == word.audioTrackIndex
 		}

@@ -34,13 +34,19 @@ internal data class ReaderWordSyncBoundary(
 	val wordOrdinalWithinTrack: Int,
 	val word: WordSyncWord,
 	val flowStartMs: Long = word.audioStartMs,
-	val flowEndMs: Long = maxOf(word.audioEndMs, word.audioStartMs)
+	val flowEndMs: Long = maxOf(word.audioEndMs, word.audioStartMs),
+	// The highlight covers the text after the word up to the next matched word: alignment misses
+	// most sentence-final words and never includes trailing punctuation (see readerWordSyncBoundaries).
+	val paintByteEnd: Int = word.ebookEnd,
+	// The audio end of unmatched narration words between this word and the next matched one.
+	val trailingAudioEndMs: Long? = null
 ) {
 	init {
 		require(sequence >= 0L)
 		require(wordOrdinalWithinTrack >= 0)
 		require(word.status in 1..4)
 		require(flowEndMs >= flowStartMs)
+		require(paintByteEnd >= word.ebookEnd)
 	}
 
 	val audioStartMs: Long
@@ -60,16 +66,36 @@ internal data class ReaderWordSyncBoundaryDispatch(
 	}
 }
 
-internal fun WordSyncTrack.readerWordSyncBoundaries(): List<ReaderWordSyncBoundary> =
-	words.mapIndexedNotNull { wordIndex, word ->
-		word.takeIf { it.status in 1..4 }?.let {
-			ReaderWordSyncBoundary(
-				sequence = wordIndex.toLong(),
-				wordOrdinalWithinTrack = wordIndex,
-				word = it
-			)
+/** Unaligned text after a word longer than this stays unpainted rather than flash in at once. */
+internal const val ReaderWordSyncMaxTrailingPaintBytes = 160
+
+internal fun WordSyncTrack.readerWordSyncBoundaries(): List<ReaderWordSyncBoundary> {
+	val matched = words.indices.filter { words[it].status in 1..4 }
+	return matched.mapIndexed { position, wordIndex ->
+		val word = words[wordIndex]
+		val nextIndex = matched.getOrNull(position + 1)
+		val next = nextIndex?.let(words::get)
+		val gap = next?.let { it.ebookStart - word.ebookEnd } ?: 0
+		// Stop one byte short of the next word: the separating space stays unpainted until it starts.
+		val extends = next != null && next.ebookHref == word.ebookHref && next.spineIndex == word.spineIndex &&
+			gap >= 2 && gap <= ReaderWordSyncMaxTrailingPaintBytes
+		val trailingAudioEndMs = if (extends && nextIndex != null) {
+			(wordIndex + 1 until nextIndex)
+				.map(words::get)
+				.filter { it.audioEndMs > it.audioStartMs && it.audioStartMs >= word.audioStartMs }
+				.maxOfOrNull { minOf(it.audioEndMs, next!!.audioStartMs) }
+		} else {
+			null
 		}
+		ReaderWordSyncBoundary(
+			sequence = wordIndex.toLong(),
+			wordOrdinalWithinTrack = wordIndex,
+			word = word,
+			paintByteEnd = if (extends) next!!.ebookStart - 1 else word.ebookEnd,
+			trailingAudioEndMs = trailingAudioEndMs
+		)
 	}
+}
 
 internal class ReaderWordSyncBoundaryScheduler(
 	private val currentTimeline: () -> ReaderWordSyncTimelineSnapshot?,

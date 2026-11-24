@@ -1626,9 +1626,15 @@ private fun ReaderController.reduceVisibleTextRange(
 	val shouldResume = navigationMatched != null &&
 		currentWhispersync.playbackIntent == ReaderWhispersyncPlaybackIntent.Enabled &&
 		!currentWhispersync.userPaused
+	// A redisplay of the same destination must not cancel a start already waiting for its overlay
+	// confirmation (a turn's seek would otherwise be sent without Play).
+	val startStillPending = !shouldResume && prepared != null &&
+		currentWhispersync.playbackStartPending &&
+		currentWhispersync.pendingAudioSeek != null &&
+		currentWhispersync.visibleTextRange?.destinationCommitIdentity == destinationCommitIdentity
 	val nextTransport = when {
 		prepared == null -> ReaderWhispersyncTransportPhase.Unavailable
-		shouldResume -> ReaderWhispersyncTransportPhase.Preparing
+		shouldResume || startStillPending -> ReaderWhispersyncTransportPhase.Preparing
 		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.Playing ->
 			ReaderWhispersyncTransportPhase.Playing
 		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused ->
@@ -1646,7 +1652,7 @@ private fun ReaderController.reduceVisibleTextRange(
 					nextGeneration
 				},
 				pendingCausalIntent = pendingIntent.takeUnless { navigationMatched != null },
-				playbackStartPending = false,
+				playbackStartPending = startStillPending,
 				canonicalRecoveryRequiresFreshVisibleRange = false,
 				transportPhase = nextTransport,
 				lastEventProvenance = if (navigationMatched != null) {

@@ -376,6 +376,7 @@ class View {
     #iframe = document.createElement('iframe')
     #contentRange = document.createRange()
     #overlayer
+    #overlayerLayout = null
     #vertical = false
     #rtl = false
     #column = true
@@ -636,24 +637,36 @@ class View {
         this.#iframe.style[otherSide] = '100%'
         this.#element.style[otherSide] = '100%'
         if (this.#column) documentElement.style[side] = `${this.#size}px`
-        if (this.#overlayer) {
-            this.#overlayer.element.style.margin = padding
-            this.#overlayer.element.style.left = this.#column && !this.#vertical
-                ? `${this.#size}px`
-                : '0'
-            this.#overlayer.element.style.top = this.#column && this.#vertical
-                ? `${this.#size}px`
-                : '0'
-            this.#overlayer.element.style[side] = `${expandedSize}px`
-            this.#overlayer.redraw()
+        this.#overlayerLayout = {
+            padding,
+            side,
+            expandedSize,
+            left: this.#column && !this.#vertical ? `${this.#size}px` : '0',
+            top: this.#column && this.#vertical ? `${this.#size}px` : '0',
         }
+        this.#applyOverlayerLayout()
         this.#layoutSignature = signature
         if (this.#committed) this.onExpand()
         return true
     }
+    // The overlay must sit over the iframe (one padding page in), not at the element's origin.
+    // An overlayer attached after the last expand() gets the current geometry here; otherwise a
+    // section that never re-expands (one spread, e.g. a foreword) paints every highlight a page
+    // to the left, off screen.
+    #applyOverlayerLayout() {
+        const layout = this.#overlayerLayout
+        if (!this.#overlayer || !layout) return
+        const style = this.#overlayer.element.style
+        style.margin = layout.padding
+        style.left = layout.left
+        style.top = layout.top
+        style[layout.side] = `${layout.expandedSize}px`
+        this.#overlayer.redraw()
+    }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
         this.#element.append(overlayer.element)
+        this.#applyOverlayerLayout()
     }
     get overlayer() {
         return this.#overlayer
