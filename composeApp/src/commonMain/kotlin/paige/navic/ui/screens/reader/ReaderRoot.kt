@@ -1,6 +1,9 @@
 package paige.navic.ui.screens.reader
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import paige.navic.reader.DefaultReaderWhispersyncHighlightColorArgb
 import paige.navic.reader.ReaderAnnotation
+import paige.navic.reader.readerPagedLayoutShowsTwoPages
 import paige.navic.reader.ReaderBookmark
 import paige.navic.reader.ReaderWordSyncFlowClock
 import paige.navic.reader.ReaderBridgeEvent
@@ -558,7 +562,7 @@ private fun KomikkuComposeOverlay(
 		controllerState.annotations.annotationsForBook(bookId)
 	}
 
-	Box(modifier = modifier) {
+	BoxWithConstraints(modifier = modifier) {
 		KomikkuReaderContentOverlay(
 			brightness = -(controllerState.chrome.settings.dimOverlayPercent ?: 0),
 			color = readerColorFilterColor(controllerState.chrome.settings),
@@ -609,16 +613,30 @@ private fun KomikkuComposeOverlay(
 			}
 		}
 		// The badges live in the top margin; with the chrome open they would sit on the text (#31).
-		// Centred in the top margin, like the page numbers below; the selection actions take that spot.
+		// Centred in the top margin in line with the page number below (the left page's on a two-page
+		// spread); the selection actions take that spot.
+		val controlsOverLeftPage = readerPagedLayoutShowsTwoPages(
+			settings = controllerState.chrome.settings,
+			widthDp = maxWidth.value,
+			heightDp = maxHeight.value
+		)
 		if (
 			!controllerState.menuVisible &&
 			!controllerState.selectionActions.visible &&
 			(whispersyncPlaybackControl.visible || controllerState.whispersync.available)
 		) {
 			Row(
-				modifier = Modifier
-					.align(Alignment.TopCenter)
-					.padding(top = 28.dp)
+				modifier = if (controlsOverLeftPage) {
+					Modifier
+						.align(Alignment.TopStart)
+						.fillMaxWidth(0.5f)
+						.wrapContentWidth(Alignment.CenterHorizontally)
+						.padding(top = 28.dp)
+				} else {
+					Modifier
+						.align(Alignment.TopCenter)
+						.padding(top = 28.dp)
+				}
 			) {
 				// The in-page transport is the whole player surface; the full player opens from the menu bar.
 				if (whispersyncPlaybackControl.visible) {

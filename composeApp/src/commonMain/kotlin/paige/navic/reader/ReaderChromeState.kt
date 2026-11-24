@@ -1,5 +1,6 @@
 package paige.navic.reader
 
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 private const val MinReaderFontSizePercent = 80
@@ -1197,3 +1198,22 @@ fun readerReadaloudControlsVisible(
 	mediaOverlayEnabled: Boolean
 ): Boolean =
 	kind == ReaderPublicationKind.Readaloud && mediaOverlayEnabled
+
+/**
+ * Whether the paged layout shows two pages side by side, by the reader runtime's own rule: a paged
+ * surface at least 1.12 times wider than tall is a spread, and it holds two columns unless the
+ * column setting says otherwise (auto: one column per [ReaderSettings.columnThreshold] of width).
+ * The in-page controls then centre over the left page, in line with its page number.
+ */
+fun readerPagedLayoutShowsTwoPages(settings: ReaderSettings, widthDp: Float, heightDp: Float): Boolean {
+	if (normalizedReaderFlowMode(settings.flowMode, settings.paged) != ReaderFlowPaged) return false
+	if (widthDp <= 0f || heightDp <= 0f || widthDp < heightDp * 1.12f) return false
+	val maxColumns = settings.maxColumnCount?.coerceIn(0, 2) ?: 0
+	val columns = if (maxColumns > 0) {
+		maxColumns
+	} else {
+		val threshold = (settings.columnThreshold ?: 720.0).coerceIn(400.0, 1200.0)
+		ceil(widthDp / threshold).toInt().coerceIn(1, 2)
+	}
+	return columns >= 2
+}
