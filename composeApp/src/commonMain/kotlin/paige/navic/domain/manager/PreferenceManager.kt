@@ -249,6 +249,8 @@ class PreferenceManager(
 			binderyApiKeyRevision.intValue++
 		}
 	var binderyLanguageFilter by preference("eng")
+	/** The open sheet's last book and audiobook language per Bindery book (JSON). */
+	var binderyBookLanguageChoicesJson by preference("")
 	var binderyBookGridColumns by preference(BinderyDefaultBookGridColumns)
 	var binderyAudiobookProgressJson by preference("")
 	var binderyWhispersyncCompanionProgressJson by preference("")

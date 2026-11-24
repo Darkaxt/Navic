@@ -90,7 +90,9 @@ data class BinderyBookVersionRow(
 	val ebookBookFileId: String? = null,
 	val fullscreenCoverHref: String? = null,
 	val fullscreenCoverVariants: List<BinderyFullscreenCoverVariant> = emptyList(),
-	val syncMatches: List<BinderyWhispersyncMatch> = emptyList()
+	val syncMatches: List<BinderyWhispersyncMatch> = emptyList(),
+	/** Normalized edition language (e.g. "eng"), when Bindery reports one. */
+	val language: String? = null
 )
 
 data class BinderyFullscreenCoverVariant(
@@ -118,7 +120,8 @@ data class BinderyWhispersyncMatch(
 	val oppositeEbookResourceHref: String? = null,
 	val oppositeEbookBookFileId: String? = null,
 	val oppositeEbookFormat: ReaderPublicationFormat? = null,
-	val wordSync: BinderyWordSyncReference? = null
+	val wordSync: BinderyWordSyncReference? = null,
+	val oppositeLanguage: String? = null
 )
 
 data class BinderyBookVersionGroups(
@@ -522,7 +525,8 @@ private fun BinderySyncPair.toWhispersyncMatch(
 		} else {
 			null
 		},
-		wordSync = wordSyncReferenceOrNull()
+		wordSync = wordSyncReferenceOrNull(),
+		oppositeLanguage = oppositeRow?.language
 	)
 }
 
@@ -627,7 +631,8 @@ private fun BinderyAudiobookVersion.toAudiobookVersionRow(): BinderyBookVersionR
 		title = audiobookTitleLabel(),
 		subtitle = subtitle.takeIf { it.isNotBlank() },
 		audiobookId = id?.toString(),
-		audiobookBookFileId = bookFileId?.toString()
+		audiobookBookFileId = bookFileId?.toString(),
+		language = language?.normalizedBinderyAvailabilityLanguage()
 	)
 }
 
@@ -651,7 +656,8 @@ private fun BinderyBookResource.toEbookVersionRow(
 		downloadExtension = if (readerFormat == null) displayFormat.downloadExtension() else null,
 		finding = bookFileId()?.let(findingByBookFileId::get),
 		ebookBookFileId = bookFileId(),
-		fullscreenCoverHref = propertyValues.expandedCoverObjectHref()
+		fullscreenCoverHref = propertyValues.expandedCoverObjectHref(),
+		language = properties.firstNonBlankValue("language")?.normalizedBinderyAvailabilityLanguage()
 	)
 }
 

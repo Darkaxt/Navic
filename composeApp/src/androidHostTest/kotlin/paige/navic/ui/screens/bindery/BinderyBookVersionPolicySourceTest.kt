@@ -68,11 +68,23 @@ class BinderyBookVersionPolicySourceTest {
 			message = "BinderyBookScreen must keep one layout-derived aspect value for all reader launch paths."
 		)
 		assertEquals(
-			5,
+			3,
 			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
 				.findAll(screen)
 				.count(),
 			"Every BookScreen reader launch path and its background prefetch must pass the layout aspect into fullscreen cover variant selection."
+		)
+		// Ebook and Whispersync opens go through the open sheet, which takes the same layout aspect.
+		assertContains(screen, "BinderyReaderOpenSheet(")
+		assertContains(screen, "readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,")
+		val sheet = sourceFile("composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyReaderOpenSheet.kt")
+			.readText()
+		assertEquals(
+			2,
+			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
+				.findAll(sheet)
+				.count(),
+			"The open sheet's ebook-only and Whispersync destinations must both use the layout aspect."
 		)
 	}
 
@@ -93,16 +105,16 @@ class BinderyBookVersionPolicySourceTest {
 		)
 		assertContains(
 			screen,
-			"binderyContinueReadingLaunchDecision(",
-			message = "The continue-reading click path must rebuild the reader destination with the current surface aspect."
+			"continueReadingSheetTargetAspectRatio = readerLaunchTargetAspectRatio",
+			message = "The continue-reading click path must hand the current surface aspect to the open sheet."
 		)
 		assertContains(
 			screen,
-			"binderyContinueReadingWhispersyncDestination(",
-			message = "The continue-reading Whispersync sheet must use the same aspect-aware route policy as ebook-only launches."
+			"readerLaunchTargetAspectRatio = continueReadingSheetTargetAspectRatio,",
+			message = "The open sheet must build ebook-only and Whispersync routes with the click-time aspect."
 		)
 		assertEquals(
-			4,
+			1,
 			Regex("fullscreenCoverTargetAspectRatio\\s*=\\s*readerLaunchTargetAspectRatio")
 				.findAll(screen)
 				.count(),

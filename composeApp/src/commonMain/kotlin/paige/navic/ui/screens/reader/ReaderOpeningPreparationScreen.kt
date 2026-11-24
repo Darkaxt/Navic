@@ -4,15 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,22 +19,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_reader_cache_this_chapter
-import navic.composeapp.generated.resources.action_reader_cache_whole_book
 import navic.composeapp.generated.resources.action_retry
-import navic.composeapp.generated.resources.info_reader_cache_scope_question
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
 import navic.composeapp.generated.resources.info_reader_preparation_detail
 import navic.composeapp.generated.resources.info_reader_preparation_measuring
 import navic.composeapp.generated.resources.info_reader_preparation_opening_hint
 import navic.composeapp.generated.resources.info_reader_preparing_book
 import org.jetbrains.compose.resources.stringResource
-import paige.navic.reader.ReaderPageCacheScope
 import paige.navic.reader.ReaderPagePreparationPhase
 import paige.navic.reader.ReaderPagePreparationPresentation
 import paige.navic.reader.ReaderPagePreparationState
 import paige.navic.reader.ReaderPaginationProfileStatus
-import paige.navic.reader.normalizeReaderPageCacheScope
 
 /** Same colour as the native preparation shield underneath, so the screen never flashes. */
 private val ReaderOpeningPreparationBackground = Color(0xFF202329)
@@ -49,7 +40,7 @@ private val ReaderOpeningPreparationAccent = Color(0xFFD9B36C)
 /**
  * The book is not entered until its opening pages exist: blocking preparation (first open, or a
  * cache that must be rebuilt) is a screen of its own, between launch and the book, never a card
- * over the reading page. It follows the cache scope setting and opens the book by itself.
+ * over the reading page. It follows the cache scope chosen on the open sheet and opens the book by itself.
  */
 internal fun readerOpeningPreparationVisible(state: ReaderPagePreparationState): Boolean =
 	state.presentation == ReaderPagePreparationPresentation.Cover && !state.layoutReviewPending
@@ -60,9 +51,7 @@ internal fun ReaderOpeningPreparationScreen(
 	state: ReaderPagePreparationState,
 	profile: ReaderPaginationProfileStatus,
 	onRetry: () -> Unit,
-	modifier: Modifier = Modifier,
-	cacheScope: String? = null,
-	onChooseCacheScope: ((ReaderPageCacheScope) -> Unit)? = null
+	modifier: Modifier = Modifier
 ) {
 	val failed = state.phase == ReaderPagePreparationPhase.Failed
 	val ready = state.phase == ReaderPagePreparationPhase.Ready
@@ -132,19 +121,12 @@ internal fun ReaderOpeningPreparationScreen(
 				state.activePageLabel?.takeIf { measuringTotal == null }?.let { label ->
 					Text(text = label, style = MaterialTheme.typography.labelMedium, color = ReaderOpeningPreparationMuted)
 				}
-				if (onChooseCacheScope != null) {
-					ReaderOpeningCacheScopeQuestion(
-						selected = normalizeReaderPageCacheScope(cacheScope),
-						onChoose = onChooseCacheScope
-					)
-				} else {
-					Text(
-						text = stringResource(Res.string.info_reader_preparation_opening_hint),
-						style = MaterialTheme.typography.bodySmall,
-						color = ReaderOpeningPreparationMuted,
-						textAlign = TextAlign.Center
-					)
-				}
+				Text(
+					text = stringResource(Res.string.info_reader_preparation_opening_hint),
+					style = MaterialTheme.typography.bodySmall,
+					color = ReaderOpeningPreparationMuted,
+					textAlign = TextAlign.Center
+				)
 			} else {
 				state.error?.takeIf { it.isNotBlank() }?.let { error ->
 					Text(
@@ -158,46 +140,6 @@ internal fun ReaderOpeningPreparationScreen(
 				}
 				TextButton(onClick = onRetry) {
 					Text(stringResource(Res.string.action_retry), color = ReaderOpeningPreparationAccent)
-				}
-			}
-		}
-	}
-}
-
-/**
- * Asked every time a book opens with pages to prepare: cache only this chapter (and the next) or
- * the whole book. The first chapter is prepared either way; the answer is the cache scope setting.
- */
-@Composable
-private fun ReaderOpeningCacheScopeQuestion(
-	selected: ReaderPageCacheScope,
-	onChoose: (ReaderPageCacheScope) -> Unit
-) {
-	Text(
-		text = stringResource(Res.string.info_reader_cache_scope_question),
-		style = MaterialTheme.typography.bodyMedium,
-		color = ReaderOpeningPreparationText,
-		textAlign = TextAlign.Center
-	)
-	Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-		ReaderPageCacheScope.entries.forEach { scope ->
-			val label = stringResource(
-				when (scope) {
-					ReaderPageCacheScope.PerChapter -> Res.string.action_reader_cache_this_chapter
-					ReaderPageCacheScope.FullBook -> Res.string.action_reader_cache_whole_book
-				}
-			)
-			if (scope == selected) {
-				Button(
-					onClick = { onChoose(scope) },
-					colors = ButtonDefaults.buttonColors(
-						containerColor = ReaderOpeningPreparationAccent,
-						contentColor = ReaderOpeningPreparationBackground
-					)
-				) { Text(label) }
-			} else {
-				OutlinedButton(onClick = { onChoose(scope) }) {
-					Text(label, color = ReaderOpeningPreparationAccent)
 				}
 			}
 		}

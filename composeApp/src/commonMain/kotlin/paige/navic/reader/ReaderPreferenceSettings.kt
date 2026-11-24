@@ -499,3 +499,17 @@ private fun JsonObject.doubleValue(key: String): Double? =
 
 private fun JsonObject.booleanValue(key: String): Boolean? =
 	get(key)?.jsonPrimitive?.booleanOrNull
+
+/** The cache scope a book opens with: its own override when it has one, else the reader default. */
+fun PreferenceManager.readerPageCacheScopeForBook(bookId: String): ReaderPageCacheScope =
+	normalizeReaderPageCacheScope(readerSettingsForBook(bookId).pageCacheScope)
+
+/** Chosen on the open sheet: updates the book's own override when it has one, else the default. */
+fun PreferenceManager.setReaderPageCacheScopeForBook(bookId: String, scope: ReaderPageCacheScope) {
+	val override = readerBookSettings(bookId)
+	if (override?.pageCacheScope != null) {
+		setReaderBookSettings(bookId, override.copy(pageCacheScope = scope.persistedValue))
+	} else {
+		readerPageCacheScope = scope.persistedValue
+	}
+}

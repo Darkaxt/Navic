@@ -150,14 +150,10 @@ internal fun KomikkuReaderRoot(
 	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
 	var bookPreparationRetryKey by remember { mutableStateOf(0) }
 	val bookPreparationActive = reader.prepareBookPages
-	// Every opening that has pages to prepare asks for the cache scope (this chapter or the whole
-	// book) and the book waits for the answer; "Prepare pages" already means the whole book.
-	var openingCacheScopeAsked by remember(reader) { mutableStateOf(false) }
-	var openingCacheScopeAnswered by remember(reader) { mutableStateOf(bookPreparationActive) }
-	// Read-along audio holds while the page is not READY, including while the opening question waits.
-	val pageReadinessHoldReason = pagePreparationState.readAlongHoldReason(
-		openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered
-	)
+	// The cache scope is chosen on the open sheet before the reader starts; the opening screen only
+	// shows progress and enters the book as soon as its pages are ready.
+	// Read-along audio holds while the page is not READY.
+	val pageReadinessHoldReason = pagePreparationState.readAlongHoldReason()
 	LaunchedEffect(pageReadinessHoldReason, controllerState.whispersync.pageHoldReason) {
 		if (pageReadinessHoldReason != controllerState.whispersync.pageHoldReason) {
 			onPageReadinessChange(pageReadinessHoldReason)
@@ -431,36 +427,13 @@ internal fun KomikkuReaderRoot(
 							.padding(bottom = if (reviewAboveMenu) 136.dp else 0.dp)
 					)
 				}
-				val openingPreparationVisible = readerOpeningPreparationVisible(pagePreparationState)
-				LaunchedEffect(openingPreparationVisible, pagePreparationState.phase) {
-					when {
-						openingCacheScopeAnswered || openingCacheScopeAsked -> Unit
-						openingPreparationVisible -> openingCacheScopeAsked = true
-						// Opened from ready pages: nothing to prepare, so nothing to ask this time.
-						pagePreparationState.phase == ReaderPagePreparationPhase.Ready -> openingCacheScopeAnswered = true
-					}
-				}
-				if (
-					controllerState.errorMessage == null &&
-					(openingPreparationVisible || openingCacheScopeAsked && !openingCacheScopeAnswered)
-				) {
+				if (controllerState.errorMessage == null && readerOpeningPreparationVisible(pagePreparationState)) {
 					ReaderOpeningPreparationScreen(
 						title = reader.title,
 						state = pagePreparationState,
 						profile = controllerState.paginationProfile,
 						onRetry = { pagePreparationRetryKey += 1 },
-						modifier = Modifier.matchParentSize(),
-						cacheScope = controllerState.chrome.settings.pageCacheScope,
-						onChooseCacheScope = if (openingCacheScopeAnswered) {
-							null
-						} else {
-							{ scope ->
-								openingCacheScopeAnswered = true
-								if (controllerState.chrome.settings.pageCacheScope != scope.persistedValue) {
-									onSettingsChange(controllerState.chrome.settings.copy(pageCacheScope = scope.persistedValue))
-								}
-							}
-						}
+						modifier = Modifier.matchParentSize()
 					)
 				}
 				if (bookPreparationActive) {

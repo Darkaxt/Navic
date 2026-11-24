@@ -76,7 +76,7 @@ private fun JsonObject.requiredNonNegativeInt(name: String): Int =
 
 private const val ReaderPageRasterHexDigits = "0123456789abcdef"
 
-private fun String.readerPageRasterHash(): String {
+internal fun String.readerPageRasterHash(): String {
 	val digest = MessageDigest.getInstance("SHA-256").digest(encodeToByteArray())
 	return buildString(digest.size * 2) {
 		digest.forEach { byte ->

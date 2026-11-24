@@ -2023,9 +2023,10 @@ class ReaderKomikkuBackboneResetTest {
 			"The Whispersync player offers previous/next chapter and page, each carrying the narration."
 		)
 		assertTrue(
-			readerRootText.contains("openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered") &&
-				readerRootText.contains("onPageReadinessChange(pageReadinessHoldReason)"),
-			"Read-along audio must hold while the page is not ready, including the unanswered opening question."
+			readerRootText.contains("val pageReadinessHoldReason = pagePreparationState.readAlongHoldReason()") &&
+				readerRootText.contains("onPageReadinessChange(pageReadinessHoldReason)") &&
+				!readerRootText.contains("onChooseCacheScope"),
+			"Read-along audio must hold while the page is not ready; the opening screen asks nothing."
 		)
 		val transportControlsBody = statusBadgeText.substringAfter("internal fun KomikkuWhispersyncTransportControls(")
 		assertFalse(

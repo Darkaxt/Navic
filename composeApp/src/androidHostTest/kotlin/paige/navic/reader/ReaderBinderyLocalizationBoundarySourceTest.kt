@@ -32,6 +32,7 @@ class ReaderBinderyLocalizationBoundarySourceTest {
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/reader/ReaderWhispersyncPlayerDialog.kt",
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyHubScreen.kt",
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyBookScreen.kt",
+			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyReaderOpenSheet.kt",
 			"composeApp/src/commonMain/kotlin/paige/navic/ui/screens/bindery/BinderyAudiobookDetailScreen.kt"
 		)
 		val visibleLiterals = listOf(

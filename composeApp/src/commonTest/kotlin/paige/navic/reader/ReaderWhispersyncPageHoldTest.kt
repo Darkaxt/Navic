@@ -179,11 +179,8 @@ class ReaderWhispersyncPageHoldTest {
 			"page-preparation-visible",
 			ReaderPagePreparationState(presentation = ReaderPagePreparationPresentation.Compact).readAlongHoldReason()
 		)
-		assertEquals(
-			"opening-question-pending",
-			ReaderPagePreparationState().readAlongHoldReason(openingQuestionPending = true)
-		)
-		assertNull(ReaderPagePreparationState().readAlongHoldReason(openingQuestionPending = false))
+		// No opening question holds the book any more: the scope is chosen on the open sheet.
+		assertNull(ReaderPagePreparationState().readAlongHoldReason())
 	}
 
 	private fun ReaderCoordinator.hold(reason: String = HoldReason): ReaderCoordinatorStep =

@@ -5,11 +5,10 @@ import paige.navic.util.core.Logger
 /**
  * Why read-along audio must not play over the visible page, or null when the page is READY.
  * READY includes page preparation: the opening/regeneration cover, a failed preparation, a pending
- * layout review, any visible preparation card, and the unanswered opening "Prepare pages for"
- * question hold audio. The per-turn states (Settling, RefillingWorkingSet, BackgroundPrefetch)
+ * layout review and any visible preparation card hold audio. The per-turn states (Settling, RefillingWorkingSet, BackgroundPrefetch)
  * keep the page readable and do not hold.
  */
-fun ReaderPagePreparationState.readAlongHoldReason(openingQuestionPending: Boolean = false): String? = when {
+fun ReaderPagePreparationState.readAlongHoldReason(): String? = when {
 	phase == ReaderPagePreparationPhase.Failed ||
 		readiness.interaction == ReaderPageInteractionState.Failed -> "page-preparation-failed"
 	layoutReviewPending -> "layout-review-pending"
@@ -18,7 +17,6 @@ fun ReaderPagePreparationState.readAlongHoldReason(openingQuestionPending: Boole
 	readiness.interaction == ReaderPageInteractionState.BlockingProfileRegeneration ->
 		"blocking-profile-regeneration"
 	presentation != ReaderPagePreparationPresentation.Hidden -> "page-preparation-visible"
-	openingQuestionPending -> "opening-question-pending"
 	else -> null
 }
 

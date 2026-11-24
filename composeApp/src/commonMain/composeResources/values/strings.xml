@@ -990,8 +990,15 @@
 	<string name="info_reader_preparation_measuring">Measuring chapters %1$d of %2$d</string>
 	<string name="info_reader_preparation_opening_hint">The book opens as soon as its pages are ready.</string>
 	<string name="info_reader_cache_scope_question">Prepare pages for</string>
-	<string name="action_reader_cache_this_chapter">This chapter</string>
-	<string name="action_reader_cache_whole_book">Whole book</string>
+	<string name="action_reader_cache_this_chapter">Chapter</string>
+	<string name="action_reader_cache_whole_book">Book</string>
+	<string name="info_reader_cache_coverage">Pages cached: %1$s of %2$s (%3$s)</string>
+	<string name="info_reader_cache_coverage_unknown">Pages cached: %1$s</string>
+	<string name="info_reader_cache_coverage_none">No pages cached yet</string>
+	<string name="info_reader_cache_coverage_ready">All pages ready</string>
+	<string name="label_reader_open_book_language">Book</string>
+	<string name="label_reader_open_audio_language">Audio</string>
+	<string name="action_reader_import_progress">Continue from %1$s (%2$s)</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>
 	<string name="action_disable_sleep_timer">Turn off timer</string>

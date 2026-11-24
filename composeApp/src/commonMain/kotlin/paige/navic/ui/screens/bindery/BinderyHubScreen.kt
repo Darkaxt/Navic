@@ -3,26 +3,19 @@ package paige.navic.ui.screens.bindery
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.plus
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,15 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_cancel
-import navic.composeapp.generated.resources.action_open
-import navic.composeapp.generated.resources.option_ebook_only
-import navic.composeapp.generated.resources.title_open_with_whispersync
 import navic.composeapp.generated.resources.title_audiobook_authors
 import navic.composeapp.generated.resources.title_audiobook_books
 import navic.composeapp.generated.resources.title_audiobook_collections
@@ -92,7 +79,6 @@ import paige.navic.ui.components.layouts.RootTopBar
 import paige.navic.ui.components.layouts.artGridError
 import paige.navic.ui.components.layouts.artGridPlaceholder
 import paige.navic.ui.components.layouts.horizontalSectionWithAvailableWidth
-import paige.navic.ui.components.sheets.ModalBottomSheet
 import paige.navic.ui.core.UiState
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.library.components.libraryScreenOverviewButton
@@ -137,10 +123,10 @@ fun BinderyHubScreen() {
 	val imageRequestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
 	val bookGridColumns = normalizedBinderyBookGridColumns(preferenceManager.binderyBookGridColumns)
 	val languageFilter = normalizedBinderyLanguageFilter(preferenceManager.binderyLanguageFilter)
-	var continueWhispersyncPrompt by remember {
-		mutableStateOf<BinderyContinueReadingLaunchDecision.AskWhispersync?>(null)
+	var continueReadingSheetItem by remember {
+		mutableStateOf<BinderyContinueReadingItem?>(null)
 	}
-	var continueWhispersyncTargetAspectRatio by remember {
+	var continueReadingSheetTargetAspectRatio by remember {
 		mutableStateOf<Double?>(null)
 	}
 	BackToTopScrollHandler(viewModel.gridState)
@@ -273,20 +259,8 @@ fun BinderyHubScreen() {
 										},
 										onOpenReading = { item ->
 											platformContext.clickSound()
-											when (
-												val decision = binderyContinueReadingLaunchDecision(
-													item = item,
-													opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-													fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-												)
-											) {
-												is BinderyContinueReadingLaunchDecision.OpenEbook ->
-													backStack.add(decision.destination)
-												is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
-													continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
-													continueWhispersyncPrompt = decision
-												}
-											}
+											continueReadingSheetTargetAspectRatio = readerLaunchTargetAspectRatio
+											continueReadingSheetItem = item
 										}
 									)
 									binderyHubDiscoveryRows(
@@ -329,20 +303,8 @@ fun BinderyHubScreen() {
 										},
 										onOpenReading = { item ->
 											platformContext.clickSound()
-											when (
-												val decision = binderyContinueReadingLaunchDecision(
-													item = item,
-													opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-													fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-												)
-											) {
-												is BinderyContinueReadingLaunchDecision.OpenEbook ->
-													backStack.add(decision.destination)
-												is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
-													continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
-													continueWhispersyncPrompt = decision
-												}
-											}
+											continueReadingSheetTargetAspectRatio = readerLaunchTargetAspectRatio
+											continueReadingSheetItem = item
 										}
 									)
 									binderyHubDiscoveryRows(
@@ -381,20 +343,8 @@ fun BinderyHubScreen() {
 									},
 									onOpenReading = { item ->
 										platformContext.clickSound()
-										when (
-											val decision = binderyContinueReadingLaunchDecision(
-												item = item,
-												opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-												fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-											)
-										) {
-											is BinderyContinueReadingLaunchDecision.OpenEbook ->
-												backStack.add(decision.destination)
-											is BinderyContinueReadingLaunchDecision.AskWhispersync -> {
-												continueWhispersyncTargetAspectRatio = readerLaunchTargetAspectRatio
-												continueWhispersyncPrompt = decision
-											}
-										}
+										continueReadingSheetTargetAspectRatio = readerLaunchTargetAspectRatio
+										continueReadingSheetItem = item
 									}
 								)
 								binderyHubDiscoveryRows(
@@ -442,18 +392,21 @@ fun BinderyHubScreen() {
 		onClearError = { viewModel.clearError() }
 	)
 
-	continueWhispersyncPrompt?.let { prompt ->
-		BinderyContinueWhispersyncSheet(
-			decision = prompt,
+	continueReadingSheetItem?.let { item ->
+		BinderyReaderOpenSheet(
+			bookId = item.bookId,
+			bookTitle = item.ebookDestination.title,
+			initialRow = item.row,
+			editions = item.editions,
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-			fullscreenCoverTargetAspectRatio = continueWhispersyncTargetAspectRatio,
+			readerLaunchTargetAspectRatio = continueReadingSheetTargetAspectRatio,
 			onDismissRequest = {
-				continueWhispersyncTargetAspectRatio = null
-				continueWhispersyncPrompt = null
+				continueReadingSheetTargetAspectRatio = null
+				continueReadingSheetItem = null
 			},
 			onOpenReader = { destination ->
-				continueWhispersyncTargetAspectRatio = null
-				continueWhispersyncPrompt = null
+				continueReadingSheetTargetAspectRatio = null
+				continueReadingSheetItem = null
 				backStack.add(destination)
 			}
 		)
@@ -640,98 +593,6 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyWhispersy
 			onOpenCatalog = onOpenCatalog,
 			onOpenFinding = onOpenFinding
 		)
-	}
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BinderyContinueWhispersyncSheet(
-	decision: BinderyContinueReadingLaunchDecision.AskWhispersync,
-	opdsBaseUrl: String,
-	fullscreenCoverTargetAspectRatio: Double?,
-	onDismissRequest: () -> Unit,
-	onOpenReader: (Screen.Reader) -> Unit
-) {
-	ModalBottomSheet(onDismissRequest = onDismissRequest) {
-		Column(
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(horizontal = 20.dp, vertical = 8.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			Text(
-				text = stringResource(Res.string.title_open_with_whispersync),
-				style = MaterialTheme.typography.titleMedium,
-				fontWeight = FontWeight.SemiBold
-			)
-			Text(
-				text = decision.ebookDestination.title,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-			Button(
-				onClick = { onOpenReader(decision.ebookDestination) },
-				modifier = Modifier.fillMaxWidth()
-			) {
-				Text(stringResource(Res.string.option_ebook_only))
-			}
-			decision.matches.forEach { match ->
-				val destination = binderyContinueReadingWhispersyncDestination(
-					decision = decision,
-					match = match,
-					opdsBaseUrl = opdsBaseUrl,
-					fullscreenCoverTargetAspectRatio = fullscreenCoverTargetAspectRatio
-				)
-				Surface(
-					modifier = Modifier.fillMaxWidth(),
-					shape = RoundedCornerShape(8.dp),
-					color = MaterialTheme.colorScheme.surfaceContainerHighest
-				) {
-					Row(
-						modifier = Modifier.padding(12.dp),
-						horizontalArrangement = Arrangement.spacedBy(12.dp),
-						verticalAlignment = Alignment.CenterVertically
-					) {
-						Column(
-							modifier = Modifier.weight(1f),
-							verticalArrangement = Arrangement.spacedBy(3.dp)
-						) {
-							Text(
-								text = match.oppositeTitle,
-								style = MaterialTheme.typography.titleSmall,
-								maxLines = 2,
-								overflow = TextOverflow.Ellipsis
-							)
-							Text(
-								text = listOfNotNull(
-									"Ready",
-									match.coveragePercent?.let { "Coverage $it%" },
-									match.scorePercent?.let { "Score $it%" }
-								).joinToString("  "),
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Button(
-							onClick = {
-								destination?.let(onOpenReader)
-							},
-							enabled = destination != null
-						) {
-							Text(stringResource(Res.string.action_open))
-						}
-					}
-				}
-			}
-			TextButton(
-				onClick = onDismissRequest,
-				modifier = Modifier.align(Alignment.End)
-			) {
-				Text(stringResource(Res.string.action_cancel))
-			}
-		}
 	}
 }
 

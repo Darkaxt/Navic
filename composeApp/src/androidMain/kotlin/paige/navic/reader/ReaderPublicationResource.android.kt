@@ -647,3 +647,9 @@ private fun String.sha256Hex(): String =
 	MessageDigest.getInstance("SHA-256")
 		.digest(encodeToByteArray())
 		.joinToString(separator = "") { byte -> "%02x".format(byte) }
+
+/** The asset URL an EPUB destination is served from, which keys its page rasters (publicationHash). */
+internal fun Screen.Reader.readerEpubPublicationAssetUrl(): String =
+	readerPublicationAssetUrl(
+		"$ReaderPublicationCachePublicationDirectory/${toPublicationResourceRequest().readerPublicationCacheKey()}/publication.epub"
+	)

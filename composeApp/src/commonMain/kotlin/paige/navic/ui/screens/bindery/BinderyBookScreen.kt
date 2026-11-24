@@ -48,7 +48,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import navic.composeapp.generated.resources.Res
-import navic.composeapp.generated.resources.action_cancel
 import navic.composeapp.generated.resources.action_done
 import navic.composeapp.generated.resources.action_download
 import navic.composeapp.generated.resources.action_less
@@ -156,6 +155,17 @@ fun BinderyBookScreen(
 		)
 	}.orEmpty()
 	val versionGroups = binderyBookVersionGroups(versionRows)
+	// Every language, for the open sheet's edition/audiobook language switch and audiobook labels.
+	val allLanguageVersionRows = data?.let { bookData ->
+		if (languageFilter == null) versionRows else binderyBookVersionRows(
+			manifest = bookData.manifest,
+			resourceCatalog = bookData.resources,
+			languageFilter = null,
+			bookId = bookId,
+			audiobookVersions = bookData.audiobooks,
+			bookSync = bookData.sync
+		)
+	}.orEmpty()
 
 	LaunchedEffect(
 		binderyConfigured,
@@ -421,10 +431,11 @@ fun BinderyBookScreen(
 	}
 
 	syncLaunchSheetRow?.let { row ->
-		BinderyWhispersyncLaunchSheet(
-			row = row,
+		BinderyReaderOpenSheet(
 			bookId = bookId,
 			bookTitle = titleText,
+			initialRow = allLanguageVersionRows.firstOrNull { candidate -> candidate.id == row.id } ?: row,
+			editions = binderyReadableEbookEditions(allLanguageVersionRows),
 			opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
 			readerLaunchTargetAspectRatio = readerLaunchTargetAspectRatio,
 			onDismissRequest = { syncLaunchSheetRow = null },
@@ -618,7 +629,6 @@ private fun BinderyBookVersionListItem(
 			title = row.title
 		)
 	}
-	val whispersyncLaunchMatches = row.whispersyncAudiobookLaunchMatches()
 	val whispersyncLaunchAction = row.whispersyncAudiobookLaunchAction()
 	val isDownloadAction = routingAction == BinderyBookVersionRoutingAction.DownloadEbook
 	val primaryActionEnabled = when {
@@ -696,24 +706,8 @@ private fun BinderyBookVersionListItem(
 			}
 			if (whispersyncLaunchAction != BinderyWhispersyncAudiobookLaunchAction.None) {
 				IconButton(
-					onClick = {
-						when (whispersyncLaunchAction) {
-							BinderyWhispersyncAudiobookLaunchAction.None -> Unit
-							BinderyWhispersyncAudiobookLaunchAction.OpenDirectly -> {
-								whispersyncLaunchMatches.singleOrNull()?.let { match ->
-									binderyWhispersyncReaderDestinationForMatch(
-										ebookRow = row,
-										match = match,
-										bookId = bookId,
-										bookTitle = bookTitle,
-										opdsBaseUrl = opdsBaseUrl,
-										fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-									)?.let(onOpenReader)
-								}
-							}
-							BinderyWhispersyncAudiobookLaunchAction.ChooseAudiobook -> onOpenWhispersyncReader(row)
-						}
-					}
+					// The open sheet holds the cache scope, languages and the audiobook choice.
+					onClick = { onOpenWhispersyncReader(row) }
 				) {
 					Icon(
 						imageVector = Icons.Outlined.Audiobooks,
@@ -764,6 +758,8 @@ private fun BinderyBookVersionListItem(
 				onClick = {
 					when {
 						audiobookDestination != null -> onOpenAudiobook(audiobookDestination)
+						readerDestination != null && row.kind == BinderyBookVersionKind.Ebook ->
+							onOpenWhispersyncReader(row)
 						readerDestination != null -> onOpenReader(readerDestination)
 						isDownloadAction -> onDownloadResource(row)
 					}
@@ -866,97 +862,6 @@ private fun BinderyWhispersyncMatchesSheet(
 				modifier = Modifier.align(Alignment.End)
 			) {
 				Text(stringResource(Res.string.action_done))
-			}
-		}
-	}
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BinderyWhispersyncLaunchSheet(
-	row: BinderyBookVersionRow,
-	bookId: String,
-	bookTitle: String,
-	opdsBaseUrl: String,
-	readerLaunchTargetAspectRatio: Double?,
-	onDismissRequest: () -> Unit,
-	onOpenReader: (Screen.Reader) -> Unit
-) {
-	val matches = row.whispersyncAudiobookLaunchMatches()
-	ModalBottomSheet(onDismissRequest = onDismissRequest) {
-		Column(
-			modifier = Modifier
-				.fillMaxWidth()
-				.padding(horizontal = 20.dp, vertical = 8.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp)
-		) {
-			Text(
-				text = stringResource(Res.string.title_open_with_audiobook),
-				style = MaterialTheme.typography.titleMedium,
-				fontWeight = FontWeight.SemiBold
-			)
-			Text(
-				text = row.title,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis
-			)
-			matches.forEach { match ->
-				val destination = binderyWhispersyncReaderDestinationForMatch(
-					ebookRow = row,
-					match = match,
-					bookId = bookId,
-					bookTitle = bookTitle,
-					opdsBaseUrl = opdsBaseUrl,
-					fullscreenCoverTargetAspectRatio = readerLaunchTargetAspectRatio
-				)
-				Surface(
-					modifier = Modifier.fillMaxWidth(),
-					shape = RoundedCornerShape(8.dp),
-					color = MaterialTheme.colorScheme.surfaceContainerHighest
-				) {
-					Row(
-						modifier = Modifier.padding(12.dp),
-						horizontalArrangement = Arrangement.spacedBy(12.dp),
-						verticalAlignment = Alignment.CenterVertically
-					) {
-						Column(
-							modifier = Modifier.weight(1f),
-							verticalArrangement = Arrangement.spacedBy(3.dp)
-						) {
-							Text(
-								text = match.oppositeTitle,
-								style = MaterialTheme.typography.titleSmall,
-								maxLines = 2,
-								overflow = TextOverflow.Ellipsis
-							)
-							Text(
-								text = listOfNotNull(
-									"Ready",
-									match.coveragePercent?.let { "Coverage $it%" },
-									match.scorePercent?.let { "Score $it%" }
-								).joinToString("  "),
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant
-							)
-						}
-						Button(
-							onClick = {
-								destination?.let(onOpenReader)
-							},
-							enabled = destination != null
-						) {
-							Text(stringResource(Res.string.action_open))
-						}
-					}
-				}
-			}
-			TextButton(
-				onClick = onDismissRequest,
-				modifier = Modifier.align(Alignment.End)
-			) {
-				Text(stringResource(Res.string.action_cancel))
 			}
 		}
 	}

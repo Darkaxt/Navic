@@ -65,7 +65,9 @@ data class BinderyContinueReadingItem(
 	val imageHref: String?,
 	val updatedAtMs: Long,
 	val row: BinderyBookVersionRow,
-	val ebookDestination: Screen.Reader
+	val ebookDestination: Screen.Reader,
+	/** Every readable ebook edition of the book, in all languages, for the open sheet's language switch. */
+	val editions: List<BinderyBookVersionRow> = listOf(row)
 )
 
 sealed interface BinderyContinueReadingLaunchDecision {
@@ -183,7 +185,7 @@ fun binderyContinueReadingItems(
 	resourcesByBookId: Map<String, BinderyResourceCatalog>,
 	audiobookVersionsByBookId: Map<String, List<BinderyAudiobookVersion>>,
 	syncByBookId: Map<String, BinderyBookSync>,
-	languageFilter: String?,
+	@Suppress("UNUSED_PARAMETER") languageFilter: String?,
 	opdsBaseUrl: String,
 	maxItems: Int = ContinueShelfLimit
 ): List<BinderyContinueReadingItem> =
@@ -194,15 +196,17 @@ fun binderyContinueReadingItems(
 			val bookId = progress.bookId.trim().takeIf { it.isNotEmpty() } ?: return@mapIndexedNotNull null
 			val resourceHref = progress.readerResourceHref() ?: return@mapIndexedNotNull null
 			val manifest = manifestsByBookId[bookId] ?: return@mapIndexedNotNull null
-			val rows = binderyBookVersionRows(
+			// The edition being read is the authority: it stays even when the language filter is another
+			// language, and the open sheet offers every edition and audiobook language.
+			val allRows = binderyBookVersionRows(
 				manifest = manifest,
 				resourceCatalog = resourcesByBookId[bookId],
-				languageFilter = languageFilter,
+				languageFilter = null,
 				bookId = bookId,
 				audiobookVersions = audiobookVersionsByBookId[bookId].orEmpty(),
 				bookSync = syncByBookId[bookId]
 			)
-			val row = rows.firstOrNull { version ->
+			val row = allRows.firstOrNull { version ->
 				version.kind == BinderyBookVersionKind.Ebook &&
 					canonicalReaderResourceHref(version.id) == resourceHref
 			} ?: return@mapIndexedNotNull null
@@ -224,7 +228,8 @@ fun binderyContinueReadingItems(
 				imageHref = manifest.firstImageHref(),
 				updatedAtMs = progress.updatedAtSortValue(index),
 				row = row,
-				ebookDestination = destination
+				ebookDestination = destination,
+				editions = binderyReadableEbookEditions(allRows).ifEmpty { listOf(row) }
 			)
 		}
 		.sortedByDescending(BinderyContinueReadingItem::updatedAtMs)
@@ -402,7 +407,7 @@ fun binderyWhispersyncCompanionProgressForReader(
 	)
 }
 
-private fun BinderyReadingProgress.readerResourceHref(): String? =
+internal fun BinderyReadingProgress.readerResourceHref(): String? =
 	canonicalReaderResourceHref(resourceHref)
 		?: canonicalReaderResourceHref(href)
 		?: canonicalReaderResourceHref(resourceKeyHref())

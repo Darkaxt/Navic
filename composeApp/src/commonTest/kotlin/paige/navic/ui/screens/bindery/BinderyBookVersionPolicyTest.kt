@@ -70,6 +70,7 @@ class BinderyBookVersionPolicyTest {
 			listOf(
 				BinderyBookVersionRow(
 					id = "audiobook-version:88",
+					language = "eng",
 					kind = BinderyBookVersionKind.Audiobook,
 					title = "Rob Inglis, Martin Shaw, Derek Jacobi",
 					subtitle = "Unabridged / MIXED / 27 parts / 21h 59m / 1.67 GB",
@@ -1248,6 +1249,7 @@ class BinderyBookVersionPolicyTest {
 				),
 				BinderyBookVersionRow(
 					id = "/opds/books/3693/resources/ebook-eng",
+					language = "eng",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "Tor",
 					subtitle = "Hardcover / EPUB / 1.0 KB"
@@ -1289,6 +1291,7 @@ class BinderyBookVersionPolicyTest {
 			listOf(
 				BinderyBookVersionRow(
 					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					language = "eng",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "The Tolkien Estate Limited",
 					subtitle = "EPUB / 7.83 MB"
@@ -1328,6 +1331,7 @@ class BinderyBookVersionPolicyTest {
 			listOf(
 				BinderyBookVersionRow(
 					id = "/opds/books/3816/resources/ebook-abb-pdf",
+					language = "eng",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "01 - The Hobbit The Hobbit (Illustrated Edition by Alan Lee)",
 					subtitle = "AudioBook Bay / PDF / 7.0 MB",
@@ -1804,6 +1808,7 @@ class BinderyBookVersionPolicyTest {
 			listOf(
 				BinderyBookVersionRow(
 					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					language = "eng",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "The Tolkien Estate Limited",
 					subtitle = "EPUB / 7.83 MB"
@@ -1842,6 +1847,7 @@ class BinderyBookVersionPolicyTest {
 			listOf(
 				BinderyBookVersionRow(
 					id = "/opds/books/3913/resources/ebook-b84add4a73f1c4b01513",
+					language = "eng",
 					kind = BinderyBookVersionKind.Ebook,
 					title = "The Tolkien Estate Limited",
 					subtitle = "EPUB / 7.83 MB"
