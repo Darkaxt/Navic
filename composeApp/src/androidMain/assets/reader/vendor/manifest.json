@@ -94,7 +94,7 @@
     {
       "path": "foliate-js/overlayer.js",
       "component": "foliate-js",
-      "sha256": "2e90417ca2c02bab12dcb478dd9c78bd92e882507b806171f3b4bfa93fbe99cc"
+      "sha256": "77a65f19c87eddf126e1251d36de46b5c61d525f3e0917df2179ef60f7798b5d"
     },
     {
       "path": "foliate-js/package.json",
@@ -104,7 +104,7 @@
     {
       "path": "foliate-js/paginator.js",
       "component": "foliate-js",
-      "sha256": "2da42d98fe777796e48f221a9c94114a68ba52b37a2c35b0ea84319263e84b88"
+      "sha256": "1f694cf1b60a0f9f5ee0ce877b0d46b56fd200deda36aa9b1df981166dfa9bd3"
     },
     {
       "path": "foliate-js/pdf.js",
