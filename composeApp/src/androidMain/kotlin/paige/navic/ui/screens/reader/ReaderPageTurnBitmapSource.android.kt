@@ -544,7 +544,9 @@ internal class ReaderPageTurnBitmapSource(
 				}
 				try {
 					webView.evaluateJavascript(
-						"JSON.stringify(window.NavicReaderBridge?.pageTurnCaptureGeometry?.() ?? null)"
+						"JSON.stringify(((geometry, masks) => geometry ? { ...geometry, maskRects: masks ?? [] } : null)(" +
+							"window.NavicReaderBridge?.pageTurnCaptureGeometry?.(), " +
+							"window.NavicReaderBridge?.pageTurnCaptureMaskRects?.()))"
 					) geometry@{ encodedGeometry ->
 					val geometry = parseGeometry(encodedGeometry)
 					if (!requestCurrent() || geometry == null) {
@@ -1188,7 +1190,18 @@ internal fun readerPageTurnCaptureGeometry(
 			ReaderPageTurnLayoutMode.Single
 		},
 		pages = pages,
-		reverseFaceColorArgb = json["reverseFaceColorArgb"]?.jsonPrimitive?.longOrNull
+		reverseFaceColorArgb = json["reverseFaceColorArgb"]?.jsonPrimitive?.longOrNull,
+		maskRects = json["maskRects"]?.let { runCatching { it.jsonArray }.getOrNull() }.orEmpty()
+			.mapNotNull { element ->
+				val item = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+				ReaderPageTurnPageRect(
+					role = ReaderPageTurnPageRole.Full,
+					left = item["left"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+					top = item["top"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+					width = item["width"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+					height = item["height"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
+				)
+			}
 	)
 }.getOrNull()
 

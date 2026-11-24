@@ -169,6 +169,7 @@ import {
   ReaderMediaOverlayActiveRangeKey,
   ReaderMediaOverlayRangeAttribute,
   readerDrawNoteAnnotation,
+  readerMediaOverlayPaintedViewportRects,
   readerMediaOverlayUnwrapRangeMarker,
 } from './navic-reader-overlay-paint.js'
 import {
@@ -1629,6 +1630,7 @@ window.NavicReaderBridge = {
   restorePageTurnLiveComposition: (token, foregroundMutationGeneration) =>
     runtime.restorePageTurnLiveComposition(token, foregroundMutationGeneration),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
+  pageTurnCaptureMaskRects: () => readerMediaOverlayPaintedViewportRects(),
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   activeMediaOverlaySnapshot: () =>

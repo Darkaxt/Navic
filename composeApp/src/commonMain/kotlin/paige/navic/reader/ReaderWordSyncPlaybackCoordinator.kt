@@ -347,6 +347,16 @@ data class ReaderWordSyncPlaybackCoordinator(
 			clearedThroughBoundaryByRequestId =
 				clearedThroughBoundaryByRequestId + (requestId to clearedThrough)
 		)
+		// The last visible word just ended and no later word on this page follows it: pause now
+		// instead of playing on through unmatched narration until the next page's first word.
+		if (endsLastVisibleWord(controller, playback, boundarySequence)) {
+			val ended = controller.pauseAtWhispersyncVisiblePageEnd(
+				playbackState = controller.state.chrome.readaloudPlayback.copy(positionMs = playback.positionMs),
+				sync = controller.state.whispersync.sync,
+				detail = null
+			)
+			return fenced.coordinate(ended, playback)
+		}
 		// Persistent played text keeps the page highlight through the silence between words and
 		// cues (#38): only the late-word fence is recorded, the presentation stays.
 		if (
@@ -374,6 +384,28 @@ data class ReaderWordSyncPlaybackCoordinator(
 				)
 			)
 		)
+	}
+
+	private fun endsLastVisibleWord(
+		controller: ReaderController,
+		playback: ReaderWordSyncPlaybackIdentity,
+		boundarySequence: Long
+	): Boolean {
+		val whispersync = controller.state.whispersync
+		if (whispersync.transportPhase != ReaderWhispersyncTransportPhase.Playing) return false
+		val visibleRange = whispersync.visibleTextRange ?: return false
+		val visibleEnd = visibleRange.rawByteEnd ?: return false
+		val boundaries = boundariesForPlayback(playback)
+		val index = boundarySequence.toInt()
+		val ended = boundaries.getOrNull(index)?.word ?: return false
+		val verified = verifiedTracksForPlayback(playback).singleOrNull { verifiedTrack ->
+			ended in verifiedTrack.track.words
+		}?.verified ?: return false
+		if (visibleRange.rawProvenanceId != verified.descriptor.id || ended.ebookStart >= visibleEnd) return false
+		val next = boundaries.getOrNull(index + 1)?.word ?: return true
+		return next.audioTrackIndex != ended.audioTrackIndex ||
+			next.ebookHref != ended.ebookHref ||
+			next.ebookStart >= visibleEnd
 	}
 
 	internal fun coordinateBoundary(

@@ -409,6 +409,15 @@ internal fun KomikkuReaderRoot(
 							.padding(bottom = if (reviewAboveMenu) 136.dp else 0.dp)
 					)
 				}
+				if (controllerState.errorMessage == null && readerOpeningPreparationVisible(pagePreparationState)) {
+					ReaderOpeningPreparationScreen(
+						title = reader.title,
+						state = pagePreparationState,
+						profile = controllerState.paginationProfile,
+						onRetry = { pagePreparationRetryKey += 1 },
+						modifier = Modifier.matchParentSize()
+					)
+				}
 				if (bookPreparationActive) {
 					// A failed page preparation stops the book run, and this overlay covers that
 					// failure's Retry card, so it reports the run incomplete and offers that retry.

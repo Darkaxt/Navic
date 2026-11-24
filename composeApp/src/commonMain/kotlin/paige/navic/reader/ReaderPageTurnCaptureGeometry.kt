@@ -50,8 +50,39 @@ data class ReaderPageTurnCaptureGeometry(
 	val viewportHeight: Double,
 	val mode: ReaderPageTurnLayoutMode,
 	val pages: List<ReaderPageTurnPageRect>,
-	val reverseFaceColorArgb: Long? = null
+	val reverseFaceColorArgb: Long? = null,
+	// Live WordSync highlight boxes (viewport CSS px): stored rasters never carry them.
+	val maskRects: List<ReaderPageTurnPageRect> = emptyList()
 ) {
+	/** [maskRects] in the captured bitmap's pixels (the bitmap spans the union of [pages]), padded. */
+	fun maskBitmapRects(bitmapWidth: Int, bitmapHeight: Int, paddingPx: Int = 4): List<ReaderPageTurnPixelRect> {
+		if (bitmapWidth <= 0 || bitmapHeight <= 0 || maskRects.isEmpty()) return emptyList()
+		val validPages = pages.filter {
+			it.left.isFinite() && it.top.isFinite() && it.width > 0.0 && it.height > 0.0
+		}
+		if (validPages.isEmpty()) return emptyList()
+		val surfaceLeft = validPages.minOf { it.left }
+		val surfaceTop = validPages.minOf { it.top }
+		val surfaceWidth = validPages.maxOf { it.left + it.width } - surfaceLeft
+		val surfaceHeight = validPages.maxOf { it.top + it.height } - surfaceTop
+		if (surfaceWidth <= 0.0 || surfaceHeight <= 0.0) return emptyList()
+		val scaleX = bitmapWidth / surfaceWidth
+		val scaleY = bitmapHeight / surfaceHeight
+		return maskRects.mapNotNull { rect ->
+			if (!rect.left.isFinite() || !rect.top.isFinite() || !(rect.width > 0.0) || !(rect.height > 0.0)) {
+				return@mapNotNull null
+			}
+			ReaderPageTurnPixelRect(
+				left = (((rect.left - surfaceLeft) * scaleX).toInt() - paddingPx).coerceIn(0, bitmapWidth),
+				top = (((rect.top - surfaceTop) * scaleY).toInt() - paddingPx).coerceIn(0, bitmapHeight),
+				right = (((rect.left + rect.width - surfaceLeft) * scaleX).roundToInt() + paddingPx)
+					.coerceIn(0, bitmapWidth),
+				bottom = (((rect.top + rect.height - surfaceTop) * scaleY).roundToInt() + paddingPx)
+					.coerceIn(0, bitmapHeight)
+			).takeIf { it.width > 0 && it.height > 0 }
+		}
+	}
+
 	fun leafGeometry(bitmapWidth: Int, bitmapHeight: Int): ReaderPageTurnLeafGeometry? {
 		if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
 		val validPages = pages.filter {

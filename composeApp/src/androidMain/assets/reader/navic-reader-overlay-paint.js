@@ -27,6 +27,43 @@ export const readerMediaOverlayUnwrapRangeMarker = marker => {
   return true
 }
 
+// WordSync highlight groups currently drawn. The live page-turn check masks their screen boxes:
+// the cached page raster never carries the playing highlight, so those pixels cannot match.
+const readerMediaOverlayPaintedGroups = new Set()
+
+const trackReaderMediaOverlayGroup = group => {
+  readerMediaOverlayPaintedGroups.add(group)
+  return group
+}
+
+// Untransformed boxes (the flow head's scaleX keeps growing after this is read) in viewport CSS px.
+export const readerMediaOverlayPaintedViewportRects = () => {
+  const rects = []
+  for (const group of readerMediaOverlayPaintedGroups) {
+    if (!group?.isConnected) {
+      readerMediaOverlayPaintedGroups.delete(group)
+      continue
+    }
+    const matrix = group.getScreenCTM?.()
+    if (!matrix) continue
+    for (const shape of Array.from(group.children || [])) {
+      let box = null
+      try {
+        box = shape.getBBox?.()
+      } catch (_) {
+        box = null
+      }
+      if (!box || !(box.width > 0) || !(box.height > 0)) continue
+      const left = matrix.a * box.x + matrix.c * box.y + matrix.e
+      const top = matrix.b * box.x + matrix.d * box.y + matrix.f
+      const width = box.width * Math.abs(matrix.a)
+      const height = box.height * Math.abs(matrix.d)
+      if ([left, top, width, height].every(Number.isFinite)) rects.push({ left, top, width, height })
+    }
+  }
+  return rects
+}
+
 export const readerDrawMediaOverlaySelection = (rects, options = {}) => {
   const { color = 'red', padding = 0 } = options
   const group = document.createElementNS(ReaderSvgNamespace, 'g')
@@ -40,7 +77,7 @@ export const readerDrawMediaOverlaySelection = (rects, options = {}) => {
     element.setAttribute('width', width + padding * 2)
     group.append(element)
   }
-  return group
+  return trackReaderMediaOverlayGroup(group)
 }
 
 export const readerDrawMediaOverlayMarker = (rects, options = {}) => {
@@ -66,7 +103,7 @@ export const readerDrawMediaOverlayMarker = (rects, options = {}) => {
     )
     group.append(element)
   }
-  return group
+  return trackReaderMediaOverlayGroup(group)
 }
 
 export const readerDrawWhispersyncCueOrdinal = (rects, options = {}) => {

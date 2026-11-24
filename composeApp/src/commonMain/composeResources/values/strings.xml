@@ -985,6 +985,10 @@
 	<string name="info_reader_layout_review_detail">Pages are prepared again once you keep it.</string>
 	<string name="action_reader_keep_layout">Keep layout</string>
 	<string name="info_reader_page_preparation_failed">Page preparation failed</string>
+	<string name="info_reader_preparation_detail">%1$d of %2$d pages · %3$d%%</string>
+	<string name="info_reader_preparing_book">Preparing book</string>
+	<string name="info_reader_preparation_measuring">Measuring chapters %1$d of %2$d</string>
+	<string name="info_reader_preparation_opening_hint">The book opens as soon as its pages are ready.</string>
 	<string name="action_sleep_timer">Sleep timer</string>
 	<string name="action_sleep_timer_enabled">Sleep timer - %1$s left </string>
 	<string name="action_disable_sleep_timer">Turn off timer</string>

@@ -312,14 +312,15 @@ internal fun readerNativePresentationLayerVisibility(
 	shellCoverVisible: Boolean,
 	pagePreparationCoverVisible: Boolean,
 	hasValidatedRasterPresentation: Boolean
-): ReaderNativePresentationLayerVisibility =
-	ReaderNativePresentationLayerVisibility(
-		shellCover = shellCoverVisible,
-		preparationShield =
-			!shellCoverVisible &&
-				pagePreparationCoverVisible &&
-				!hasValidatedRasterPresentation
+): ReaderNativePresentationLayerVisibility {
+	// Opening preparation is its own screen between launch and the book: the neutral shield with
+	// the centred progress card replaces the publication cover until the first pages are ready.
+	val preparationShield = pagePreparationCoverVisible && !hasValidatedRasterPresentation
+	return ReaderNativePresentationLayerVisibility(
+		shellCover = shellCoverVisible && !preparationShield,
+		preparationShield = preparationShield
 	)
+}
 
 internal fun dispatchClaimedReaderPageCurlEvent(
 	event: MotionEvent,

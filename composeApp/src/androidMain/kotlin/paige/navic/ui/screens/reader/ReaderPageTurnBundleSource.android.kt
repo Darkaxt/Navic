@@ -981,6 +981,34 @@ private class ReaderPageBitmapRasterPixels(
 	}
 }
 
+/**
+ * The live page carries the playing WordSync highlight; stored rasters never do. Inside the
+ * highlight boxes the capture takes the expected pixels, so only the rest of the page is judged.
+ */
+private fun readerPageLiveCaptureMaskWordSync(
+	captured: ReaderPageTurnCaptureResult,
+	expected: Bitmap
+) {
+	val bitmap = captured.bitmap
+	if (bitmap.width != expected.width || bitmap.height != expected.height || !bitmap.isMutable) return
+	val rects = captured.geometry.maskBitmapRects(bitmap.width, bitmap.height)
+	if (rects.isEmpty()) return
+	runCatching {
+		rects.forEach { rect ->
+			val pixels = IntArray(rect.width * rect.height)
+			expected.getPixels(pixels, 0, rect.width, rect.left, rect.top, rect.width, rect.height)
+			bitmap.setPixels(pixels, 0, rect.width, rect.left, rect.top, rect.width, rect.height)
+		}
+	}.onSuccess {
+		Logger.i(ReaderPageTurnBundleSourceTag, "Live page-turn capture masked WordSync rects=${rects.size}")
+	}.onFailure { failure ->
+		Logger.w(
+			ReaderPageTurnBundleSourceTag,
+			"Live page-turn WordSync mask failed failureClass=${failure::class.simpleName ?: "unknown"}"
+		)
+	}
+}
+
 private fun readerPageLiveCaptureMatchesExpected(
 	candidate: ReaderPageTurnLiveCaptureResult,
 	expectedTarget: ReaderPageSlideSnapshot,
@@ -1021,6 +1049,7 @@ private fun readerPageLiveCaptureMatchesExpected(
 	if (!candidateLayout.matches(targetLayout)) {
 		return rejected("CandidateLayoutMismatch")
 	}
+	readerPageLiveCaptureMaskWordSync(captured, expectedTarget.bitmap)
 	if (
 		expectedSource != null &&
 		(

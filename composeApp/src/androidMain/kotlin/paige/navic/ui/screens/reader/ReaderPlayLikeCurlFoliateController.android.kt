@@ -4227,6 +4227,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (
 			requestedProfile == profile &&
 			!livePresentationRecoveryRequest.pending &&
+			// A rejected live page still needs its recovery deck: never call the deck current then.
+			failedLivePresentationGeneration == null &&
 			currentPages?.profile == profile &&
 			currentPages.centerOrdinal == centerOrdinal &&
 			currentPages.deck.pageIndices.containsAll(pageIndices) &&
@@ -4265,7 +4267,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 				return
 			}
-		livePresentationRecoveryRequest.claimPreparation()
+		val claimedLivePresentationRecovery = livePresentationRecoveryRequest.claimPreparation()
 		val publicationFence = rasterPublicationFence(
 			profile = profile,
 			centerOrdinal = centerOrdinal,
@@ -4295,6 +4297,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			withContext(Dispatchers.Main.immediate) {
 				if (settlementMutationFence.deferRefreshIfBlocked(activeGestureId)) {
 					preparationResult.getOrNull()?.close()
+					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+						livePresentationRecoveryRequest.request()
+					}
 					logActivationState(
 						"refresh-gated",
 						"gesture-deck-mutation-before-publication:$request"
@@ -4303,6 +4308,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				if (isAwaitingAuthoritativeRelocation()) {
 					preparationResult.getOrNull()?.close()
+					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+						livePresentationRecoveryRequest.request()
+					}
 					logActivationState(
 						"refresh-gated",
 						"relocation-drift-before-publication:$request"
@@ -4396,6 +4404,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 					!publicationFence.isCurrent()
 				) {
 					deck.close()
+					// A superseded load must hand its recovery claim back, or the newer request
+					// finds the deck current and the rejected page is never retried (stuck reader).
+					if (claimedLivePresentationRecovery && failedLivePresentationGeneration != null) {
+						livePresentationRecoveryRequest.request()
+					}
 					return@withContext
 				}
 				logActivationState(

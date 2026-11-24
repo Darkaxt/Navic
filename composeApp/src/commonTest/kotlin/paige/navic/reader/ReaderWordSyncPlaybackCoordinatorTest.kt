@@ -491,6 +491,18 @@ class ReaderWordSyncPlaybackCoordinatorTest {
 		assertIs<ReaderEngineCommand.UpdateMediaOverlayProgress>(onPage.controllerStep.engineCommands.single())
 		assertNull(onPage.controllerStep.readaloudPlaybackCommand)
 
+		// The last visible word ends and only off-page words follow: pause there, not at the next
+		// page's first matched word, however far into the narration that is.
+		val lastWordEnded = onPage.coordinator.coordinateClear(
+			controller = onPage.controllerStep.controller,
+			playback = playback.copy(positionMs = 1_250)
+		)
+		assertEquals(ReaderReadaloudPlaybackCommand.Pause, lastWordEnded.controllerStep.readaloudPlaybackCommand)
+		assertEquals(
+			ReaderWhispersyncTransportPhase.BoundaryPaused,
+			lastWordEnded.controllerStep.controller.state.whispersync.transportPhase
+		)
+
 		val pastPage = current.coordinator.coordinateBoundary(
 			controller = current.controllerStep.controller,
 			playback = playback.copy(positionMs = 1_300),

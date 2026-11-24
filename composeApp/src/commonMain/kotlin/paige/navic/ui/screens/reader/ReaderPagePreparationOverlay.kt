@@ -24,6 +24,7 @@ import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.info_reader_layout_review
 import navic.composeapp.generated.resources.info_reader_layout_review_detail
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
+import navic.composeapp.generated.resources.info_reader_preparation_detail
 import navic.composeapp.generated.resources.info_reader_preparing_pages
 import org.jetbrains.compose.resources.stringResource
 import paige.navic.reader.ReaderPagePreparationPhase
@@ -37,6 +38,8 @@ internal fun ReaderPagePreparationOverlay(
 	modifier: Modifier = Modifier
 ) {
 	if (state.presentation == ReaderPagePreparationPresentation.Hidden) return
+	// Opening preparation has its own screen before the book (ReaderOpeningPreparationScreen).
+	if (readerOpeningPreparationVisible(state)) return
 
 	if (state.layoutReviewPending) {
 		ReaderLayoutReviewCard(onKeep = onRetry, modifier = modifier)
@@ -88,6 +91,15 @@ internal fun ReaderPagePreparationOverlay(
 							modifier = Modifier.fillMaxWidth(),
 							color = MaterialTheme.colorScheme.primary,
 							trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+						)
+						Text(
+							text = stringResource(
+								Res.string.info_reader_preparation_detail,
+								state.completedCount,
+								state.requiredCount,
+								(state.progress.coerceIn(0f, 1f) * 100f).toInt()
+							),
+							style = MaterialTheme.typography.bodyMedium
 						)
 					} else {
 						LinearProgressIndicator(

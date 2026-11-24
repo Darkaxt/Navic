@@ -152,9 +152,13 @@ class KomikkuReaderNativeFrameHostTest {
 			)
 		)
 		assertEquals(ReaderPagePreparationPresentation.Cover, blocked.presentation)
+		// Opening preparation is a screen before the book; a layout change in the book is not.
+		assertTrue(readerOpeningPreparationVisible(blocked))
+		assertFalse(readerOpeningPreparationVisible(blocked.copy(layoutReviewPending = true)))
 
 		val regenerating = readerLayoutRegenerationPreparationState(blocked, regeneratingReadableLayout = true)
 		assertEquals(ReaderPagePreparationPresentation.Compact, regenerating.presentation)
+		assertFalse(readerOpeningPreparationVisible(regenerating))
 		assertTrue(regenerating.showsProgress)
 		assertFalse(regenerating.interactiveReady)
 		assertEquals(blocked.operationPolicy, regenerating.operationPolicy)
@@ -491,11 +495,11 @@ class KomikkuReaderNativeFrameHostTest {
 	}
 
 	@Test
-	fun publicationShellArtworkIsVisibleOnlyForControllerOwnedShellCover() {
+	fun openingPreparationReplacesThePublicationCoverWithTheProgressScreen() {
 		assertEquals(
 			ReaderNativePresentationLayerVisibility(
-				shellCover = true,
-				preparationShield = false
+				shellCover = false,
+				preparationShield = true
 			),
 			readerNativePresentationLayerVisibility(
 				shellCoverVisible = true,
