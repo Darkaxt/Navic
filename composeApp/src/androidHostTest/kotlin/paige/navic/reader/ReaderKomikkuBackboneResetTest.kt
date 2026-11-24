@@ -1999,7 +1999,7 @@ class ReaderKomikkuBackboneResetTest {
 			"The full Whispersync player opens from the reader menu bar beside the bookmark."
 		)
 		assertTrue(
-			statusBadgeText.contains("if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint") &&
+			statusBadgeText.contains("if (transport.noAudioCueOnPage) ReaderTransportNoAudioRed else tint") &&
 				statusBadgeText.contains(".semantics {") &&
 				statusBadgeText.contains("role = Role.Button"),
 			"The transport play glyph turns red on a page without narration and stays an accessible button."

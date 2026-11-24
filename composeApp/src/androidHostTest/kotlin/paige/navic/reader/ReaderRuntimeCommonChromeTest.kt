@@ -2097,7 +2097,7 @@ class ReaderRuntimeCommonChromeTest {
 		assertContains(transportBody, "readerTheme: String?")
 		assertContains(transportBody, "readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)")
 		// Only the explicit no-current-page-cue state selects the error tint.
-		assertContains(transportBody, "if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint")
+		assertContains(transportBody, "if (transport.noAudioCueOnPage) ReaderTransportNoAudioRed else tint")
 		assertFalse(transportBody.contains("MaterialTheme.colorScheme.onSurface"))
 		assertContains(transportBody, ".size(48.dp)")
 		assertContains(transportBody, "Modifier.size(22.dp)")

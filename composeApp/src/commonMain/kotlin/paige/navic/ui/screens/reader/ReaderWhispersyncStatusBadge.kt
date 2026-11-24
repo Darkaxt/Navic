@@ -165,6 +165,8 @@ internal fun KomikkuWhispersyncStatusBadge(
 	}
 }
 
+private val ReaderTransportNoAudioRed = Color(0xFFD32F2F)
+
 /** Back/forward step pages carrying the audio, play/pause keeps the position, stop resets to the page start. */
 @Composable
 internal fun KomikkuWhispersyncTransportControls(
@@ -189,8 +191,9 @@ internal fun KomikkuWhispersyncTransportControls(
 				}
 			),
 			enabled = transport.playPause != null,
-			// Red: this page has no narration to play.
-			tint = if (transport.noAudioCueOnPage) MaterialTheme.colorScheme.error else tint,
+			// Red: this page has no narration to play. A fixed reading red: the app theme's error
+			// colour is a pale pink in dark mode, barely visible on light paper.
+			tint = if (transport.noAudioCueOnPage) ReaderTransportNoAudioRed else tint,
 			disabledAlpha = if (transport.noAudioCueOnPage) 0.86f else 0.38f
 		) { transport.playPause?.let(onCommand) }
 		ReaderTransportGlyph(

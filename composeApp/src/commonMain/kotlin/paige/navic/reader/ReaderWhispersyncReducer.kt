@@ -2122,6 +2122,7 @@ internal fun ReaderController.pauseAtWhispersyncVisiblePageEnd(
 	detail: String?,
 	reason: String
 ): ReaderControllerStep {
+	turnedAutomaticallyAtPageEnd(reason)?.let { return it }
 	Logger.i(
 		WhispersyncSyncLogTag,
 		"Whispersync playback state=page-ended matched=false active=false " +
@@ -2153,30 +2154,31 @@ internal fun ReaderController.pauseAtWhispersyncVisiblePageEnd(
 		),
 		engineCommands = listOf(ReaderEngineCommand.ClearMediaOverlay),
 		readaloudPlaybackCommand = ReaderReadaloudPlaybackCommand.Pause
-	).turnedAutomaticallyAtPageEnd(reason)
+	)
 }
 
 /** Narration reaching the page's end; not a cue landing off a page the reader browsed to. */
 private val ReaderWhispersyncAutoTurnReasons = setOf("visible-narration-ended", "first-word-past-page")
 
 /**
- * "Turn page" boundary mode: the page end turns to the next page carrying the narration, the
- * transport Next path (pause here, resume from the new page's first visible word once it settles).
+ * "Turn page" boundary mode: the page end is the transport's Next while playing. No boundary pause
+ * first: the turn pauses the narration itself and resumes it from the new page's first visible
+ * word once it settles. (Pausing first left the turn with no pending start, so audio stopped.)
  */
-private fun ReaderControllerStep.turnedAutomaticallyAtPageEnd(reason: String): ReaderControllerStep {
+private fun ReaderController.turnedAutomaticallyAtPageEnd(reason: String): ReaderControllerStep? {
 	if (
 		reason !in ReaderWhispersyncAutoTurnReasons ||
-		normalizedReaderWhispersyncPageBoundaryBehavior(controller.state.chrome.settings.whispersyncPageBoundary) !=
+		normalizedReaderWhispersyncPageBoundaryBehavior(state.chrome.settings.whispersyncPageBoundary) !=
 		ReaderWhispersyncPageBoundaryBehavior.TurnPageAutomatically
 	) {
-		return this
+		return null
+	}
+	// One turn per page end: a page end arriving while that turn is still settling changes nothing.
+	if (state.whispersync.pendingCausalIntent?.provenance == ReaderWhispersyncEventProvenance.UserNavigation) {
+		return ReaderControllerStep(this)
 	}
 	Logger.i(WhispersyncSyncLogTag, "Whispersync page end auto-turn reason=$reason direction=next")
-	val turned = controller.onViewerAction(
-		ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next, withAudio = true)
-	)
-	return turned.copy(
-		engineCommands = engineCommands + turned.engineCommands,
-		readaloudPlaybackCommand = readaloudPlaybackCommand
-	)
+	// The page end fires only while playing: pause for the turn whoever started the audio.
+	val turned = onViewerAction(ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next, withAudio = true))
+	return turned.copy(readaloudPlaybackCommand = turned.readaloudPlaybackCommand ?: ReaderReadaloudPlaybackCommand.Pause)
 }
