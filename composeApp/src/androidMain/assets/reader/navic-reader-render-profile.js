@@ -18,10 +18,17 @@ import {
   readerFitOverlongHeadingWords,
 } from './navic-reader-typography.js'
 import { stableHash } from './navic-reader-identity.js'
+import {
+  ReaderFlowScrolled,
+  ReaderFlowScrolledGaps,
+  readerFlowMode,
+  readerIllustrationPlacements,
+  readerIllustrationsDigest,
+} from './navic-reader-settings-core.js'
 
 // Bump when the content render changes pixels for the same settings, so cached rasters retire.
 // Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
-export const ReaderContentRenderRevision = 2
+export const ReaderContentRenderRevision = 3
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -145,13 +152,181 @@ export const applyReaderDocumentRenderDirection = (doc, direction) => {
   }
 }
 
-export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {
+// Chapter illustration plates (Darkaxt/Navic#74): one full-page plate before an illustrated
+// chapter. Foliate renders each spine item as its own document starting at column 0, so a plate
+// inserted as the first child of the section body is the left page of the opening spread (the
+// page before the chapter in one-page layout). Only ebookStart 0 ("plate-before-chapter") is
+// supported; anything that cannot be matched exactly to the section fails closed (no plate).
+export const ReaderIllustrationAttribute = 'data-navic-illustration'
+export const ReaderIllustrationImageAttribute = 'data-navic-illustration-image'
+export const ReaderIllustrationSelector = `[${ReaderIllustrationAttribute}]`
+export const ReaderIllustrationImageSelector = `img[${ReaderIllustrationImageAttribute}]`
+
+const normalizedIllustrationHref = value => {
+  let text = String(value ?? '').trim().split('#')[0]
+  try {
+    text = decodeURIComponent(text)
+  } catch {
+    return ''
+  }
+  return text.replace(/^(?:\.\/|\/)+/, '')
+}
+
+// Foliate's section index is compact (spine items without a manifest item are skipped); Bindery
+// counts the raw OPF spine like WordSync's exactSectionMapping, so map through the spine and
+// require the manifest href to be the section id.
+export const readerIllustrationSectionIdentity = (book, sectionIndex) => {
+  const index = Number(sectionIndex)
+  if (!Number.isSafeInteger(index) || index < 0) return null
+  const resources = book?.resources
+  if (!resources || !Array.isArray(resources.spine) || typeof resources.getItemByID !== 'function') return null
+  if (!Array.isArray(book.sections)) return null
+  let compactIndex = 0
+  for (let spineIndex = 0; spineIndex < resources.spine.length; spineIndex += 1) {
+    const item = resources.getItemByID(resources.spine[spineIndex]?.idref)
+    if (!item) continue
+    if (compactIndex === index) {
+      const section = book.sections[compactIndex]
+      if (!section || section.id !== item.href) return null
+      if (section.href != null && section.href !== item.href) return null
+      const href = normalizedIllustrationHref(item.href)
+      return href ? Object.freeze({ spineIndex, href }) : null
+    }
+    compactIndex += 1
+  }
+  return null
+}
+
+const positiveInteger = value => Number.isSafeInteger(value) && value > 0
+
+export const readerIllustrationPlacementForSection = (settings, identity) => {
+  if (!identity) return null
+  return readerIllustrationPlacements(settings).find(placement =>
+    placement && typeof placement === 'object' &&
+    placement.spineIndex === identity.spineIndex &&
+    placement.ebookStart === 0 &&
+    normalizedIllustrationHref(placement.ebookHref) === identity.href &&
+    typeof placement.sceneId === 'string' && placement.sceneId.trim() !== '' &&
+    typeof placement.imageUrl === 'string' && placement.imageUrl.trim() !== '' &&
+    positiveInteger(placement.width) && positiveInteger(placement.height)
+  ) || null
+}
+
+const readerIllustrationPlateHeight = settings => {
+  const flow = readerFlowMode(settings)
+  if (flow !== ReaderFlowScrolled && flow !== ReaderFlowScrolledGaps) return '100vh'
+  // Scrolled documents grow with their content, so their 100vh is not a screen; use the host
+  // viewport for a plate block one screen tall.
+  const height = Math.round(Number(globalThis.innerHeight) || 0)
+  return height > 0 ? `${height}px` : '100vh'
+}
+
+const readerIllustrationPlateMatches = (figure, placement, height) => {
+  const image = figure?.firstElementChild
+  return figure.getAttribute(ReaderIllustrationAttribute) === placement.sceneId &&
+    figure.childNodes.length === 1 &&
+    image?.hasAttribute?.(ReaderIllustrationImageAttribute) === true &&
+    image.getAttribute('src') === placement.imageUrl &&
+    image.getAttribute('width') === String(placement.width) &&
+    image.getAttribute('height') === String(placement.height) &&
+    figure.style.getPropertyValue('height') === height
+}
+
+export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {
+  const body = doc?.body
+  if (!body) return null
+  const placement = readerIllustrationPlacementForSection(
+    settings,
+    readerIllustrationSectionIdentity(book, sectionIndex),
+  )
+  const existing = Array.from(body.querySelectorAll(ReaderIllustrationSelector))
+  const height = placement ? readerIllustrationPlateHeight(settings) : ''
+  if (
+    placement && existing.length === 1 && existing[0] === body.firstChild &&
+    readerIllustrationPlateMatches(existing[0], placement, height)
+  ) return existing[0]
+  for (const element of existing) element.remove()
+  if (!placement) return null
+  const figure = doc.createElement('figure')
+  figure.setAttribute(ReaderIllustrationAttribute, placement.sceneId)
+  figure.setAttribute('aria-hidden', 'true')
+  figure.style.setProperty('height', height, 'important')
+  const image = doc.createElement('img')
+  image.setAttribute(ReaderIllustrationImageAttribute, '')
+  image.setAttribute('src', placement.imageUrl)
+  image.setAttribute('width', String(placement.width))
+  image.setAttribute('height', String(placement.height))
+  image.setAttribute('alt', '')
+  image.setAttribute('decoding', 'sync')
+  figure.append(image)
+  body.insertBefore(figure, body.firstChild)
+  return figure
+}
+
+const ReaderIllustrationEdgeMask =
+  'linear-gradient(to right, transparent, #000 7%, #000 93%, transparent), ' +
+  'linear-gradient(to bottom, transparent, #000 7%, #000 93%, transparent)'
+
+// One plate fills exactly one column/page: the paginator sizes every column to the section frame
+// height (the figure's inline height, readerIllustrationPlateHeight) and the forced break starts
+// the chapter on the next page. The paginator skips the plate in its own image sizing (vendor
+// paginator.js setImageSize, which would cap it at the page minus twice its margin), so the image
+// box is the contained image itself: never cropped, as large as the page allows, and its edges
+// fade into the theme paper.
+export const readerIllustrationCss = () => `
+  html body figure${ReaderIllustrationSelector} {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    background: transparent !important;
+    text-indent: 0 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    -webkit-column-break-inside: avoid !important;
+    break-after: column !important;
+    page-break-after: always !important;
+    -webkit-column-break-after: always !important;
+    pointer-events: none !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+  }
+  html body figure${ReaderIllustrationSelector} > ${ReaderIllustrationImageSelector} {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    margin: auto !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    background: transparent !important;
+    -webkit-mask-image: ${ReaderIllustrationEdgeMask};
+    -webkit-mask-composite: source-in;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-image: ${ReaderIllustrationEdgeMask};
+    mask-composite: intersect;
+    mask-repeat: no-repeat;
+    mask-size: 100% 100%;
+  }
+`
+
+export const applyReaderContentDocumentRenderProfile = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {
   if (!doc?.documentElement) return false
   const palette = readerThemePalette(settings.theme)
   const root = doc.documentElement
   const body = doc.body
   const styleHost = doc.head || root
   applyReaderDocumentRenderDirection(doc, readerDirectionMode(settings))
+  applyReaderIllustrationPlate(doc, settings, sectionIndex, book)
   normalizeReaderLineFragmentParagraphs(doc, settings)
   applyReaderParagraphSpacing(doc, settings)
   root.dataset.navicReaderTheme = readerThemeKey(settings.theme)
@@ -163,7 +338,7 @@ export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {
     themeStyle.id = ReaderDocumentThemeStyleId
     styleHost.append(themeStyle)
   }
-  themeStyle.textContent = readerContentCss(settings)
+  themeStyle.textContent = `${readerContentCss(settings)}\n${readerIllustrationCss()}`
   normalizeReaderInlineTypography(doc, settings)
   readerNormalizeChapterOpeningMargins(doc, settings)
   readerFitOverlongHeadingWords(doc)
@@ -369,6 +544,7 @@ export const readerLiveIssuedRasterPlan = target => {
     pageEdgesEnabled: settings.pageEdgesEnabled !== false,
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+    illustrationsDigest: readerIllustrationsDigest(settings),
     contentRenderRevision: ReaderContentRenderRevision,
   }))
   const rasterProfileKey = stableHash(JSON.stringify({
@@ -386,6 +562,25 @@ export const readerLiveIssuedRasterPlan = target => {
     layoutFingerprint,
     decorationFingerprint,
   })
+}
+
+// Plates must be settled before a realized raster is trusted: loaded and decoded, or failed
+// (a broken image settles as failed and is reported, so it cannot block capture forever).
+export const readerIllustrationAssetObservation = renderer => {
+  const assets = []
+  for (const content of renderer?.getContents?.() || []) {
+    for (const image of content?.doc?.querySelectorAll?.(ReaderIllustrationImageSelector) || []) {
+      if (!image.complete) return null
+      assets.push(Object.freeze({
+        sectionIndex: Number(content.index),
+        url: String(image.currentSrc || image.src || ''),
+        loaded: Number(image.naturalWidth) > 0,
+      }))
+    }
+  }
+  assets.sort((left, right) =>
+    left.sectionIndex - right.sectionIndex || (left.url < right.url ? -1 : left.url > right.url ? 1 : 0))
+  return Object.freeze(assets)
 }
 
 export const readerRealizedRasterObservation = (view, target, root = document) => {
@@ -409,6 +604,8 @@ export const readerRealizedRasterObservation = (view, target, root = document) =
     requiredAssetUrls.length !== loadedAssetUrls.length ||
     requiredAssetUrls.some((url, index) => loadedAssetUrls[index] !== url)
   ) return null
+  const illustrationAssets = readerIllustrationAssetObservation(renderer)
+  if (!illustrationAssets) return null
   const rendererProof = Object.freeze({
     publicationDirection: String(view.book?.dir || ''),
     sectionCount: Number(view.book?.sections?.length) || 0,
@@ -429,6 +626,7 @@ export const readerRealizedRasterObservation = (view, target, root = document) =
   const decorationFingerprint = stableHash(JSON.stringify({
     layers: decorationProof,
     loadedAssetUrls,
+    illustrationAssets,
   }))
   const rasterProfileKey = stableHash(JSON.stringify({
     publicationUrl: String(target.publicationUrl || ''),
@@ -452,6 +650,7 @@ export const readerRealizedRasterObservation = (view, target, root = document) =
       captureBottom: viewportHeight,
     }),
     loadedAssetUrls,
+    illustrationAssets,
     rendererProof,
     documentProof,
     decorationProof,

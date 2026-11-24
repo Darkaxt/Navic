@@ -13,6 +13,7 @@ import {
   readerSurfacePageDecorationGeometry,
   readerSurfaceSpreadMode,
   readerTrace,
+  readerIllustrationsDigest,
   readerViewportSize,
   setStylesImportant,
 } from './navic-reader-helpers.js'
@@ -508,8 +509,9 @@ function pageTurnRasterDescriptor(pageIndex) {
     pageEdgesEnabled: settings.pageEdgesEnabled !== false,
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
+    illustrationsDigest: readerIllustrationsDigest(settings),
     // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
-    contentRenderRevision: 2,
+    contentRenderRevision: 3,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),

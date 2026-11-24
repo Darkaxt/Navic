@@ -348,6 +348,7 @@ class PreferenceManager(
 	var readerPaperTextureEnabled by preference(true)
 	var readerPageEdgesEnabled by preference(true)
 	var readerPaperStainsEnabled by preference(true)
+	var readerIllustrationsEnabled by preference(true)
 	var readerCoverBackdropEnabled by preference(true)
 	var readerNavBarType by preference("vertical-right")
 	var readerFlowMode by preference("paged")

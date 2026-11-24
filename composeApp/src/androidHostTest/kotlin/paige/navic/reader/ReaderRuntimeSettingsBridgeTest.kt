@@ -393,7 +393,7 @@ class ReaderRuntimeSettingsBridgeTest {
 			.resolve("navic-reader-render-profile.js")
 			.readText()
 			.substringAfter(
-				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {",
 				missingDelimiterValue = ""
 			)
 			.substringBefore("\n}\n\nconst roundedRect")
@@ -633,12 +633,12 @@ class ReaderRuntimeSettingsBridgeTest {
 			.resolve("navic-reader-render-profile.js")
 			.readText()
 			.substringAfter(
-				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {",
 				missingDelimiterValue = ""
 			)
 			.substringBefore("\n}\n\nconst roundedRect")
 
-		assertContains(applyDocumentTheme, "themeStyle.textContent = readerContentCss(settings)")
+		assertContains(applyDocumentTheme, "themeStyle.textContent = `\${readerContentCss(settings)}\\n\${readerIllustrationCss()}`")
 		assertFalse(
 			applyDocumentTheme.contains("themeStyle.textContent = readerDocumentThemeCss(settings)"),
 			"Loaded publication documents need the full reader stylesheet, not only theme colors."
@@ -735,7 +735,7 @@ class ReaderRuntimeSettingsBridgeTest {
 			.resolve("navic-reader-render-profile.js")
 			.readText()
 			.substringAfter(
-				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}) => {",
+				"export const applyReaderContentDocumentRenderProfile = (doc, settings = {}, sectionIndex = undefined, book = undefined) => {",
 				missingDelimiterValue = ""
 			)
 			.substringBefore("\n}\n\nconst roundedRect")

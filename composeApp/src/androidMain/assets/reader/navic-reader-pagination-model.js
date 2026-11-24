@@ -58,6 +58,11 @@ export const readerPaginationRenderState = input => ({
   publisherCss: String(input?.publisherCss || ''),
   direction: String(input?.direction || ''),
   runtimeVersion: String(input?.runtimeVersion || ''),
+  // A chapter plate adds a page, so a book with plates on and off needs two cached profiles.
+  // Omitted when there are none, which keeps every existing plate-free fingerprint valid.
+  ...(input?.illustrationsDigest && input.illustrationsDigest !== 'none'
+    ? { illustrationsDigest: String(input.illustrationsDigest) }
+    : {}),
 })
 
 export const readerPaginationFingerprint = input =>

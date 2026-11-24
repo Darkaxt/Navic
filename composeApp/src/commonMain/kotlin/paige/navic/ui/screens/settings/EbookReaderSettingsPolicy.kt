@@ -43,6 +43,12 @@ fun ebookReaderSettingDescriptors(): List<EbookReaderSettingDescriptor> =
 			keywords = listOf("reader", "ebook", "cover", "backdrop", "blur", "background", "paper", "appearance")
 		),
 		EbookReaderSettingDescriptor(
+			id = "ebooks.illustrations",
+			title = "Show illustrations",
+			subtitle = "Show chapter illustration plates from Bindery.",
+			keywords = listOf("reader", "ebook", "illustrations", "plates", "images", "pictures", "chapter", "art", "appearance")
+		),
+		EbookReaderSettingDescriptor(
 			id = "ebooks.pdf-fit",
 			title = "PDF/Image fit",
 			subtitle = "Default scaling for PDF and fixed image pages.",

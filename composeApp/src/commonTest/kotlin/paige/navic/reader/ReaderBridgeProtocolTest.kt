@@ -173,7 +173,23 @@ class ReaderBridgeProtocolTest {
 				fullscreen = false,
 				keepScreenOn = true,
 				readaloudSyncEnabled = false,
-				webContentsDebuggingEnabled = true
+				webContentsDebuggingEnabled = true,
+				illustrationsEnabled = true,
+				illustrations = ReaderIllustrationSet(
+					digest = "plates-1",
+					placements = listOf(
+						ReaderIllustrationPlacement(
+							sceneId = "scene-3",
+							spineIndex = 4,
+							ebookHref = "OEBPS/ch03.xhtml",
+							ebookStart = 0,
+							width = 1024,
+							height = 1536,
+							imageUrl = "https://appassets.androidplatform.net/reader-cache/plates/scene-3.png",
+							sha256 = "abc123"
+						)
+					)
+				)
 			)
 		).toJavaScript()
 
@@ -226,6 +242,12 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"keepScreenOn\":true")
 		assertContains(script, "\"readaloudSyncEnabled\":false")
 		assertContains(script, "\"webContentsDebuggingEnabled\":true")
+		assertContains(script, "\"illustrationsEnabled\":true")
+		assertContains(
+			script,
+			"\"illustrations\":{\"digest\":\"plates-1\",\"placements\":[{\"sceneId\":\"scene-3\",\"spineIndex\":4,\"ebookHref\":\"OEBPS/ch03.xhtml\",\"ebookStart\":0,\"width\":1024,\"height\":1536,\"imageUrl\":\"https://appassets.androidplatform.net/reader-cache/plates/scene-3.png\"}]}"
+		)
+		assertFalse(script.contains("abc123"))
 	}
 
 	@Test

@@ -84,7 +84,8 @@ const applyLiveRendererProfile = (view, target) => {
       content.doc,
       settings.direction,
     )
-    NavicReaderAppearanceMethods.applyDocumentTheme(
+    NavicReaderAppearanceMethods.applyDocumentTheme.call(
+      { view },
       content.doc,
       settings,
       content.index,
@@ -234,7 +235,7 @@ const runLiveScenario = async settings => {
     const doc = event.detail?.doc
     if (!doc) return
     NavicReaderAppearanceMethods.applyDocumentDirection(doc, settings.direction)
-    NavicReaderAppearanceMethods.applyDocumentTheme(doc, settings, event.detail?.index)
+    NavicReaderAppearanceMethods.applyDocumentTheme.call({ view }, doc, settings, event.detail?.index)
   })
   document.body.append(view)
   await view.open(createReaderRenderParityPublication())

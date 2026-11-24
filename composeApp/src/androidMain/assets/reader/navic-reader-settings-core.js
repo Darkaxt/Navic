@@ -288,3 +288,17 @@ export const readerEffectiveFontFamily = settings => {
   }
   return 'system-ui, sans-serif'
 }
+
+// Chapter illustration plates (Darkaxt/Navic#74). The digest keys pagination and raster caches;
+// disabled or empty sets share the stable 'none' digest.
+export const ReaderIllustrationsNoneDigest = 'none'
+
+export const readerIllustrationPlacements = settings =>
+  settings?.illustrationsEnabled !== false && Array.isArray(settings?.illustrations?.placements)
+    ? settings.illustrations.placements
+    : []
+
+export const readerIllustrationsDigest = settings =>
+  readerIllustrationPlacements(settings).length > 0
+    ? String(settings.illustrations.digest || ReaderIllustrationsNoneDigest)
+    : ReaderIllustrationsNoneDigest

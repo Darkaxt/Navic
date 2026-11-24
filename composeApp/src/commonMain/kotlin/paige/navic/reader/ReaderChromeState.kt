@@ -706,6 +706,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		paperTextureEnabled = true,
 		pageEdgesEnabled = true,
 		paperStainsEnabled = true,
+		illustrationsEnabled = true,
 		coverBackdropEnabled = true,
 		navBarType = ReaderNavBarTypeVerticalRight,
 		dragAnimationMode = ReaderDragAnimationNone,
@@ -760,6 +761,7 @@ fun normalizedReaderSettings(
 	paperTextureEnabled: Boolean = true,
 	pageEdgesEnabled: Boolean = true,
 	paperStainsEnabled: Boolean = true,
+	illustrationsEnabled: Boolean = true,
 	coverBackdropEnabled: Boolean = true,
 	navBarType: String? = ReaderNavBarTypeVerticalRight,
 	dragAnimationMode: String? = ReaderDragAnimationNone,
@@ -855,6 +857,7 @@ fun normalizedReaderSettings(
 		paperTextureEnabled = paperTextureEnabled,
 		pageEdgesEnabled = pageEdgesEnabled,
 		paperStainsEnabled = paperStainsEnabled,
+		illustrationsEnabled = illustrationsEnabled,
 		coverBackdropEnabled = coverBackdropEnabled,
 		navBarType = normalizedReaderNavBarType(navBarType),
 		dragAnimationMode = normalizedReaderDragAnimationMode(dragAnimationMode),
@@ -919,6 +922,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		paperTextureEnabled = paperTextureEnabled ?: true,
 		pageEdgesEnabled = pageEdgesEnabled ?: true,
 		paperStainsEnabled = paperStainsEnabled ?: true,
+		illustrationsEnabled = illustrationsEnabled ?: true,
 		coverBackdropEnabled = coverBackdropEnabled ?: true,
 		navBarType = navBarType,
 		dragAnimationMode = dragAnimationMode,
@@ -944,7 +948,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		pdfFitMode = pdfFitMode,
 		pdfCropBorders = pdfCropBorders ?: false,
 		pdfPageGapPercent = pdfPageGapPercent ?: DefaultReaderPdfPageGapPercent
-	)
+	).copy(illustrations = illustrations)
 
 fun normalizedReaderWhispersyncHighlightLeadMs(value: Int?): Int =
 	(value ?: DefaultReaderWhispersyncHighlightLeadMs).coerceIn(

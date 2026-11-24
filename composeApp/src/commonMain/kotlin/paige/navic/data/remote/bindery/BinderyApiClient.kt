@@ -96,6 +96,27 @@ interface BinderyApiClient {
 		advertisedHref: String
 	): String
 
+	suspend fun fetchIllustrationsReadinessJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long
+	): String
+
+	suspend fun fetchIllustrationsIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		ebookBookFileId: Long,
+		advertisedHref: String?
+	): String
+
+	suspend fun fetchIllustrationImageBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String
+	): ByteArray
+
 	suspend fun fetchResourceBytes(
 		baseUrl: String,
 		requestHeaders: Map<String, String>,
@@ -339,6 +360,62 @@ internal class KtorBinderyApiClient(
 		operation: String
 	): String {
 		val response = client.get(route.requestUrl) {
+			binderyJsonRequest(baseUrl, requestHeaders)
+			accept(ContentType.Application.Json)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage(operation, response.status))
+		}
+		return response.bodyAsText()
+	}
+
+	override suspend fun fetchIllustrationsReadinessJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long
+	): String = fetchBinderyText(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		url = binderyIllustrationsReadinessUrl(baseUrl, bookId),
+		operation = "Bindery illustrations readiness"
+	)
+
+	override suspend fun fetchIllustrationsIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		ebookBookFileId: Long,
+		advertisedHref: String?
+	): String = fetchBinderyText(
+		baseUrl = baseUrl,
+		requestHeaders = requestHeaders,
+		url = binderyIllustrationsIndexUrl(baseUrl, bookId, ebookBookFileId, advertisedHref),
+		operation = "Bindery illustrations index"
+	)
+
+	override suspend fun fetchIllustrationImageBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String
+	): ByteArray {
+		val response = client.get(binderyIllustrationImageUrl(baseUrl, bookId, sha256)) {
+			binderyScopedHeaders(baseUrl, requestHeaders)
+			accept(ContentType.Image.Any)
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery illustration image", response.status))
+		}
+		return response.body<ByteArray>()
+	}
+
+	private suspend fun fetchBinderyText(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		url: String,
+		operation: String
+	): String {
+		val response = client.get(url) {
 			binderyJsonRequest(baseUrl, requestHeaders)
 			accept(ContentType.Application.Json)
 		}

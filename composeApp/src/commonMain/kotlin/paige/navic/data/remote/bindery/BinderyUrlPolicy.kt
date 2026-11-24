@@ -7,6 +7,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
 import io.ktor.http.encodeURLQueryComponent
+import paige.navic.reader.isReaderIllustrationSha256
 
 internal fun binderyApiKeyHeaders(apiKey: String): Map<String, String> {
 	val trimmed = apiKey.trim()
@@ -430,4 +431,50 @@ internal fun encodeUrlPathSegment(value: String): String {
 			}
 		}
 	}
+}
+
+/** `GET /api/v1/books/{bookId}/illustrations` (Darkaxt/Navic#74 readiness). */
+internal fun binderyIllustrationsReadinessUrl(baseUrl: String, bookId: Long): String {
+	require(bookId > 0L) { "Bindery illustrations book id is invalid." }
+	return "${binderyApiRoot(normalizeBinderyOpdsBaseUrl(baseUrl))}/api/v1/books/$bookId/illustrations"
+}
+
+/**
+ * Index route for one ebook file. An advertised href is accepted only when it is the same-origin
+ * canonical route for that book and file; without one the canonical route is used.
+ */
+internal fun binderyIllustrationsIndexUrl(
+	baseUrl: String,
+	bookId: Long,
+	ebookBookFileId: Long,
+	advertisedHref: String?
+): String {
+	require(ebookBookFileId > 0L) { "Bindery illustrations file id is invalid." }
+	val expected = binderyIllustrationsReadinessUrl(baseUrl, bookId) + "/$ebookBookFileId/index"
+	val href = advertisedHref?.takeIf { it.isNotBlank() } ?: return expected
+	require(href == href.trim() && href.none { it <= ' ' || it == '\\' || it == '?' || it == '#' || it == '%' }) {
+		"Bindery illustrations index route contains unsupported characters."
+	}
+	val normalizedBaseUrl = normalizeBinderyOpdsBaseUrl(baseUrl)
+	val requestUrl = if (href.startsWith("http://", ignoreCase = true) || href.startsWith("https://", ignoreCase = true)) {
+		href
+	} else {
+		require(href.startsWith('/') && !href.startsWith("//")) {
+			"Bindery illustrations index route must be an absolute path or same-origin URL."
+		}
+		binderyOrigin(normalizedBaseUrl) + href
+	}
+	require(requestUrl.canonicalHttpOriginOrNull() == normalizedBaseUrl.canonicalHttpOriginOrNull()) {
+		"Bindery illustrations index route must use the configured origin."
+	}
+	require(requestUrl.matchesCanonicalHttpRoute(expected)) {
+		"Bindery illustrations index route does not match the expected book file."
+	}
+	return requestUrl
+}
+
+/** Immutable, content-addressed image route; always built from the verified sha256. */
+internal fun binderyIllustrationImageUrl(baseUrl: String, bookId: Long, sha256: String): String {
+	require(sha256.isReaderIllustrationSha256()) { "Bindery illustration image hash is invalid." }
+	return binderyIllustrationsReadinessUrl(baseUrl, bookId) + "/images/$sha256"
 }

@@ -82,6 +82,7 @@ import navic.composeapp.generated.resources.option_ebook_reader_paged
 import navic.composeapp.generated.resources.option_ebook_reader_paged_vertical
 import navic.composeapp.generated.resources.option_ebook_reader_paragraph_spacing
 import navic.composeapp.generated.resources.option_ebook_reader_paper_stains
+import navic.composeapp.generated.resources.option_ebook_reader_illustrations
 import navic.composeapp.generated.resources.option_ebook_reader_paper_texture
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_crop_borders
 import navic.composeapp.generated.resources.option_ebook_reader_pdf_fit
@@ -141,6 +142,7 @@ import navic.composeapp.generated.resources.subtitle_ebook_reader_page_edges
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paged
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paragraph_spacing
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paper_stains
+import navic.composeapp.generated.resources.subtitle_ebook_reader_illustrations
 import navic.composeapp.generated.resources.subtitle_ebook_reader_paper_texture
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_crop_borders
 import navic.composeapp.generated.resources.subtitle_ebook_reader_pdf_fit
@@ -475,6 +477,12 @@ fun SettingsEbooksScreen() {
 						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_paper_stains)) },
 						value = preferenceManager.readerPaperStainsEnabled,
 						onSetValue = { enabled -> preferenceManager.readerPaperStainsEnabled = enabled }
+					)
+					SettingSwitchRow(
+						title = { Text(stringResource(Res.string.option_ebook_reader_illustrations)) },
+						subtitle = { Text(stringResource(Res.string.subtitle_ebook_reader_illustrations)) },
+						value = preferenceManager.readerIllustrationsEnabled,
+						onSetValue = { enabled -> preferenceManager.readerIllustrationsEnabled = enabled }
 					)
 					SettingSwitchRow(
 						title = { Text(stringResource(Res.string.option_ebook_reader_cover_backdrop)) },

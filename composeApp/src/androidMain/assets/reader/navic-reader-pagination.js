@@ -154,7 +154,8 @@ import {
   normalizeExcerpt,
   hrefForCfi,
   flattenTocItems,
-  tocLabel
+  tocLabel,
+  readerIllustrationsDigest,
 } from './navic-reader-helpers.js'
 import {
   readerCommitRenderedDestination,
@@ -447,6 +448,7 @@ function readerPaginationSettingsMetadata(settings = {}) {
     pdfFitMode: normalizedReaderPdfFitMode(settings.pdfFitMode),
     pdfCropBorders: settings.pdfCropBorders === true,
     pdfPageGapPercent: normalizedReaderPdfPageGapPercent(settings.pdfPageGapPercent),
+    illustrationsDigest: readerIllustrationsDigest(settings),
   }
 }
 

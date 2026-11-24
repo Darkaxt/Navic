@@ -1727,7 +1727,8 @@ class ReaderRuntimeAssetsTest {
 			"direction",
 			"pdfFitMode",
 			"pdfCropBorders",
-			"pdfPageGapPercent"
+			"pdfPageGapPercent",
+			"illustrationsDigest"
 		)
 
 		requiredInputs.forEach { input -> assertContains(settingsMetadata, input) }

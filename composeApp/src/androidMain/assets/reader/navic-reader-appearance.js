@@ -303,8 +303,8 @@ function applyRendererTheme(settings = this.readerSettings) {
   }
 }
 
-function applyDocumentTheme(doc, settings = this.readerSettings, _index = undefined) {
-  applyReaderContentDocumentRenderProfile(doc, settings)
+function applyDocumentTheme(doc, settings = this.readerSettings, index = undefined) {
+  applyReaderContentDocumentRenderProfile(doc, settings, index, this?.view?.book)
 }
 
 function currentRendererContainerPosition() {

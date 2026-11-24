@@ -16,6 +16,8 @@ import paige.navic.domain.manager.ReaderPublicationPrefetch
 import paige.navic.domain.manager.ShareManager
 import paige.navic.domain.manager.StorageManager
 import paige.navic.domain.repositories.PlayerStateRepository
+import paige.navic.reader.AndroidReaderIllustrationStorage
+import paige.navic.reader.ReaderIllustrationStorage
 import paige.navic.reader.androidReaderPublicationPrefetch
 import paige.navic.shared.AndroidAudiobookPlaybackManager
 import paige.navic.shared.AndroidMediaPlayerViewModel
@@ -73,6 +75,7 @@ actual val platformModule = module {
 	single<ReaderPublicationPrefetch> {
 		androidReaderPublicationPrefetch(context = androidApplication(), repository = get())
 	}
+	single<ReaderIllustrationStorage> { AndroidReaderIllustrationStorage(androidApplication()) }
 
 	singleOf(::ShareManager)
 	singleOf(::QueueNotificationManager)

@@ -26,6 +26,10 @@ internal class FakeBinderyApiClient(
 	private val wordSyncChapterJson: String = "{}",
 	private val wordSyncFailure: Throwable? = null,
 	private val resourceBytes: ByteArray = ByteArray(0),
+	/** Null answers 404, like a Bindery without the illustrations route. */
+	private val illustrationsReadinessJson: String? = null,
+	private val illustrationsIndexJson: String? = null,
+	private val illustrationImages: Map<String, ByteArray> = emptyMap(),
 	private val progress: BinderyReadingProgress = BinderyReadingProgress(
 		bookId = "book",
 		kind = BinderyReadingProgressKind.Ebook
@@ -241,6 +245,39 @@ internal class FakeBinderyApiClient(
 		callLog?.add("wordsync-chapter")
 		wordSyncFailure?.let { throw it }
 		return wordSyncChapterJson
+	}
+
+	override suspend fun fetchIllustrationsReadinessJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long
+	): String {
+		callLog?.add("illustrations-readiness")
+		return illustrationsReadinessJson
+			?: throw BinderyApiException(HttpStatusCode.NotFound, "Bindery illustrations readiness failed")
+	}
+
+	override suspend fun fetchIllustrationsIndexJson(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		ebookBookFileId: Long,
+		advertisedHref: String?
+	): String {
+		callLog?.add("illustrations-index:$ebookBookFileId")
+		return illustrationsIndexJson
+			?: throw BinderyApiException(HttpStatusCode.NotFound, "Bindery illustrations index failed")
+	}
+
+	override suspend fun fetchIllustrationImageBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String
+	): ByteArray {
+		callLog?.add("illustration-image:$sha256")
+		return illustrationImages[sha256]
+			?: throw BinderyApiException(HttpStatusCode.NotFound, "Bindery illustration image failed")
 	}
 
 	override suspend fun fetchResourceBytes(

@@ -202,6 +202,13 @@ internal fun KomikkuGeneralSettingsPage(
 				}
 			)
 			CheckboxItem(
+				label = "Show illustrations",
+				checked = settings.illustrationsEnabled != false,
+				onClick = {
+					onSettingsChange(settings.copy(illustrationsEnabled = settings.illustrationsEnabled == false))
+				}
+			)
+			CheckboxItem(
 				label = "Cover backdrop",
 				checked = settings.coverBackdropEnabled != false,
 				onClick = {

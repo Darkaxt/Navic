@@ -33,6 +33,8 @@ class ReaderContentContrastLiftTest {
 		val revision = Regex("export const ReaderContentRenderRevision = (\\d+)")
 			.find(renderProfile)?.groupValues?.get(1)
 		assertTrue(revision != null, "render profile must declare the content render revision")
+		// Revision 3: chapter illustration plates (Darkaxt/Navic#74) change content pixels.
+		assertTrue(revision == "3", "illustration plates must retire revision-2 rasters")
 		assertContains(renderProfile, "contentRenderRevision: ReaderContentRenderRevision,")
 		val descriptor = preview
 			.substringAfter("function pageTurnRasterDescriptor(")

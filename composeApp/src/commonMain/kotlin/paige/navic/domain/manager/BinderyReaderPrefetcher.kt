@@ -11,7 +11,9 @@ import kotlinx.coroutines.sync.withLock
 import paige.navic.domain.repositories.BinderyBookSync
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.domain.repositories.BinderyResourceCatalog
+import paige.navic.reader.ReaderIllustrationStorage
 import paige.navic.reader.canonicalReaderResourceHref
+import paige.navic.reader.prefetchReaderIllustrations
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.bindery.binderyBookVersionRows
 import paige.navic.ui.screens.bindery.binderyPrefetchReaderDestinations
@@ -29,7 +31,8 @@ fun interface ReaderPublicationPrefetch {
 
 /**
  * Silently pre-downloads what a Bindery reader open would otherwise wait on: the publication and cover,
- * the Whispersync sidecar and audiobook manifest, and the WordSync index and chapters. Audio still streams
+ * the Whispersync sidecar and audiobook manifest, the WordSync index and chapters, then (best-effort)
+ * chapter illustration plates. Audio still streams
  * and pages are never pre-rendered. One serial worker; the batch stops at the first failure because every
  * failed Bindery request marks the integration down.
  */
@@ -37,6 +40,8 @@ class BinderyReaderPrefetcher(
 	private val repository: BinderyRepository,
 	private val publication: ReaderPublicationPrefetch,
 	private val canPrefetch: (requireUnmetered: Boolean) -> Boolean,
+	/** Where chapter illustration plates are stored (#74); null skips them. */
+	private val illustrations: ReaderIllustrationStorage? = null,
 	private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
 	private val lock = Mutex()
@@ -158,8 +163,17 @@ class BinderyReaderPrefetcher(
 		return true
 	}
 
-	/** Mirrors what ReaderScreen loads on open, in the same order, so every step is served from disk later. */
+	/**
+	 * Mirrors what ReaderScreen loads on open, in the same order, so every step is served from disk later.
+	 * Illustration plates come last and are best-effort: they never fail the item or the batch.
+	 */
 	private suspend fun prefetchReader(reader: Screen.Reader): Boolean {
+		if (!prefetchReaderContent(reader)) return false
+		illustrations?.let { storage -> prefetchReaderIllustrations(repository, storage, reader.bookId) }
+		return true
+	}
+
+	private suspend fun prefetchReaderContent(reader: Screen.Reader): Boolean {
 		if (!ensurePublicationOnDisk(reader)) return false
 		val attachment = reader.whispersyncLaunchAttachment()
 		if (attachment == null) {

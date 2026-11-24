@@ -266,7 +266,9 @@ data class ReaderSettings(
 	val whispersyncHighlightLoading: String? = null,
 	val whispersyncHighlightStyle: String? = null,
 	val volumeKeyPageTurns: Boolean? = null,
-	val webContentsDebuggingEnabled: Boolean? = null
+	val webContentsDebuggingEnabled: Boolean? = null,
+	val illustrationsEnabled: Boolean? = null,
+	val illustrations: ReaderIllustrationSet? = null
 )
 
 enum class ReaderPublicationKind {
@@ -1630,6 +1632,31 @@ private fun ReaderSettings.toJsonObject(): JsonObject =
 		whispersyncHighlightStyle?.let { put("whispersyncHighlightStyle", it) }
 		volumeKeyPageTurns?.let { put("volumeKeyPageTurns", it) }
 		webContentsDebuggingEnabled?.let { put("webContentsDebuggingEnabled", it) }
+		illustrationsEnabled?.let { put("illustrationsEnabled", it) }
+		illustrations?.let { put("illustrations", it.toIllustrationsJsonObject()) }
+	}
+
+private fun ReaderIllustrationSet.toIllustrationsJsonObject(): JsonObject =
+	buildJsonObject {
+		put("digest", digest)
+		put(
+			"placements",
+			buildJsonArray {
+				placements.forEach { placement ->
+					add(
+						buildJsonObject {
+							put("sceneId", placement.sceneId)
+							put("spineIndex", placement.spineIndex)
+							put("ebookHref", placement.ebookHref)
+							put("ebookStart", placement.ebookStart)
+							put("width", placement.width)
+							put("height", placement.height)
+							put("imageUrl", placement.imageUrl)
+						}
+					)
+				}
+			}
+		)
 	}
 
 private fun JsonObject.toOverlayFragment(): ReaderOverlayFragment? {

@@ -574,9 +574,14 @@ const readerVisibleContentElement = element => {
   return Boolean(rect && rect.width > 0 && rect.height > 0)
 }
 
+// Chapter illustration plates (render profile) sit before the heading on their own page; they
+// are not chapter content, so the opening heading is still found behind them.
+const readerIllustrationPlateSelector = '[data-navic-illustration]'
+
 const readerFirstVisibleContentElement = doc =>
   Array.from(doc?.body?.querySelectorAll?.('body *') || [])
-    .slice(0, 160)
+    .slice(0, 162)
+    .filter(element => !element.closest(readerIllustrationPlateSelector))
     .find(readerVisibleContentElement) || null
 
 const readerChapterOpeningHeading = doc => {

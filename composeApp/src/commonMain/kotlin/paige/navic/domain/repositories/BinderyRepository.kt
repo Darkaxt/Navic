@@ -450,6 +450,74 @@ class BinderyRepository(
 		)
 	}
 
+	/**
+	 * Illustration readiness for a book (Darkaxt/Navic#74). Best-effort: unlike the other Bindery
+	 * payloads a failure never marks the integration down, because the route is optional.
+	 */
+	suspend fun getIllustrationsReadiness(
+		bookId: Long,
+		forceRefresh: Boolean = false
+	): Result<BinderyIllustrationReadiness> =
+		withOptionalCachedJson(
+			payloadType = BinderyMetadataPayloadType.IllustrationsReadiness,
+			path = bookId.toString(),
+			forceRefresh = forceRefresh,
+			fetch = { baseUrl, headers -> apiClient.fetchIllustrationsReadinessJson(baseUrl, headers, bookId) },
+			decode = { json -> decodeBinderyIllustrationReadiness(json, bookId) }
+		)
+
+	/** The validated index of one ready file; refetched only when the readiness digest changed. */
+	suspend fun getIllustrationIndex(
+		bookId: Long,
+		file: BinderyIllustrationFileReadiness
+	): Result<ReaderIllustrationIndex> {
+		val path = illustrationIndexCachePath(bookId, file.ebookBookFileId)
+		val decode = { json: String -> decodeReaderIllustrationIndex(json, bookId, file.ebookBookFileId) }
+		val cached = getConfiguredCachedPayload(BinderyMetadataPayloadType.IllustrationsIndex, path, decode)
+			.getOrNull()
+		val digest = file.digest?.takeIf { it.isNotBlank() }
+		if (cached != null && digest != null && cached.digest == digest) return Result.success(cached)
+		return withOptionalCachedJson(
+			payloadType = BinderyMetadataPayloadType.IllustrationsIndex,
+			path = path,
+			forceRefresh = digest != null,
+			fetch = { baseUrl, headers ->
+				apiClient.fetchIllustrationsIndexJson(baseUrl, headers, bookId, file.ebookBookFileId, file.indexHref)
+			},
+			decode = decode
+		)
+	}
+
+	/**
+	 * The cached index the reader may use offline. With no [ebookBookFileId] the book's only ready
+	 * file (from cached readiness) is used; several ready files without an id resolve to null.
+	 */
+	suspend fun getCachedIllustrationIndex(
+		bookId: Long,
+		ebookBookFileId: Long?
+	): Result<ReaderIllustrationIndex?> {
+		val fileId = ebookBookFileId ?: getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.IllustrationsReadiness,
+			path = bookId.toString(),
+			decode = { json -> decodeBinderyIllustrationReadiness(json, bookId) }
+		).getOrElse { return Result.failure(it) }
+			?.readyFiles
+			?.singleOrNull()
+			?.ebookBookFileId
+		?: return Result.success(null)
+		return getConfiguredCachedPayload(
+			payloadType = BinderyMetadataPayloadType.IllustrationsIndex,
+			path = illustrationIndexCachePath(bookId, fileId),
+			decode = { json -> decodeReaderIllustrationIndex(json, bookId, fileId) }
+		)
+	}
+
+	/** Immutable image bytes; the caller verifies the sha256 before storing them. */
+	suspend fun getIllustrationImageBytes(bookId: Long, sha256: String): Result<ByteArray> =
+		withConfiguredClientAvailability { baseUrl, headers ->
+			runCatching { apiClient.fetchIllustrationImageBytes(baseUrl, headers, bookId, sha256) }
+		}
+
 	suspend fun clearMetadataCache(): Result<Unit> =
 		withConfiguredClientAvailability { baseUrl, _ ->
 			metadataCache.clearBaseUrl(baseUrl)
@@ -916,6 +984,50 @@ class BinderyRepository(
 			)
 		}
 
+	/** Raw-JSON cache for optional routes: validated before caching, never marks Bindery down. */
+	private suspend fun <T> withOptionalCachedJson(
+		payloadType: String,
+		path: String,
+		forceRefresh: Boolean,
+		fetch: suspend (baseUrl: String, headers: Map<String, String>) -> String,
+		decode: (String) -> T
+	): Result<T> =
+		withConfiguredClientAvailability { baseUrl, headers ->
+			val cacheKey = binderyMetadataCacheKey(
+				baseUrl = baseUrl,
+				payloadType = payloadType,
+				path = path,
+				apiKeyFingerprint = configuredBinderyCacheFingerprint()
+			)
+			val cached = metadataCache.get(cacheKey)
+			val cachedPayload = cached?.let { record -> runCatching { decode(record.payloadJson) }.getOrNull() }
+			if (!forceRefresh && cached != null && cachedPayload != null && isFresh(cached.updatedAtMillis)) {
+				return@withConfiguredClientAvailability Result.success(cachedPayload)
+			}
+			runCatching {
+				val json = fetch(baseUrl, headers)
+				val live = decode(json)
+				metadataCache.put(
+					BinderyMetadataCacheRecord(
+						cacheKey = cacheKey,
+						baseUrl = baseUrl,
+						payloadType = payloadType,
+						path = path,
+						payloadJson = json,
+						updatedAtMillis = currentTimeMillis()
+					)
+				)
+				live
+			}.fold(
+				onSuccess = { live -> Result.success(live) },
+				onFailure = { error ->
+					if (error is kotlin.coroutines.cancellation.CancellationException) throw error
+					Logger.i(TAG, "Bindery optional request failed type=$payloadType error=${error::class.simpleName}")
+					if (cachedPayload != null) Result.success(cachedPayload) else Result.failure(error)
+				}
+			)
+		}
+
 	private fun isFresh(updatedAtMillis: Long): Boolean =
 		currentTimeMillis() - updatedAtMillis <= BINDERY_METADATA_CACHE_FRESH_MILLIS
 
@@ -1075,3 +1187,6 @@ internal val BinderyVolatilePayloadTypes = listOf(
 
 private fun BinderyCatalog.isOptionalIntegrationEmpty(): Boolean =
 	publications.isEmpty() && navigation.isEmpty()
+
+private fun illustrationIndexCachePath(bookId: Long, ebookBookFileId: Long): String =
+	"book:$bookId|ebook:$ebookBookFileId"

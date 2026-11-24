@@ -321,7 +321,7 @@ const applyPassiveLayout = (view, target, settings, render, pageBox) => {
   renderer.setStyles(readerContentCss(settings))
   applyReaderPublicationRenderDirection(view, readerDirectionMode(settings))
   for (const content of renderer.getContents?.() || []) {
-    applyReaderContentDocumentRenderProfile(content.doc, settings)
+    applyReaderContentDocumentRenderProfile(content.doc, settings, content.index, view.book)
   }
   const palette = readerThemePalette(settings.theme)
   for (const element of [view, renderer]) {
@@ -410,7 +410,7 @@ export class ProductionRasterFoliateSessionCore {
         ? target.readerSettings
         : {}
       applyReaderPublicationRenderDirection(view, readerDirectionMode(settings))
-      applyReaderContentDocumentRenderProfile(doc, settings)
+      applyReaderContentDocumentRenderProfile(doc, settings, event.detail?.index, view.book)
     })
     return view
   }

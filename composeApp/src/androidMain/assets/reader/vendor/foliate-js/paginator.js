@@ -550,6 +550,8 @@ class View {
         const body = documentStyleRoot(doc)
         if (!body) return
         for (const el of body.querySelectorAll('img, svg, video')) {
+            // Navic chapter plates size themselves to the whole page (navic-reader-render-profile.js)
+            if (el.hasAttribute('data-navic-illustration-image')) continue
             // preserve max size if they are already set
             const { maxHeight, maxWidth } = doc.defaultView.getComputedStyle(el)
             setStylesImportant(el, {

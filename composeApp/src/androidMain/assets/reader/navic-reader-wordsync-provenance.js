@@ -836,12 +836,26 @@ const nodeIsInExcludedElement = node => {
 
 const textNodeIsExcluded = node => nodeIsInExcludedElement(node)
 
+// Chapter illustration plates (render profile, Darkaxt/Navic#74) are reader chrome inserted into
+// the section body: they carry no book text, so they never move WordSync byte offsets.
+const ReaderIllustrationPlateAttribute = 'data-navic-illustration'
+
+const nodeIsInIllustrationPlate = node => {
+  let element = node?.nodeType === 1 ? node : node?.parentElement || node?.parentNode
+  while (element?.nodeType === 1) {
+    if (element.hasAttribute?.(ReaderIllustrationPlateAttribute)) return true
+    element = element.parentElement || element.parentNode
+  }
+  return false
+}
+
 const mutationCanChangeDocumentTokens = mutation => {
   if (nodeIsInExcludedElement(mutation?.target)) return false
+  if (nodeIsInIllustrationPlate(mutation?.target)) return false
   if (mutation?.type === 'characterData') return true
   if (mutation?.type !== 'childList') return false
   return [...(mutation.addedNodes || []), ...(mutation.removedNodes || [])]
-    .some(node => !nodeIsInExcludedElement(node) &&
+    .some(node => !nodeIsInExcludedElement(node) && !nodeIsInIllustrationPlate(node) &&
       (node?.nodeType === 1 || node?.nodeType === 3 || node?.nodeType === 4))
 }
 
@@ -897,6 +911,7 @@ const rawDomProjectionAtoms = doc => {
       }
       return
     }
+    if (node.hasAttribute?.(ReaderIllustrationPlateAttribute)) return
     const name = String(node.localName || node.nodeName || '').toLowerCase()
     const parent = node.parentNode
     const siblingIndex = parent

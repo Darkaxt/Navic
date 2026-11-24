@@ -158,6 +158,15 @@ internal fun settingsSearchEbookRows(context: SettingsSearchContext): List<Searc
 			onSetValue = { enabled -> preferenceManager.readerPaperStainsEnabled = enabled }
 		))
 		add(switchRow(
+			id = "ebooks.illustrations",
+			path = path(ebooks),
+			title = stringResource(Res.string.option_ebook_reader_illustrations),
+			subtitle = stringResource(Res.string.subtitle_ebook_reader_illustrations),
+			keywords = ebookReaderSettingDescriptor("ebooks.illustrations").keywords,
+			value = preferenceManager.readerIllustrationsEnabled,
+			onSetValue = { enabled -> preferenceManager.readerIllustrationsEnabled = enabled }
+		))
+		add(switchRow(
 			id = "ebooks.cover-backdrop",
 			path = path(ebooks),
 			title = stringResource(Res.string.option_ebook_reader_cover_backdrop),

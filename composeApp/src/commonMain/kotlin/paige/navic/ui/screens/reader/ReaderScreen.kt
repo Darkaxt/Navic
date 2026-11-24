@@ -37,6 +37,8 @@ import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.recordReaderBookPrepared
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
+import paige.navic.reader.ReaderIllustrationResolver
+import paige.navic.reader.ReaderIllustrationSet
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
 import paige.navic.reader.ReaderControllerState
@@ -232,7 +234,31 @@ fun ReaderScreen(reader: Screen.Reader) {
 	}
 	val controllerState = coordinator.controller.state
 	val settings = controllerState.chrome.settings
+	val illustrationResolver = koinInject<ReaderIllustrationResolver>()
+	val illustrationsEnabled = settings.illustrationsEnabled != false
+	var illustrationSet by remember(reader.bookId) { mutableStateOf<ReaderIllustrationSet?>(null) }
+	// False at open (plates come from what is already on disk); true once the user turns them on here.
+	var illustrationsTurnedOnHere by remember(reader.bookId) { mutableStateOf(false) }
+	var previousIllustrationsEnabled by remember(reader.bookId) { mutableStateOf(illustrationsEnabled) }
+	if (previousIllustrationsEnabled != illustrationsEnabled) {
+		if (illustrationsEnabled) illustrationsTurnedOnHere = true
+		previousIllustrationsEnabled = illustrationsEnabled
+	}
+	LaunchedEffect(reader.bookId, illustrationsEnabled) {
+		illustrationSet = withContext(Dispatchers.IO) {
+			runCatching {
+				illustrationResolver.resolve(
+					bookId = reader.bookId,
+					ebookBookFileId = reader.whispersyncWordSync?.identity?.ebookBookFileId,
+					enabled = illustrationsEnabled,
+					fetchMissing = illustrationsTurnedOnHere
+				)
+			}.getOrDefault(ReaderIllustrationSet.None)
+		}
+	}
 	val runtimeSettings = settings.withReaderListeningSettings(listeningSettings)
+		// Turning plates off drops them in the same settings change, not after the re-resolve.
+		.copy(illustrations = illustrationSet?.takeIf { illustrationsEnabled } ?: ReaderIllustrationSet.None)
 	val readaloudSyncEnabled = runtimeSettings.readaloudSyncEnabled != false
 	val whispersyncReadaloudPlaybackState = audiobookMiniPlayerState.toWhispersyncReadaloudPlaybackUiState(
 		playbackPlan = whispersyncPlaybackPlan,
@@ -643,247 +669,253 @@ fun ReaderScreen(reader: Screen.Reader) {
 		}
 	}
 
-	ReaderPublicationRuntimeHost(
-		reader = reader,
-		onPublicationReady = {
-				publicationUrl,
-				shellCoverUrl,
-				shellCoverTint,
-				savedProgress,
-				wordSyncVerifier ->
-			val localProgress = ReaderReadingProgressState(
-				decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
-			).startProgressFor(
-				bookId = reader.bookId,
-				resourceHref = reader.resourceHref,
-				kind = reader.kind
-			)
-			openReaderPublication(
-				reader.toReaderEngineOpenRequest(
-					publicationUrl = publicationUrl,
-					shellCoverUrl = shellCoverUrl,
-					shellCoverTint = shellCoverTint,
-					savedProgress = savedProgress,
-					localProgress = localProgress,
-					settings = runtimeSettings
+	// Plates are resolved once before the book opens (late arrivals apply at the next open).
+	if (illustrationSet != null) {
+		ReaderPublicationRuntimeHost(
+			reader = reader,
+			onPublicationReady = {
+					publicationUrl,
+					shellCoverUrl,
+					shellCoverTint,
+					savedProgress,
+					wordSyncVerifier ->
+				val localProgress = ReaderReadingProgressState(
+					decodeReaderReadingProgress(preferenceManager.readerReadingProgressJson)
+				).startProgressFor(
+					bookId = reader.bookId,
+					resourceHref = reader.resourceHref,
+					kind = reader.kind
 				)
-			)
-			val attachment = reader.whispersyncLaunchAttachment()
-			val wordSyncReference = attachment?.wordSync?.takeIf { reference ->
-				wordSyncVerifier != null &&
-					attachment.audiobookBookFileId.toLongOrNull() == reference.identity.audiobookBookFileId
-			}
-			wordSyncPublicationVerifier = wordSyncVerifier.takeIf { wordSyncReference != null }
-			wordSyncVerificationSession = null
-			applyCoordinatorStep(coordinator.configureWordSync(wordSyncReference))
-			attachment?.let { attachment ->
-				if (wordSyncReference == null) {
-					if (wordSyncVerifier == null) {
-						Logger.w(
-							WhispersyncSyncLogTag,
-							"WordSync reference state=unavailable matched=false active=false " +
-								"reason=verifier-missing count=0"
-						)
-					} else {
-						coroutineScope.launch {
-							withContext(Dispatchers.IO) {
-								binderyRepository.getBookSync(
-									bookId = reader.bookId,
-									forceRefresh = true
-								)
-							}.fold(
-								onSuccess = { bookSync ->
-									val resolution = bookSync.wordSyncReferenceResolutionForLaunch(
+				openReaderPublication(
+					reader.toReaderEngineOpenRequest(
+						publicationUrl = publicationUrl,
+						shellCoverUrl = shellCoverUrl,
+						shellCoverTint = shellCoverTint,
+						savedProgress = savedProgress,
+						localProgress = localProgress,
+						settings = runtimeSettings
+					)
+				)
+				val attachment = reader.whispersyncLaunchAttachment()
+				val wordSyncReference = attachment?.wordSync?.takeIf { reference ->
+					wordSyncVerifier != null &&
+						attachment.audiobookBookFileId.toLongOrNull() == reference.identity.audiobookBookFileId
+				}
+				wordSyncPublicationVerifier = wordSyncVerifier.takeIf { wordSyncReference != null }
+				wordSyncVerificationSession = null
+				applyCoordinatorStep(coordinator.configureWordSync(wordSyncReference))
+				attachment?.let { attachment ->
+					if (wordSyncReference == null) {
+						if (wordSyncVerifier == null) {
+							Logger.w(
+								WhispersyncSyncLogTag,
+								"WordSync reference state=unavailable matched=false active=false " +
+									"reason=verifier-missing count=0"
+							)
+						} else {
+							coroutineScope.launch {
+								withContext(Dispatchers.IO) {
+									binderyRepository.getBookSync(
 										bookId = reader.bookId,
-										attachment = attachment
+										forceRefresh = true
 									)
-									val recoveredReference = resolution.reference
-									if (recoveredReference == null) {
+								}.fold(
+									onSuccess = { bookSync ->
+										val resolution = bookSync.wordSyncReferenceResolutionForLaunch(
+											bookId = reader.bookId,
+											attachment = attachment
+										)
+										val recoveredReference = resolution.reference
+										if (recoveredReference == null) {
+											Logger.w(
+												WhispersyncSyncLogTag,
+												"WordSync reference state=unavailable matched=false active=false " +
+													"reason=${resolution.reason.logValue} " +
+													"count=${resolution.candidateCount}"
+											)
+										} else {
+											wordSyncPublicationVerifier = wordSyncVerifier
+											wordSyncVerificationSession = null
+											applyCoordinatorStep(
+												coordinator.configureWordSync(recoveredReference)
+											)
+											Logger.i(
+												WhispersyncSyncLogTag,
+												"WordSync reference state=resolved matched=true active=true " +
+													"reason=book-sync count=1"
+											)
+										}
+									},
+									onFailure = { _ ->
 										Logger.w(
 											WhispersyncSyncLogTag,
 											"WordSync reference state=unavailable matched=false active=false " +
-												"reason=${resolution.reason.logValue} " +
-												"count=${resolution.candidateCount}"
-										)
-									} else {
-										wordSyncPublicationVerifier = wordSyncVerifier
-										wordSyncVerificationSession = null
-										applyCoordinatorStep(
-											coordinator.configureWordSync(recoveredReference)
-										)
-										Logger.i(
-											WhispersyncSyncLogTag,
-											"WordSync reference state=resolved matched=true active=true " +
-												"reason=book-sync count=1"
+												"reason=load-failed count=0"
 										)
 									}
-								},
-								onFailure = { _ ->
-									Logger.w(
-										WhispersyncSyncLogTag,
-										"WordSync reference state=unavailable matched=false active=false " +
-											"reason=load-failed count=0"
-									)
-								}
-							)
+								)
+							}
 						}
 					}
-				}
-				coroutineScope.launch {
-					val sidecar = withContext(Dispatchers.IO) {
-						val cached = binderyRepository.getCachedWhispersyncSidecar(attachment.sidecarPath)
-							.getOrNull()
-						if (cached == null) {
-							binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
-						} else {
-							// Refresh in background when stale; the next open uses the refreshed copy.
-							coroutineScope.launch(Dispatchers.IO) {
+					coroutineScope.launch {
+						val sidecar = withContext(Dispatchers.IO) {
+							val cached = binderyRepository.getCachedWhispersyncSidecar(attachment.sidecarPath)
+								.getOrNull()
+							if (cached == null) {
 								binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+							} else {
+								// Refresh in background when stale; the next open uses the refreshed copy.
+								coroutineScope.launch(Dispatchers.IO) {
+									binderyRepository.getWhispersyncSidecar(attachment.sidecarPath)
+								}
+								Result.success(cached)
 							}
-							Result.success(cached)
-						}
-					}.fold(
-						onSuccess = { sidecar ->
-							Logger.i(
-								ReaderScreenTag,
-								"Whispersync sidecar state=loaded matched=true active=false " +
-									"count=${sidecar.timeline.segments.size}"
-							)
-							applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
-							sidecar
-						},
-						onFailure = { _ ->
-							applyCoordinatorStep(
-								coordinator.dispatch { reportWhispersyncLoadFailure(
-									message = ReaderWhispersyncStatusMessage.Unavailable,
-									detail = null
-								) }
-							)
-							Logger.w(
-								ReaderScreenTag,
-								"Whispersync sidecar state=failed matched=false active=false " +
-									"reason=load-failed"
-							)
-							null
-						}
-					)
-					withContext(Dispatchers.IO) {
-						binderyRepository.getWhispersyncAudiobookManifest(
-							bookId = reader.bookId,
-							audiobookId = attachment.audiobookId,
-							audiobookBookFileId = attachment.audiobookBookFileId,
-							audiobookManifestHref = sidecar?.audiobookManifestHref
+						}.fold(
+							onSuccess = { sidecar ->
+								Logger.i(
+									ReaderScreenTag,
+									"Whispersync sidecar state=loaded matched=true active=false " +
+										"count=${sidecar.timeline.segments.size}"
+								)
+								applyCoordinatorStep(coordinator.dispatch { loadWhispersyncSidecar(sidecar) })
+								sidecar
+							},
+							onFailure = { _ ->
+								applyCoordinatorStep(
+									coordinator.dispatch { reportWhispersyncLoadFailure(
+										message = ReaderWhispersyncStatusMessage.Unavailable,
+										detail = null
+									) }
+								)
+								Logger.w(
+									ReaderScreenTag,
+									"Whispersync sidecar state=failed matched=false active=false " +
+										"reason=load-failed"
+								)
+								null
+							}
 						)
-					}.fold(
-						onSuccess = { manifest ->
-							val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
-							val resumeProgress = binderyAudiobookResumeProgressForWhispersyncReader(
-								audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
-								companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
+						withContext(Dispatchers.IO) {
+							binderyRepository.getWhispersyncAudiobookManifest(
 								bookId = reader.bookId,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								manifest = manifest,
-								audiobookBookFileId = attachment.audiobookBookFileId
+								audiobookId = attachment.audiobookId,
+								audiobookBookFileId = attachment.audiobookBookFileId,
+								audiobookManifestHref = sidecar?.audiobookManifestHref
 							)
-							val playbackPlan = binderyAudiobookPlaybackPlan(
-								manifest = manifest,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
-								requestHeaders = requestHeaders,
-								resumeProgress = resumeProgress,
-								progressBookId = reader.bookId,
-								audiobookBookFileId = attachment.audiobookBookFileId
-							)
-							whispersyncPlaybackPlan = playbackPlan
-							audiobookPlaybackManager.load(
-								playbackPlan = playbackPlan,
-								bookId = reader.bookId,
-								bookTitle = attachment.audiobookTitle ?: reader.title,
-								versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
-								coverUrl = null,
-								coverCacheKey = null,
-								imageRequestHeaders = requestHeaders,
-								playWhenReady = false
-							)
-							audiobookPlaybackManager.dispatch(
-								ReaderReadaloudPlaybackCommand.SetSpeed(listeningSettings.playbackSpeed)
-							)
-							Logger.i(
-								ReaderScreenTag,
-								"Whispersync audiobook state=loaded matched=true active=false " +
-									"count=${playbackPlan.mediaItems.size}"
-							)
-						},
-						onFailure = { _ ->
-							whispersyncPlaybackPlan = null
-							applyCoordinatorStep(
-								coordinator.dispatch { reportWhispersyncLoadFailure(
-									message = ReaderWhispersyncStatusMessage.AudioUnavailable,
-									detail = null
-								) }
-							)
-							Logger.w(
-								ReaderScreenTag,
-								"Whispersync audiobook state=failed matched=false active=false " +
-									"reason=load-failed"
-							)
-						}
-					)
+						}.fold(
+							onSuccess = { manifest ->
+								val requestHeaders = binderyApiKeyHeaders(preferenceManager.binderyApiKey)
+								val resumeProgress = binderyAudiobookResumeProgressForWhispersyncReader(
+									audiobookProgressJson = preferenceManager.binderyAudiobookProgressJson,
+									companionProgressJson = preferenceManager.binderyWhispersyncCompanionProgressJson,
+									bookId = reader.bookId,
+									versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
+									manifest = manifest,
+									audiobookBookFileId = attachment.audiobookBookFileId
+								)
+								val playbackPlan = binderyAudiobookPlaybackPlan(
+									manifest = manifest,
+									versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
+									opdsBaseUrl = preferenceManager.binderyOpdsBaseUrl,
+									requestHeaders = requestHeaders,
+									resumeProgress = resumeProgress,
+									progressBookId = reader.bookId,
+									audiobookBookFileId = attachment.audiobookBookFileId
+								)
+								whispersyncPlaybackPlan = playbackPlan
+								audiobookPlaybackManager.load(
+									playbackPlan = playbackPlan,
+									bookId = reader.bookId,
+									bookTitle = attachment.audiobookTitle ?: reader.title,
+									versionRowId = whispersyncAudiobookIdentity ?: attachment.audiobookBookFileId,
+									coverUrl = null,
+									coverCacheKey = null,
+									imageRequestHeaders = requestHeaders,
+									playWhenReady = false
+								)
+								audiobookPlaybackManager.dispatch(
+									ReaderReadaloudPlaybackCommand.SetSpeed(listeningSettings.playbackSpeed)
+								)
+								Logger.i(
+									ReaderScreenTag,
+									"Whispersync audiobook state=loaded matched=true active=false " +
+										"count=${playbackPlan.mediaItems.size}"
+								)
+							},
+							onFailure = { _ ->
+								whispersyncPlaybackPlan = null
+								applyCoordinatorStep(
+									coordinator.dispatch { reportWhispersyncLoadFailure(
+										message = ReaderWhispersyncStatusMessage.AudioUnavailable,
+										detail = null
+									) }
+								)
+								Logger.w(
+									ReaderScreenTag,
+									"Whispersync audiobook state=failed matched=false active=false " +
+										"reason=load-failed"
+								)
+							}
+						)
+					}
 				}
+			},
+			onError = { message ->
+				applyCoordinatorStep(
+					coordinator.dispatch { onEngineEvent(
+						ReaderEngineEvent.Error(
+							message = message,
+							code = "publication_runtime"
+						)
+					) }
+				)
 			}
-		},
-		onError = { message ->
-			applyCoordinatorStep(
-				coordinator.dispatch { onEngineEvent(
-					ReaderEngineEvent.Error(
-						message = message,
-						code = "publication_runtime"
-					)
-				) }
-			)
-		}
-	)
+		)
+	}
 
-	ReaderReadaloudRuntimeHost(
-		reader = reader,
-		readaloudSyncEnabled = readaloudSyncEnabled,
-		readerInteraction = lastReadaloudReaderInteraction,
-		readerInteractionKey = readaloudReaderInteractionKey,
-		onPublicationReady = { publicationUrl ->
-			openReaderPublication(
-				reader.toReaderEngineOpenRequest(
-					publicationUrl = publicationUrl,
-					shellCoverUrl = null,
-					shellCoverTint = null,
-					savedProgress = null,
-					settings = runtimeSettings
-				)
-			)
-		},
-		onEngineCommand = { command, _ ->
-			applyReadaloudEngineCommand(command)
-		},
-		playbackCommand = readaloudCommand,
-		playbackCommandKey = readaloudCommandKey,
-		onPlaybackState = { playbackState ->
-			applyCoordinatorStep(
-				coordinator.onReadaloudPlaybackState(
-					playbackState = playbackState,
-					playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)
-				)
-			)
-		},
-		onError = { message ->
-			applyCoordinatorStep(
-				coordinator.dispatch { onEngineEvent(
-					ReaderEngineEvent.Error(
-						message = message,
-						code = "readaloud_runtime"
+	// Plates are resolved once before the book opens (late arrivals apply at the next open).
+	if (illustrationSet != null) {
+		ReaderReadaloudRuntimeHost(
+			reader = reader,
+			readaloudSyncEnabled = readaloudSyncEnabled,
+			readerInteraction = lastReadaloudReaderInteraction,
+			readerInteractionKey = readaloudReaderInteractionKey,
+			onPublicationReady = { publicationUrl ->
+				openReaderPublication(
+					reader.toReaderEngineOpenRequest(
+						publicationUrl = publicationUrl,
+						shellCoverUrl = null,
+						shellCoverTint = null,
+						savedProgress = null,
+						settings = runtimeSettings
 					)
-				) }
-			)
-		}
-	)
+				)
+			},
+			onEngineCommand = { command, _ ->
+				applyReadaloudEngineCommand(command)
+			},
+			playbackCommand = readaloudCommand,
+			playbackCommandKey = readaloudCommandKey,
+			onPlaybackState = { playbackState ->
+				applyCoordinatorStep(
+					coordinator.onReadaloudPlaybackState(
+						playbackState = playbackState,
+						playbackIdentity = playbackState.toWordSyncPlaybackIdentity(whispersyncPlaybackPlan)
+					)
+				)
+			},
+			onError = { message ->
+				applyCoordinatorStep(
+					coordinator.dispatch { onEngineEvent(
+						ReaderEngineEvent.Error(
+							message = message,
+							code = "readaloud_runtime"
+						)
+					) }
+				)
+			}
+		)
+	}
 
 	ReaderOrientationEffect(orientation = settings.orientation)
 	ReaderSystemBarsEffect(

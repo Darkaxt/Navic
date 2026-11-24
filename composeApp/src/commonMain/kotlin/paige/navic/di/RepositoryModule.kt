@@ -4,6 +4,7 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 import paige.navic.domain.manager.BinderyReaderPrefetcher
 import paige.navic.domain.manager.ConnectivityManager
+import paige.navic.reader.ReaderIllustrationResolver
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.data.remote.aurral.AurralApiClient
 import paige.navic.data.remote.aurral.KtorAurralApiClient
@@ -56,9 +57,11 @@ val repositoryModule = module {
 			canPrefetch = { requireUnmetered ->
 				connectivityManager.isOnline.value &&
 					!(requireUnmetered && connectivityManager.isCellular.value)
-			}
+			},
+			illustrations = getOrNull()
 		)
 	}
+	single { ReaderIllustrationResolver(repository = get(), storage = getOrNull()) }
 	single<LidaClipsApiClient> { KtorLidaClipsApiClient(get()) }
 	single { LidaClipsRepository(preferenceManager = get(), apiClient = get()) }
 	single<AurralApiClient> { KtorAurralApiClient(get()) }
