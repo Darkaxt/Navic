@@ -436,6 +436,37 @@ class ReaderWhispersyncLifecycleReducerTest {
 	}
 
 	@Test
+	fun transportTurnFromPlayingAudioPlaysTheDestinationWhateverThePlayerReportsMeanwhile() {
+		// Auto page-turn (v1.6.24 tablet): the turn pauses the narration, so the player's reports
+		// (paused, or a last in-flight playing tick) land anywhere in the turn. None may cost the
+		// destination its Play.
+		val paused = stoppedPlaybackState(positionMs = 1_990L)
+		val lateTick = paused.copy(isPlaying = true)
+		for (report in listOf(paused, lateTick)) {
+			for (stage in 0..3) {
+				val label = "report=${report.isPlaying} stage=$stage"
+				fun ReaderController.reported(at: Int) =
+					if (stage == at) onReadaloudPlaybackState(report).controller else this
+				val turn = playingController().onViewerAction(
+					ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next, withAudio = true)
+				)
+				val sequence = requireNotNull(turn.controller.state.whispersync.pendingCausalIntent?.sequence)
+				val relocated = turn.controller.reported(0).onEngineEvent(destinationRelocation(sequence)).controller
+				val destination = relocated.reported(1).onEngineEvent(destinationVisibleRange(sequence))
+				val apply = assertIs<ReaderEngineCommand.ApplyMediaOverlay>(destination.engineCommands.single(), label)
+				val redisplayed = destination.controller.reported(2).onEngineEvent(
+					destinationVisibleRange(sequence).copy(causalSequence = null)
+				).controller.reported(3)
+
+				val confirmed = redisplayed.onEngineEvent(ReaderEngineEvent.MediaOverlayActive(fragment = apply.fragment))
+
+				assertEquals(3_000L, confirmed.whispersyncAudioSeekTarget?.positionMs, label)
+				assertEquals(ReaderReadaloudPlaybackCommand.Play, confirmed.readaloudPlaybackCommand, label)
+			}
+		}
+	}
+
+	@Test
 	fun stalePageTurnSequenceCannotCommitPrepareOrSeek() {
 		val turn = preparedController().onViewerAction(
 			ReaderViewerAction.TurnPage(ReaderPageTurnDirection.Next)

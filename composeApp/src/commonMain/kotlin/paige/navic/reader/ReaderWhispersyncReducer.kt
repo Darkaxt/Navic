@@ -352,9 +352,15 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	}
 	val navigationPending = currentWhispersync.pendingCausalIntent?.provenance ==
 		ReaderWhispersyncEventProvenance.UserNavigation
+	// A prepared start waiting for its overlay owns the transport: the player's reports from before
+	// that start (the turn's pause, a last in-flight playing tick) are stale and must not cancel it
+	// or play the old position (auto page-turn lost its Play on the tablet, v1.6.24).
+	val preparedStartPending = currentWhispersync.playbackStartPending &&
+		currentWhispersync.pendingAudioSeek != null &&
+		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.Preparing
 	val playbackBlocked =
 		currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused ||
-			navigationPending
+			navigationPending || preparedStartPending
 	if (playbackState.isPlaying && playbackBlocked) {
 		return ReaderControllerStep(
 			controller = copy(
@@ -364,7 +370,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 					),
 					whispersync = currentWhispersync.copy(
 						sync = baseSync,
-						transportPhase = if (navigationPending) {
+						transportPhase = if (navigationPending || preparedStartPending) {
 							ReaderWhispersyncTransportPhase.Preparing
 						} else {
 							ReaderWhispersyncTransportPhase.BoundaryPaused
@@ -379,7 +385,7 @@ private fun ReaderController.reduceReadaloudPlaybackState(
 	val playbackStep = if (!playbackState.isPlaying) {
 		when {
 			currentWhispersync.transportPhase == ReaderWhispersyncTransportPhase.BoundaryPaused ||
-				navigationPending -> ReaderWhispersyncPlaybackPositionStep(state = baseSync)
+				navigationPending || preparedStartPending -> ReaderWhispersyncPlaybackPositionStep(state = baseSync)
 			state.chrome.readaloudPlayback.isPlaying -> baseSync.onAudiobookPlaybackPausedStep(
 				audioResource = playbackState.audioResource,
 				positionMs = playbackState.positionMs,
