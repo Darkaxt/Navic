@@ -58,6 +58,7 @@ import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.onPageCurlTurnPhase
 import paige.navic.reader.onWhispersyncPageReadiness
 import paige.navic.reader.whispersyncPlayBlocker
+import paige.navic.reader.withTransportAudioCarry
 import paige.navic.reader.ReaderProcessStateViewModel
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
@@ -1015,6 +1016,20 @@ fun ReaderScreen(reader: Screen.Reader) {
 		},
 		onNextChapter = {
 			applyCoordinatorStep(coordinator.dispatch { navigateToNextChapter() })
+		},
+		// The player's chapter steps carry the narration, like its page steps.
+		onChapterWithAudio = { direction ->
+			applyCoordinatorStep(
+				coordinator.dispatch {
+					withTransportAudioCarry().let { carried ->
+						if (direction == ReaderPageTurnDirection.Next) {
+							carried.navigateToNextChapter()
+						} else {
+							carried.navigateToPreviousChapter()
+						}
+					}
+				}
+			)
 		},
 		onGoToChapterPage = { pageIndex ->
 			applyCoordinatorStep(coordinator.dispatch { navigateToChapterPage(pageIndex) })

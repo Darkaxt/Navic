@@ -38,6 +38,12 @@ import paige.navic.icons.filled.Pause
 import paige.navic.icons.filled.Play
 import paige.navic.icons.filled.Replay10
 import paige.navic.icons.outlined.Close
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.vector.ImageVector
+import paige.navic.icons.filled.SkipNext
+import paige.navic.icons.filled.SkipPrevious
+import paige.navic.icons.outlined.ChevronForward
+import paige.navic.reader.ReaderPageTurnDirection
 import paige.navic.reader.ReaderReadaloudPlaybackCommand
 import paige.navic.reader.ReaderReadaloudPlaybackUiState
 import paige.navic.reader.ReaderWhispersyncStatus
@@ -52,6 +58,8 @@ internal fun KomikkuWhispersyncPlayerDialog(
 	hasPreparedVisibleTarget: Boolean,
 	canStartPlayback: Boolean,
 	onCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
+	onTurnPageWithAudio: (ReaderPageTurnDirection) -> Unit,
+	onChapterWithAudio: (ReaderPageTurnDirection) -> Unit,
 	onDismissRequest: () -> Unit
 ) {
 	BasicAlertDialog(onDismissRequest = onDismissRequest) {
@@ -82,6 +90,10 @@ internal fun KomikkuWhispersyncPlayerDialog(
 					canStartPlayback = canStartPlayback,
 					onCommand = onCommand
 				)
+				KomikkuWhispersyncNavigationRow(
+					onTurnPageWithAudio = onTurnPageWithAudio,
+					onChapterWithAudio = onChapterWithAudio
+				)
 				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 				KomikkuWhispersyncSpeedRow(
 					playbackState = playbackState,
@@ -93,6 +105,53 @@ internal fun KomikkuWhispersyncPlayerDialog(
 				)
 			}
 		}
+	}
+}
+
+/** Page and chapter steps from the player; each carries the narration to where it lands. */
+@Composable
+private fun KomikkuWhispersyncNavigationRow(
+	onTurnPageWithAudio: (ReaderPageTurnDirection) -> Unit,
+	onChapterWithAudio: (ReaderPageTurnDirection) -> Unit
+) {
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.SpaceEvenly,
+		verticalAlignment = Alignment.CenterVertically
+	) {
+		KomikkuWhispersyncNavigationButton(
+			Icons.Filled.SkipPrevious,
+			stringResource(Res.string.action_previous_chapter)
+		) { onChapterWithAudio(ReaderPageTurnDirection.Previous) }
+		KomikkuWhispersyncNavigationButton(
+			Icons.Outlined.ChevronForward,
+			stringResource(Res.string.action_reader_previous_page),
+			mirrored = true
+		) { onTurnPageWithAudio(ReaderPageTurnDirection.Previous) }
+		KomikkuWhispersyncNavigationButton(
+			Icons.Outlined.ChevronForward,
+			stringResource(Res.string.action_reader_next_page)
+		) { onTurnPageWithAudio(ReaderPageTurnDirection.Next) }
+		KomikkuWhispersyncNavigationButton(
+			Icons.Filled.SkipNext,
+			stringResource(Res.string.action_next_chapter)
+		) { onChapterWithAudio(ReaderPageTurnDirection.Next) }
+	}
+}
+
+@Composable
+private fun KomikkuWhispersyncNavigationButton(
+	icon: ImageVector,
+	description: String,
+	mirrored: Boolean = false,
+	onClick: () -> Unit
+) {
+	IconButton(onClick = onClick) {
+		Icon(
+			imageVector = icon,
+			contentDescription = description,
+			modifier = if (mirrored) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier
+		)
 	}
 }
 

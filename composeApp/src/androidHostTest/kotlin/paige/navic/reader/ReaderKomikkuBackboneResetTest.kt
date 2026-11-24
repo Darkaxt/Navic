@@ -2014,6 +2014,15 @@ class ReaderKomikkuBackboneResetTest {
 			"The Whispersync transport row must offer back/forward page, play/pause and stop."
 		)
 		assertTrue(
+			playerDialogText.contains("onChapterWithAudio(ReaderPageTurnDirection.Previous)") &&
+				playerDialogText.contains("onTurnPageWithAudio(ReaderPageTurnDirection.Previous)") &&
+				playerDialogText.contains("onTurnPageWithAudio(ReaderPageTurnDirection.Next)") &&
+				playerDialogText.contains("onChapterWithAudio(ReaderPageTurnDirection.Next)") &&
+				readerRootText.contains("onChapterWithAudio = onChapterWithAudio,") &&
+				readerScreenText.contains("withTransportAudioCarry().let { carried ->"),
+			"The Whispersync player offers previous/next chapter and page, each carrying the narration."
+		)
+		assertTrue(
 			readerRootText.contains("openingQuestionPending = openingCacheScopeAsked && !openingCacheScopeAnswered") &&
 				readerRootText.contains("onPageReadinessChange(pageReadinessHoldReason)"),
 			"Read-along audio must hold while the page is not ready, including the unanswered opening question."

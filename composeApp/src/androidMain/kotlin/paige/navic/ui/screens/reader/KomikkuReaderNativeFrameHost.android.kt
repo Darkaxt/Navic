@@ -359,6 +359,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageCacheScope: String?,
 	pageCacheLayouts: String?,
 	pageTurnSnapshotKey: Int,
+	pageTurnLayoutKey: Int,
 	pageTurnContentReadyKey: String?,
 	pageTurnPaginationStatus: String?,
 	pageTurnVisualPageIndex: Int?,
@@ -510,7 +511,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
-					setPageTurnSnapshotKey(pageTurnSnapshotKey)
+					setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 					setPageTurnContentReadyKey(pageTurnContentReadyKey)
 					setPageTurnPaginationStatus(pageTurnPaginationStatus)
 					pageTurnFoliateSessionId?.let { sessionId ->
@@ -567,7 +568,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
-				root.setPageTurnSnapshotKey(pageTurnSnapshotKey)
+				root.setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 				root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
 				root.setPageTurnPaginationStatus(pageTurnPaginationStatus)
 				pageTurnFoliateSessionId?.let { sessionId ->
@@ -840,8 +841,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setBookPreparationAlternate(orientation)
 	}
 
-	fun setPageTurnSnapshotKey(snapshotKey: Int) {
-		viewerContainer.setPageTurnSnapshotKey(snapshotKey)
+	fun setPageTurnSnapshotKey(snapshotKey: Int, layoutKey: Int) {
+		viewerContainer.setPageTurnSnapshotKey(snapshotKey, layoutKey)
 	}
 
 	fun setPageTurnContentReadyKey(contentReadyKey: String?) {
@@ -1817,6 +1818,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	// A settings change of a readable page holds preparation until the reader keeps the layout.
 	private var layoutReviewHold = false
 	private var layoutReviewOriginSnapshotKey = Int.MIN_VALUE
+	private var layoutReviewOriginLayoutKey = Int.MIN_VALUE
+	// The page layout key that goes with pageTurnSnapshotKey (stored when the snapshot changes).
+	private var pageTurnLayoutKey = Int.MIN_VALUE
 	private var lastPublishedPagePreparationPresentation = ReaderPagePreparationPresentation.Cover
 
 	// A settings mutation reflows the live page and posts relocations before it commits, so the
@@ -2074,20 +2078,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		)
 	}
 
-	fun setPageTurnSnapshotKey(snapshotKey: Int) {
+	fun setPageTurnSnapshotKey(snapshotKey: Int, layoutKey: Int) {
 		if (pageTurnSnapshotKey == snapshotKey) return
 		dispatchPageHostLifecycleEvent(
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		beginReadableLayoutRegeneration()
 		if (regeneratingReadableLayout) {
-			if (!layoutReviewHold) layoutReviewOriginSnapshotKey = pageTurnSnapshotKey
-			// Settings put back to the layout the reader already had: nothing left to review.
+			if (!layoutReviewHold) {
+				layoutReviewOriginSnapshotKey = pageTurnSnapshotKey
+				layoutReviewOriginLayoutKey = pageTurnLayoutKey
+			}
+			// Settings put back to the layout the reader already had: nothing left to review. A
+			// visual-only change (theme, paper, highlight) keeps the layout: it regenerates unasked.
 			val wasHeld = layoutReviewHold
-			layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey
+			layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey &&
+				layoutKey != layoutReviewOriginLayoutKey
 			if (wasHeld && !layoutReviewHold) publishMergedPagePreparationState()
 		}
 		pageTurnSnapshotKey = snapshotKey
+		pageTurnLayoutKey = layoutKey
 		playLikeCurlController.setSnapshotKey(snapshotKey)
 		pageRasterPreparationController.invalidate(
 			reason = "settings-changed",

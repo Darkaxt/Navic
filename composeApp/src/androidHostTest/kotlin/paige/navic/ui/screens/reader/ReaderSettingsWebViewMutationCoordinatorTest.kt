@@ -22,7 +22,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		)
 		val coordinator = ReaderSettingsWebViewMutationCoordinator(
 			ownership = ownership,
-			onSnapshotCommitted = { snapshotKey ->
+			onSnapshotCommitted = { snapshotKey, _ ->
 				events += "snapshot:$snapshotKey"
 			}
 		)
@@ -40,7 +40,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		).mutation
 		assertTrue(mutation.isCurrent())
 
-		assertTrue(mutation.commit(snapshotKey = 29))
+		assertTrue(mutation.commit(snapshotKey = 29, layoutKey = 29))
 
 		assertEquals(
 			listOf("snapshot:29", "passive-available"),
@@ -56,7 +56,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		val ownership = ReaderForegroundWebViewOwnership()
 		val coordinator = ReaderSettingsWebViewMutationCoordinator(
 			ownership = ownership,
-			onSnapshotCommitted = { events += "snapshot:$it" },
+			onSnapshotCommitted = { snapshotKey, _ -> events += "snapshot:$snapshotKey" },
 			onMutationStarted = { events += "started" },
 			onMutationFinished = { events += "finished" }
 		)
@@ -65,7 +65,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		coordinator.acquireSettingsMutation(requestId = 3L, readiness::add)
 		val committed = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(readiness.single()).mutation
 		assertEquals(listOf("started"), events)
-		assertTrue(committed.commit(snapshotKey = 5))
+		assertTrue(committed.commit(snapshotKey = 5, layoutKey = 5))
 		assertFalse(committed.cancel())
 		assertEquals(listOf("started", "snapshot:5", "finished"), events)
 
@@ -73,7 +73,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		coordinator.acquireSettingsMutation(requestId = 4L, readiness::add)
 		val cancelled = assertIs<ReaderSettingsWebViewMutationReadiness.Ready>(readiness.last()).mutation
 		assertTrue(cancelled.cancel())
-		assertFalse(cancelled.commit(snapshotKey = 6))
+		assertFalse(cancelled.commit(snapshotKey = 6, layoutKey = 6))
 		assertEquals(listOf("started", "finished"), events)
 		assertEquals(0, ownership.snapshot().liveClaims)
 	}
@@ -91,7 +91,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		)
 		val coordinator = ReaderSettingsWebViewMutationCoordinator(
 			ownership = ownership,
-			onSnapshotCommitted = committedSnapshots::add
+			onSnapshotCommitted = { snapshotKey, _ -> committedSnapshots.add(snapshotKey) }
 		)
 		val readiness = mutableListOf<ReaderSettingsWebViewMutationReadiness>()
 
@@ -121,7 +121,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		)
 		val coordinator = ReaderSettingsWebViewMutationCoordinator(
 			ownership = ownership,
-			onSnapshotCommitted = {}
+			onSnapshotCommitted = { _, _ -> }
 		)
 		val readiness = mutableListOf<ReaderSettingsWebViewMutationReadiness>()
 
@@ -142,7 +142,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 		val ownership = ReaderForegroundWebViewOwnership()
 		val coordinator = ReaderSettingsWebViewMutationCoordinator(
 			ownership = ownership,
-			onSnapshotCommitted = {}
+			onSnapshotCommitted = { _, _ -> }
 		)
 		val settingsReadiness = mutableListOf<ReaderSettingsWebViewMutationReadiness>()
 		coordinator.acquireSettingsMutation(
@@ -160,7 +160,7 @@ class ReaderSettingsWebViewMutationCoordinatorTest {
 
 		assertTrue(pageReadiness.isEmpty())
 		assertTrue(settingsMutation.isCurrent())
-		assertTrue(settingsMutation.commit(snapshotKey = 29))
+		assertTrue(settingsMutation.commit(snapshotKey = 29, layoutKey = 29))
 		assertEquals(
 			listOf<ReaderForegroundWebViewLiveReadiness>(
 				ReaderForegroundWebViewLiveReadiness.Ready

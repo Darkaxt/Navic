@@ -40,6 +40,7 @@ import paige.navic.reader.ReaderWebCommandDispatchState
 import paige.navic.reader.ReaderWebRuntime
 import paige.navic.reader.commandsForReadyReaderRuntime
 import paige.navic.reader.readerManagedStorageRoot
+import paige.navic.reader.readerPageLayoutKey
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.shouldDispatchReaderCommandsToWebRuntime
 import paige.navic.util.core.Logger
@@ -420,7 +421,7 @@ actual fun ReaderEngineWebViewHost(
 					val snapshotKey = settings.readerPageRasterSnapshotKey()
 					if (
 						!activeSettingsMutation.compareAndSet(active, null) ||
-						!mutation.commit(snapshotKey)
+						!mutation.commit(snapshotKey, settings.readerPageLayoutKey())
 					) {
 						mutation.cancel()
 						return

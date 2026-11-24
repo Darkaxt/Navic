@@ -18,9 +18,31 @@ internal fun ReaderSettings.readerEngineSettingsProjection(): ReaderSettings =
 		keepScreenOn = null,
 		readaloudSyncEnabled = null,
 		whispersyncHighlightLeadMs = null,
+		whispersyncPageBoundary = null,
 		volumeKeyPageTurns = null,
 		webContentsDebuggingEnabled = null
 	)
 
 internal fun ReaderSettings.readerPageRasterSnapshotKey(): Int =
 	readerEngineSettingsProjection().hashCode()
+
+/**
+ * Where the text falls on the pages. Only a change of this asks the reader to keep the new
+ * layout; colours, paper, tap zones and highlights regenerate the rasters without asking.
+ */
+internal fun ReaderSettings.readerPageLayoutKey(): Int =
+	readerEngineSettingsProjection().copy(
+		theme = null,
+		paperTextureEnabled = null,
+		pageEdgesEnabled = null,
+		paperStainsEnabled = null,
+		coverBackdropEnabled = null,
+		dragAnimationMode = null,
+		tapZone = null,
+		smallerTapZone = null,
+		showTapZones = null,
+		nativeTapZones = null,
+		whispersyncHighlightColorArgb = null,
+		whispersyncHighlightLoading = null,
+		whispersyncHighlightStyle = null
+	).hashCode()

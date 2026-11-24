@@ -1,6 +1,8 @@
 package paige.navic.ui.screens.reader
 
 import java.io.File
+import paige.navic.reader.readerPageLayoutKey
+import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.ReaderPageInteractionState
 import paige.navic.reader.ReaderPageNewPointerDecision
 import paige.navic.reader.ReaderPagePreparationPhase
@@ -239,13 +241,38 @@ class KomikkuReaderNativeFrameHostTest {
 	@Test
 	fun settingsPutBackToTheOriginalLayoutNeedNoReview() {
 		val source = File("src/androidMain/kotlin/paige/navic/ui/screens/reader/KomikkuReaderNativeFrameHost.android.kt").readText()
-		val change = source.substringAfter("fun setPageTurnSnapshotKey(snapshotKey: Int) {\n\t\tif (pageTurnSnapshotKey == snapshotKey) return")
+		val change = source.substringAfter("fun setPageTurnSnapshotKey(snapshotKey: Int, layoutKey: Int) {\n\t\tif (pageTurnSnapshotKey == snapshotKey) return")
 			.substringBefore("\n\t}")
-		val origin = change.indexOf("if (!layoutReviewHold) layoutReviewOriginSnapshotKey = pageTurnSnapshotKey")
-		val hold = change.indexOf("layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey")
+		val origin = change.indexOf("layoutReviewOriginLayoutKey = pageTurnLayoutKey")
+		val hold = change.indexOf("layoutReviewHold = snapshotKey != layoutReviewOriginSnapshotKey &&")
 		assertTrue(origin >= 0 && hold > origin, "the first change of a review remembers the layout it started from")
+		// Only a layout change asks; a visual-only change regenerates the rasters unasked.
+		assertContains(change, "layoutKey != layoutReviewOriginLayoutKey")
 		assertTrue(change.indexOf("pageTurnSnapshotKey = snapshotKey") > hold, "the origin is read before the key moves on")
+		assertTrue(change.indexOf("pageTurnLayoutKey = layoutKey") > hold)
 		assertContains(change, "if (wasHeld && !layoutReviewHold) publishMergedPagePreparationState()")
+	}
+
+	@Test
+	fun visualOnlySettingsKeepThePageLayoutKey() {
+		val base = paige.navic.reader.defaultReaderSettings()
+		val layout = base.readerPageLayoutKey()
+		for (visual in listOf(
+			base.copy(theme = "dark"),
+			base.copy(paperTextureEnabled = false),
+			base.copy(whispersyncHighlightStyle = "marker"),
+			base.copy(whispersyncHighlightColorArgb = 0x112233),
+			base.copy(whispersyncPageBoundary = "turn-page-automatically")
+		)) {
+			kotlin.test.assertEquals(layout, visual.readerPageLayoutKey())
+		}
+		kotlin.test.assertNotEquals(layout, base.copy(fontSizePercent = 150).readerPageLayoutKey())
+		kotlin.test.assertNotEquals(layout, base.copy(lineHeight = 2.2).readerPageLayoutKey())
+		// The listening page boundary is not part of the page rasters either.
+		kotlin.test.assertEquals(
+			base.readerPageRasterSnapshotKey(),
+			base.copy(whispersyncPageBoundary = "turn-page-automatically").readerPageRasterSnapshotKey()
+		)
 	}
 
 	@Test

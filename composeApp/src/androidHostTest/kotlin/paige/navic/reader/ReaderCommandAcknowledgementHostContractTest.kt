@@ -128,7 +128,7 @@ class ReaderCommandAcknowledgementHostContractTest {
 		assertContains(visualCommit, "postVisualStateCallback")
 		assertContains(visualCommit, "settingsVisualStateSequence")
 		assertContains(visualCommit, "mutation.isCurrent()")
-		assertContains(visualCommit, "mutation.commit(snapshotKey)")
+		assertContains(visualCommit, "mutation.commit(snapshotKey, settings.readerPageLayoutKey())")
 		assertContains(
 			visualCommit,
 			"commandDispatchState.acknowledge(active.commandId)"

@@ -21,7 +21,7 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 	private val ownership: ReaderForegroundWebViewOwnership,
 	private val claim: ReaderForegroundWebViewLiveClaim,
 	private val generation: ReaderForegroundWebViewMutationGeneration,
-	private val onSnapshotCommitted: (Int) -> Unit,
+	private val onSnapshotCommitted: (snapshotKey: Int, layoutKey: Int) -> Unit,
 	private val onFinished: () -> Unit = {}
 ) {
 	private var terminal = false
@@ -29,12 +29,12 @@ internal class ReaderSettingsWebViewMutation internal constructor(
 	fun isCurrent(): Boolean =
 		!terminal && ownership.isCurrent(claim, generation)
 
-	fun commit(snapshotKey: Int): Boolean {
+	fun commit(snapshotKey: Int, layoutKey: Int): Boolean {
 		if (terminal) return false
 		terminal = true
 		val current = ownership.isCurrent(claim, generation)
 		try {
-			if (current) onSnapshotCommitted(snapshotKey)
+			if (current) onSnapshotCommitted(snapshotKey, layoutKey)
 		} finally {
 			ownership.releaseLive(claim)
 			onFinished()
@@ -59,7 +59,7 @@ internal class ReaderSettingsWebViewMutation internal constructor(
  */
 internal class ReaderSettingsWebViewMutationCoordinator(
 	private val ownership: ReaderForegroundWebViewOwnership,
-	private val onSnapshotCommitted: (Int) -> Unit,
+	private val onSnapshotCommitted: (snapshotKey: Int, layoutKey: Int) -> Unit,
 	private val onMutationStarted: () -> Unit = {},
 	private val onMutationFinished: () -> Unit = {}
 ) : ReaderSettingsWebViewMutationHost {

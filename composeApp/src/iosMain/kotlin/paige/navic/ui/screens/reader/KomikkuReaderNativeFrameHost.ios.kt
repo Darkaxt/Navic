@@ -36,6 +36,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	pageCacheScope: String?,
 	pageCacheLayouts: String?,
 	pageTurnSnapshotKey: Int,
+	pageTurnLayoutKey: Int,
 	pageTurnContentReadyKey: String?,
 	pageTurnPaginationStatus: String?,
 	pageTurnVisualPageIndex: Int?,

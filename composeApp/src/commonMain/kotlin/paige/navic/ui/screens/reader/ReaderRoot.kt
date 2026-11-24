@@ -49,6 +49,7 @@ import paige.navic.reader.readerWhispersyncPlaybackControlState
 import paige.navic.reader.readerWhispersyncTransportControls
 import paige.navic.reader.readAlongHoldReason
 import paige.navic.reader.productionDiagnosticSurface
+import paige.navic.reader.readerPageLayoutKey
 import paige.navic.reader.readerPageRasterSnapshotKey
 import paige.navic.reader.readerPageTurnContentReadyKey
 import paige.navic.reader.supportsReaderEngineCapability
@@ -98,6 +99,7 @@ internal fun KomikkuReaderRoot(
 	onWhispersyncCueMapChromeInterception: () -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
+	onChapterWithAudio: (ReaderPageTurnDirection) -> Unit,
 	onGoToChapterPage: (Int) -> Unit,
 	onContents: () -> Unit,
 	onSearch: () -> Unit,
@@ -252,6 +254,7 @@ internal fun KomikkuReaderRoot(
 			pageCacheLayouts = controllerState.chrome.settings.pageCacheLayouts,
 			pageTurnSnapshotKey = controllerState.readerSettingsPresentationSnapshotKey
 				?: controllerState.chrome.settings.readerPageRasterSnapshotKey(),
+			pageTurnLayoutKey = controllerState.chrome.settings.readerPageLayoutKey(),
 			pageTurnContentReadyKey = readerPageTurnContentReadyKey(
 				controllerState.paginationProfile
 			),
@@ -364,6 +367,7 @@ internal fun KomikkuReaderRoot(
 						readaloudPlaybackState = readaloudPlaybackState,
 						onWhispersyncPlaybackCommand = onWhispersyncPlaybackCommand,
 						onTurnPageWithAudio = { direction -> onViewerAction(ReaderViewerAction.TurnPage(direction, withAudio = true)) },
+						onChapterWithAudio = onChapterWithAudio,
 						onToggleWhispersyncCueMap = onToggleWhispersyncCueMap,
 						onPreviousChapter = onPreviousChapter,
 						onNextChapter = onNextChapter,
@@ -513,6 +517,7 @@ private fun KomikkuComposeOverlay(
 	readaloudPlaybackState: ReaderReadaloudPlaybackUiState?,
 	onWhispersyncPlaybackCommand: (ReaderReadaloudPlaybackCommand) -> Unit,
 	onTurnPageWithAudio: (ReaderPageTurnDirection) -> Unit,
+	onChapterWithAudio: (ReaderPageTurnDirection) -> Unit,
 	onToggleWhispersyncCueMap: () -> Unit,
 	onPreviousChapter: () -> Unit,
 	onNextChapter: () -> Unit,
@@ -704,6 +709,8 @@ private fun KomikkuComposeOverlay(
 						controllerState.whispersync.preparedVisibleTarget != null,
 					canStartPlayback = controllerState.whispersync.canStartPlayback,
 					onCommand = onWhispersyncPlaybackCommand,
+					onTurnPageWithAudio = onTurnPageWithAudio,
+					onChapterWithAudio = onChapterWithAudio,
 					onDismissRequest = onDismissDialog
 				)
 			}
