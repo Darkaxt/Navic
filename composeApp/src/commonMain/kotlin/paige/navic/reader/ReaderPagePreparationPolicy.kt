@@ -60,16 +60,10 @@ data class ReaderPagePreparationState(
 private fun readerPagePreparationPresentation(
 	readiness: ReaderPageReadinessState
 ): ReaderPagePreparationPresentation = when (readiness.interaction) {
+	// Anything that blocks browsing brings back the whole preparation screen, never a card on the page.
 	ReaderPageInteractionState.BlockingInitialPreparation,
-	ReaderPageInteractionState.BlockingProfileRegeneration -> ReaderPagePreparationPresentation.Cover
-	ReaderPageInteractionState.Failed -> if (
-		readiness.textureDeck == ReaderTextureDeckState.Ready &&
-			readiness.decodedWorkingSet == ReaderDecodedWorkingSetState.Ready
-	) {
-		ReaderPagePreparationPresentation.Compact
-	} else {
-		ReaderPagePreparationPresentation.Cover
-	}
+	ReaderPageInteractionState.BlockingProfileRegeneration,
+	ReaderPageInteractionState.Failed -> ReaderPagePreparationPresentation.Cover
 	ReaderPageInteractionState.Ready,
 	ReaderPageInteractionState.Settling,
 	ReaderPageInteractionState.BackgroundPrefetch,

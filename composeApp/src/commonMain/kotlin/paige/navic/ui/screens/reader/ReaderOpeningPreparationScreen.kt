@@ -8,10 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import navic.composeapp.generated.resources.Res
 import navic.composeapp.generated.resources.action_reader_cache_this_chapter
 import navic.composeapp.generated.resources.action_reader_cache_whole_book
-import navic.composeapp.generated.resources.info_reader_book_cache_progress
 import navic.composeapp.generated.resources.action_retry
 import navic.composeapp.generated.resources.info_reader_page_preparation_failed
 import navic.composeapp.generated.resources.info_reader_preparation_detail
@@ -200,38 +197,3 @@ private fun ReaderOpeningPreparationBar(label: String, progress: Float?) {
 	}
 }
 
-/**
- * "Book" cache scope, after the book has opened: the rest of the book is cached in the background,
- * and this small pill shows how far that is, without buttons, until the whole book is cached.
- */
-@Composable
-internal fun ReaderBookCacheProgressPill(fraction: Float, modifier: Modifier = Modifier) {
-	Box(modifier = modifier) {
-		Surface(
-			shape = RoundedCornerShape(16.dp),
-			color = ReaderOpeningPreparationBackground.copy(alpha = 0.88f),
-			modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp)
-		) {
-			Column(
-				modifier = Modifier.widthIn(min = 180.dp).padding(horizontal = 14.dp, vertical = 8.dp),
-				verticalArrangement = Arrangement.spacedBy(6.dp)
-			) {
-				Text(
-					text = stringResource(
-						Res.string.info_reader_book_cache_progress,
-						"${(fraction.coerceIn(0f, 1f) * 100f).toInt()}%"
-					),
-					style = MaterialTheme.typography.labelMedium,
-					color = ReaderOpeningPreparationText
-				)
-				LinearProgressIndicator(
-					progress = { fraction.coerceIn(0f, 1f) },
-					modifier = Modifier.fillMaxWidth(),
-					color = ReaderOpeningPreparationAccent,
-					trackColor = ReaderOpeningPreparationAccent.copy(alpha = 0.2f),
-					drawStopIndicator = {}
-				)
-			}
-		}
-	}
-}

@@ -2092,7 +2092,8 @@ class ReaderRuntimeCommonChromeTest {
 			.substringAfter("internal fun KomikkuWhispersyncTransportControls(")
 
 		assertFalse(readerRootText.contains("KomikkuWhispersyncPlaybackControl("))
-		assertContains(readerRootText, ".align(Alignment.TopStart)")
+		assertContains(readerRootText, ".align(Alignment.TopCenter)")
+		assertContains(readerRootText, "!controllerState.selectionActions.visible &&")
 		assertContains(readerRootText, "readerTheme = controllerState.chrome.settings.theme")
 		assertContains(transportBody, "readerTheme: String?")
 		assertContains(transportBody, "readerThemeForegroundColor(readerTheme).copy(alpha = 0.86f)")

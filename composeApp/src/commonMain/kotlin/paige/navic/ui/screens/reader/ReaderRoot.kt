@@ -152,12 +152,12 @@ internal fun KomikkuReaderRoot(
 	var bookPreparationProgress by remember { mutableStateOf(ReaderBookPreparationProgress()) }
 	var bookPreparationRetryKey by remember { mutableStateOf(0) }
 	val bookPreparationActive = reader.prepareBookPages
-	// "Book" cache scope: the whole book's cached share, read again as pages are cached.
+	// "Book" cache scope: the opening screen also shows the whole book's cached share.
 	val bookCacheScope = !bookPreparationActive &&
 		normalizeReaderPageCacheScope(controllerState.chrome.settings.pageCacheScope) == ReaderPageCacheScope.FullBook
 	val bookCacheCoverage = rememberReaderPageCacheCoverage(
 		destinations = if (bookCacheScope) listOf(reader) else emptyList(),
-		refreshKey = pagePreparationState.completedCount to bookPreparationProgress.preparedPages
+		refreshKey = pagePreparationState.completedCount
 	)
 	val bookCacheFraction = bookCacheCoverage?.takeIf { bookCacheScope && it.totalPages > 0 }
 		?.let { coverage -> coverage.cachedPages.toFloat() / coverage.totalPages }
@@ -447,12 +447,6 @@ internal fun KomikkuReaderRoot(
 						modifier = Modifier.matchParentSize(),
 						bookCacheFraction = bookCacheFraction ?: 0f.takeIf { bookCacheScope }
 					)
-				} else if (
-					bookCacheFraction != null && bookCacheFraction < 1f &&
-					bookPreparationProgress.plannedPages > bookPreparationProgress.preparedPages &&
-					!controllerState.menuVisible
-				) {
-					ReaderBookCacheProgressPill(fraction = bookCacheFraction, modifier = Modifier.matchParentSize())
 				}
 				if (bookPreparationActive) {
 					// A failed page preparation stops the book run, and this overlay covers that
@@ -615,14 +609,16 @@ private fun KomikkuComposeOverlay(
 			}
 		}
 		// The badges live in the top margin; with the chrome open they would sit on the text (#31).
+		// Centred in the top margin, like the page numbers below; the selection actions take that spot.
 		if (
 			!controllerState.menuVisible &&
+			!controllerState.selectionActions.visible &&
 			(whispersyncPlaybackControl.visible || controllerState.whispersync.available)
 		) {
 			Row(
 				modifier = Modifier
-					.align(Alignment.TopStart)
-					.padding(top = 28.dp, start = 28.dp)
+					.align(Alignment.TopCenter)
+					.padding(top = 28.dp)
 			) {
 				// The in-page transport is the whole player surface; the full player opens from the menu bar.
 				if (whispersyncPlaybackControl.visible) {

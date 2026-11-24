@@ -271,10 +271,9 @@ internal fun readerMergedPagePreparationState(
 }
 
 /**
- * A layout-only change (rotation, reader settings, direction, quality) of a chapter that was
- * readable keeps the live page visible: rasters regenerate behind it with compact progress
- * instead of the opaque preparation cover (#50). Turns stay blocked by the operation policy.
- * Failures keep their own presentation.
+ * While a settings change of a readable page is being applied, the live page stays visible (#50):
+ * its intermediate relocations must not flash the preparation screen. Once applied, regenerating
+ * pages blocks browsing and so shows the whole preparation screen. Failures keep their own presentation.
  */
 internal fun readerLayoutRegenerationPreparationState(
 	state: ReaderPagePreparationState,
@@ -509,7 +508,6 @@ actual fun KomikkuReaderNativeFrameHost(
 					setBookPreparationRetryKey(bookPreparationRetryKey)
 					setBookPreparationAlternate(bookPreparationAlternate)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
-					setBookCacheProgress { progress -> currentOnBookPreparationProgress(progress) }
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
 					setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
@@ -567,7 +565,6 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setBookPreparationRetryKey(bookPreparationRetryKey)
 				root.setBookPreparationAlternate(bookPreparationAlternate)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
-				root.setBookCacheProgress { progress -> currentOnBookPreparationProgress(progress) }
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
 				root.setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
@@ -827,10 +824,6 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		viewerContainer.setPageCacheOptions(scope, layouts)
-	}
-
-	fun setBookCacheProgress(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
-		viewerContainer.setBookCacheProgress(listener)
 	}
 
 	/** #66: the reader stays awake while it prepares the whole book. */
@@ -1870,7 +1863,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				rasterState = latestRasterPreparationState,
 				rendererState = latestRendererReadinessState
 			),
-			regeneratingReadableLayout = regeneratingReadableLayout
+			regeneratingReadableLayout = regeneratingReadableLayout && settingsMutationInFlight
 		)
 		val merged = readerLayoutReviewPreparationState(regenerated, layoutReviewHold)
 		if (
@@ -2028,10 +2021,6 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	/** Background-preparation options (#57); host-only, so they never regenerate the layout. */
 	fun setPageCacheOptions(scope: String?, layouts: String?) {
 		pageRasterPreparationController.updatePageCacheOptions(scope, layouts)
-	}
-
-	fun setBookCacheProgress(listener: ((ReaderBookPreparationProgress) -> Unit)?) {
-		pageRasterPreparationController.bookCacheProgressListener = listener
 	}
 
 	private var bookPreparationListener: ((ReaderBookPreparationProgress) -> Unit)? = null

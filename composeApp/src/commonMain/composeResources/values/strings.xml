@@ -993,7 +993,6 @@
 	<string name="action_reader_cache_this_chapter">Chapter</string>
 	<string name="action_reader_cache_whole_book">Book</string>
 	<string name="info_reader_cache_coverage">%1$s cached</string>
-	<string name="info_reader_book_cache_progress">Caching book · %1$s</string>
 	<string name="info_reader_cache_coverage_unknown">Pages cached: %1$s</string>
 	<string name="info_reader_cache_coverage_none">No pages cached yet</string>
 	<string name="info_reader_cache_coverage_ready">All pages ready</string>

@@ -629,12 +629,6 @@ internal class ReaderPageRasterPreparationController(
 		if (listener == null) lastBookPreparationProgress = null
 	}
 
-	/**
-	 * "Book" cache scope: the background caching of the rest of the book is reported here too, so
-	 * the reader can show it; unlike [bookPreparationListener] it changes nothing in the plan.
-	 */
-	var bookCacheProgressListener: ((ReaderBookPreparationProgress) -> Unit)? = null
-
 	/** Shown while a page turn re-plans (#71), so the progress never blanks or goes back to 0. */
 	private var lastBookPreparationProgress: ReaderBookPreparationProgress? = null
 
@@ -668,9 +662,7 @@ internal class ReaderPageRasterPreparationController(
 	}
 
 	private fun reportBookPreparation() {
-		val listener = bookPreparationListener
-			?: bookCacheProgressListener?.takeIf { pageCacheScope == ReaderPageCacheScope.FullBook }
-			?: return
+		val listener = bookPreparationListener ?: return
 		val progress = adjacentChapterPrefetchCoordinator.planProgress()
 			?: return listener(lastBookPreparationProgress ?: ReaderBookPreparationProgress())
 		val phase = when {

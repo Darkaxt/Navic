@@ -223,7 +223,7 @@ class ReaderPagePreparationPolicyTest {
 			retryable = true
 		)
 
-		assertEquals(ReaderPagePreparationPresentation.Compact, state.presentation)
+		assertEquals(ReaderPagePreparationPresentation.Cover, state.presentation)
 		assertTrue(state.retryable)
 	}
 
@@ -313,7 +313,7 @@ class ReaderPagePreparationPolicyTest {
 
 		assertEquals(ReaderPageInteractionState.Failed, merged.readiness.interaction)
 		assertEquals(ReaderTextureDeckState.Ready, merged.readiness.textureDeck)
-		assertEquals(ReaderPagePreparationPresentation.Compact, merged.presentation)
+		assertEquals(ReaderPagePreparationPresentation.Cover, merged.presentation)
 		assertTrue(merged.retryable)
 	}
 
