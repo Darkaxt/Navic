@@ -122,6 +122,29 @@ class ReaderPageTurnDestinationSourceTest {
 	}
 
 	@Test
+	fun keyboardOnlyViewportChangesDoNotRelayoutTheBook() {
+		val root = readerAssetRoot()
+		val viewport = root.resolve("navic-reader-viewport.js").readText()
+		val applyLayout = viewport
+			.substringAfter("function applyReaderViewportLayout(label = 'unknown', options = {}) {")
+			.substringBefore("\n}\n")
+		val skip = applyLayout.indexOf("if (layoutViewport === this.readerLayoutViewport) {")
+		assertTrue(skip >= 0)
+		assertTrue(skip < applyLayout.indexOf("this.clearPaginationProfileOwnership('viewport-resize')"))
+		assertTrue(skip < applyLayout.indexOf("this.startCompletePaginationProfileReplacementAfterLayout('viewport-resize')"))
+		assertContains(viewport, "`\${Math.round(window.innerWidth || 0)}x\${Math.round(window.innerHeight || 0)}`")
+		assertContains(applyLayout, "this.readerLayoutViewport = layoutViewport")
+		assertContains(
+			root.resolve("navic-reader.js").readText(),
+			"viewportResizeListener = () => this.applyReaderViewportLayout('resize')"
+		)
+		val host = root.parentFile.parentFile
+			.resolve("kotlin/paige/navic/reader/ReaderEngineWebViewHost.android.kt").readText()
+		assertContains(host, ".setInsets(ime, Insets.NONE)")
+		assertContains(host, "return super.onApplyWindowInsets(withoutIme)")
+	}
+
+	@Test
 	fun paginatorAppliesSectionStylesBeforeResolvingItsExactTextPage() {
 		val paginator = readerAssetRoot().resolve("vendor/foliate-js/paginator.js").readText()
 		val display = paginator

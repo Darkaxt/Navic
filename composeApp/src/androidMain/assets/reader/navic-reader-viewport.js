@@ -78,12 +78,24 @@ function anchorReaderRelayoutToReadingStart(runtime) {
   log(`relayout-reading-anchor:${kept ? 1 : 0},${anchored ? 1 : 0}`)
 }
 
+// #75: the WebView's own size. A dialog's keyboard can shrink only the visual viewport, and one real
+// resize fires both the window and the visualViewport listener.
+const readerLayoutViewportKey = () =>
+  `${Math.round(window.innerWidth || 0)}x${Math.round(window.innerHeight || 0)}`
+
 function applyReaderViewportLayout(label = 'unknown', options = {}) {
+  const layoutViewport = readerLayoutViewportKey()
   if (label === 'resize') {
+    if (layoutViewport === this.readerLayoutViewport) {
+      log(`viewport-layout:resize-unchanged,${layoutViewport}`)
+      return
+    }
+    this.whispersyncCueMap?.clear()
     if (!anchorReaderRelayoutToLiveOverlay(this)) anchorReaderRelayoutToReadingStart(this)
     this.clearPaginationProfileOwnership('viewport-resize')
     this.destroyPageTurnPreviewRenderer('viewport-resize')
   }
+  this.readerLayoutViewport = layoutViewport
   const { width, height } = readerViewportSize()
   const widthPx = `${width}px`
   const heightPx = `${height}px`
@@ -162,7 +174,7 @@ function applyReaderViewportLayout(label = 'unknown', options = {}) {
   }
   this.renderTapZoneOverlayLayer()
   this.preloadPageDragPreviewTargets?.(`viewport-layout:${label}`)
-  log('viewport-layout', `label=${label}`, `${width}x${height}`)
+  log(`viewport-layout:${label},${width}x${height},${layoutViewport}`)
   if (label === 'resize') {
     this.startCompletePaginationProfileReplacementAfterLayout('viewport-resize')
   }

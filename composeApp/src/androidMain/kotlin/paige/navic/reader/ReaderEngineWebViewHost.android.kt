@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.WindowInsets
 import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -23,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.Insets
+import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewAssetLoader
 import paige.navic.reader.ReaderBridgeCommand
 import paige.navic.reader.ReaderBridgeDispatchCommand
@@ -72,6 +75,8 @@ internal object ReaderEngineLogProjector {
 	private val approvedWordSyncRelayoutAnchor = Regex("^wordsync-relayout-anchor:[01](,[01]){3}$")
 	private val approvedRelayoutReadingAnchor = Regex("^relayout-reading-anchor:[01],[01]$")
 	private val approvedProvenanceTiming = Regex("^provenance-timing:[0-9]{1,9}(,[0-9]{1,7}){6}$")
+	private val approvedViewportLayout =
+		Regex("^viewport-layout:[a-z:-]{1,40}(,[0-9]{1,5}x[0-9]{1,5}){1,2}$")
 
 	fun command(dispatch: ReaderBridgeDispatchCommand): String =
 		"Dispatching reader engine command: ${dispatch.command.type}"
@@ -100,7 +105,8 @@ internal object ReaderEngineLogProjector {
 					approvedWordSyncProgressDegraded.matches(it) ||
 					approvedWordSyncRelayoutAnchor.matches(it) ||
 					approvedRelayoutReadingAnchor.matches(it) ||
-					approvedProvenanceTiming.matches(it)
+					approvedProvenanceTiming.matches(it) ||
+					approvedViewportLayout.matches(it)
 			}
 			?: RedactedConsoleDiagnostic
 		return "Reader console ${level.diagnosticName()}: $diagnostic"
@@ -157,6 +163,22 @@ private class ReaderEngineWebView(context: Context) : WebView(context) {
 	override fun onWindowVisibilityChanged(visibility: Int) {
 		super.onWindowVisibilityChanged(visibility)
 		windowVisibilityListener?.invoke(visibility)
+	}
+
+	// #75: the reader never takes text input. A dialog's keyboard reaches this edge-to-edge WebView as
+	// an IME inset, which shrinks its visual viewport and repaginated the book behind the search dialog.
+	override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+		val compat = WindowInsetsCompat.toWindowInsetsCompat(insets, this)
+		val ime = WindowInsetsCompat.Type.ime()
+		if (!compat.isVisible(ime) && compat.getInsets(ime) == Insets.NONE) {
+			return super.onApplyWindowInsets(insets)
+		}
+		val withoutIme = WindowInsetsCompat.Builder(compat)
+			.setInsets(ime, Insets.NONE)
+			.setVisible(ime, false)
+			.build()
+			.toWindowInsets() ?: insets
+		return super.onApplyWindowInsets(withoutIme)
 	}
 }
 

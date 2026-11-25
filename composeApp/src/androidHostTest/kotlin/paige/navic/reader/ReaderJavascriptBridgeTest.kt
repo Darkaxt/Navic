@@ -220,6 +220,24 @@ class ReaderJavascriptBridgeTest {
 				expected = "Reader console DEBUG: relayout-reading-anchor:1,1"
 			),
 			ProjectionCase(
+				description = "viewport layout size trace",
+				output = ReaderEngineLogProjector.console(
+					level = "LOG",
+					message = "[NavicReader] viewport-layout:resize-unchanged,2960x1848 $messageCanary",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console LOG: viewport-layout:resize-unchanged,2960x1848"
+			),
+			ProjectionCase(
+				description = "viewport layout carrying text is redacted",
+				output = ReaderEngineLogProjector.console(
+					level = "LOG",
+					message = "[NavicReader] viewport-layout:resize,sand",
+					sourceId = sourceCanary
+				),
+				expected = "Reader console LOG: [redacted-reader-console]"
+			),
+			ProjectionCase(
 				description = "provenance timing numeric trace",
 				output = ReaderEngineLogProjector.console(
 					level = "DEBUG",

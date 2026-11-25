@@ -341,10 +341,7 @@ class NavicReaderRuntime {
   pendingExplicitCueSelectionCausalSequence = null
   destinationCommitSequence = 0
   whispersyncCueMap = null
-  viewportResizeListener = () => {
-    this.whispersyncCueMap?.clear()
-    this.applyReaderViewportLayout('resize')
-  }
+  viewportResizeListener = () => this.applyReaderViewportLayout('resize')
 
   constructor() {
     this.whispersyncCueMap = new ReaderWhispersyncCueMapRuntime({
