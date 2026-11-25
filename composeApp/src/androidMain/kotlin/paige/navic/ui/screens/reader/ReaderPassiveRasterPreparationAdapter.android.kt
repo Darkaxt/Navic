@@ -429,6 +429,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			)
 			return
 		}
+		var publicationSettled = false
 		currentLivePublicationPort.publish(
 			reference = reference,
 			priority = target.priority,
@@ -436,7 +437,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				isPreparationGenerationCurrent(batch) && batchIsCurrent(batch)
 			}
 		) { completion ->
-			if (!batchIsCurrent(batch) || batch.targetIndex != targetIndex) {
+			publicationSettled = true
+			val overlapped = batch.inFlightWrite === target
+			if (!batchIsCurrent(batch) || (!overlapped && batch.targetIndex != targetIndex)) {
 				return@publish
 			}
 			readerPageRasterPersistenceTerminalOutcome(
@@ -448,8 +451,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				finish(batch, outcome)
 				return@publish
 			}
-			completeTarget(batch, target)
+			if (overlapped) settleOverlappedWrite(batch, target) else completeTarget(batch, target)
 		}
+		if (!publicationSettled) overlapWrite(batch, target)
 	}
 
 	private fun resolveTarget(
@@ -1089,12 +1093,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 							)
 						}
 						if (batch.inFlightWrite === target) {
-							batch.inFlightWrite = null
-							reportTargetDurable(batch, target)
-							batch.afterInFlightWrite?.let { next ->
-								batch.afterInFlightWrite = null
-								next()
-							}
+							settleOverlappedWrite(batch, target)
 						} else {
 							completeTarget(batch, target)
 						}
@@ -1141,19 +1140,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 					)
 				}
 			}
-			// #78: the raster is admitted and its encode runs off the main thread; render the
-			// next target meanwhile. One write overlaps at most, and the batch still counts a
-			// target (and reaches Ready) only when its write is durable.
-			if (
-				!publicationSettled &&
-				batchIsCurrent(batch) &&
-				batch.inFlightWrite == null &&
-				batch.targets.getOrNull(batch.targetIndex) === target
-			) {
-				batch.inFlightWrite = target
-				batch.targetIndex += 1
-				prepareTarget(batch)
-			}
+			if (!publicationSettled) overlapWrite(batch, target)
 		}
 	}
 
@@ -1176,6 +1163,31 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		reportTargetDurable(batch, target)
 		batch.targetIndex += 1
 		prepareTarget(batch)
+	}
+
+	// #78: [target]'s durable write runs off the main thread; render the next target meanwhile.
+	// One write overlaps at most, and the batch still counts a target (and reaches Ready) only
+	// when its write is durable.
+	private fun overlapWrite(batch: Batch, target: ReaderPageRasterBatchTarget) {
+		if (
+			!batchIsCurrent(batch) ||
+			batch.inFlightWrite != null ||
+			batch.targets.getOrNull(batch.targetIndex) !== target
+		) {
+			return
+		}
+		batch.inFlightWrite = target
+		batch.targetIndex += 1
+		prepareTarget(batch)
+	}
+
+	private fun settleOverlappedWrite(batch: Batch, target: ReaderPageRasterBatchTarget) {
+		batch.inFlightWrite = null
+		reportTargetDurable(batch, target)
+		batch.afterInFlightWrite?.let { next ->
+			batch.afterInFlightWrite = null
+			next()
+		}
 	}
 
 	private fun reportTargetDurable(batch: Batch, target: ReaderPageRasterBatchTarget) {

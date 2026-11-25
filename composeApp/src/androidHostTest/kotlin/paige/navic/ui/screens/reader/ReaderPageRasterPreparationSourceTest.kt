@@ -885,12 +885,31 @@ class ReaderPageRasterPreparationSourceTest {
 			endDelimiter = "private fun finish("
 		)
 
-		// The next target starts only after the admission handed the raster to the writer.
-		val overlap = admission.indexOf("batch.inFlightWrite = target")
-		assertTrue(overlap > admission.indexOf("bundleSource.admitPassiveRasterCapture("))
-		assertContains(admission, "!publicationSettled &&")
-		assertContains(admission, "batch.inFlightWrite == null &&")
-		assertContains(admission, "if (batch.inFlightWrite === target) {")
+		val currentLive = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun fulfillCurrentLiveTarget(",
+			endDelimiter = "private fun resolveTarget("
+		)
+		val overlap = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun overlapWrite(",
+			endDelimiter = "private fun reportTargetDurable("
+		)
+
+		// The next target starts only after the raster was handed to the writer, for both the
+		// captured neighbours and the live centre page.
+		assertTrue(
+			admission.indexOf("if (!publicationSettled) overlapWrite(batch, target)") >
+				admission.indexOf("bundleSource.admitPassiveRasterCapture(")
+		)
+		assertContains(admission, "settleOverlappedWrite(batch, target)")
+		assertTrue(
+			currentLive.indexOf("if (!publicationSettled) overlapWrite(batch, target)") >
+				currentLive.indexOf("currentLivePublicationPort.publish(")
+		)
+		assertContains(currentLive, "if (overlapped) settleOverlappedWrite(batch, target)")
+		assertContains(overlap, "batch.inFlightWrite != null ||")
+		assertContains(overlap, "batch.inFlightWrite = target")
 		// Ready waits for the overlapped write; durability is reported in target order.
 		assertTrue(
 			prepare.indexOf("if (batch.inFlightWrite != null) {") <
