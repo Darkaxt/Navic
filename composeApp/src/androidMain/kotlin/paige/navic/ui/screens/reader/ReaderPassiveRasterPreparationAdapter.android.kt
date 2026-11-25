@@ -222,6 +222,9 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		// #78: the captured target whose durable write runs while the next target renders.
 		var inFlightWrite: ReaderPageRasterBatchTarget? = null,
 		var afterInFlightWrite: (() -> Unit)? = null,
+		// A deferral waiting for [inFlightWrite]: its retry must not publish the same page again
+		// while the write is still running (the ledger rejects a third waiter on one raster).
+		var drainingOutcome: ReaderPageRasterBatchOutcome? = null,
 		var hydration: ReaderPageRasterHydrationRequest? = null,
 		var committedCapture: ReaderPassiveRasterCommittedCapture<Bitmap>? = null,
 		var pendingCapture: ReaderPassiveRasterCaptureResult<Bitmap>? = null
@@ -434,12 +437,15 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			reference = reference,
 			priority = target.priority,
 			isStillCurrent = {
-				isPreparationGenerationCurrent(batch) && batchIsCurrent(batch)
+				isPreparationGenerationCurrent(batch) && batchAcceptsWrite(batch)
 			}
 		) { completion ->
 			publicationSettled = true
 			val overlapped = batch.inFlightWrite === target
-			if (!batchIsCurrent(batch) || (!overlapped && batch.targetIndex != targetIndex)) {
+			if (
+				!(if (overlapped) batchAcceptsWrite(batch) else batchIsCurrent(batch)) ||
+				(!overlapped && batch.targetIndex != targetIndex)
+			) {
 				return@publish
 			}
 			readerPageRasterPersistenceTerminalOutcome(
@@ -1073,11 +1079,14 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				priority = target.priority,
 				preparationGeneration = batch.preparationGeneration,
 				isPreparationGenerationCurrent = batch.isPreparationGenerationCurrent,
-				isStillCurrent = { batchIsCurrent(batch) },
+				isStillCurrent = { batchAcceptsWrite(batch) },
 				onRejected = { rejection -> passiveRasterRejection = rejection }
 			) admitted@{ completion ->
 				publicationSettled = true
-				if (!batchIsCurrent(batch)) return@admitted
+				val overlapped = batch.inFlightWrite === target
+				if (!(if (overlapped) batchAcceptsWrite(batch) else batchIsCurrent(batch))) {
+					return@admitted
+				}
 				when (completion.result) {
 					ReaderPageRasterPublicationResult.Durable -> {
 						if (
@@ -1092,7 +1101,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 								)
 							)
 						}
-						if (batch.inFlightWrite === target) {
+						if (overlapped) {
 							settleOverlappedWrite(batch, target)
 						} else {
 							completeTarget(batch, target)
@@ -1198,6 +1207,19 @@ internal class ReaderPassiveRasterPreparationAdapter(
 
 	private fun finish(batch: Batch, outcome: ReaderPageRasterBatchOutcome) {
 		if (activeBatch !== batch) return
+		// A deferral waits for the overlapped write, so the retry finds that page durable instead
+		// of publishing it a second time while it is still being written.
+		if (
+			outcome is ReaderPageRasterBatchOutcome.Deferred &&
+			batch.inFlightWrite != null &&
+			batch.drainingOutcome == null
+		) {
+			batch.drainingOutcome = outcome
+			batch.hydration?.cancel()
+			batch.hydration = null
+			batch.afterInFlightWrite = { finish(batch, outcome) }
+			return
+		}
 		activeBatch = null
 		batch.hydration?.cancel()
 		batch.hydration = null
@@ -1263,6 +1285,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		}.getOrDefault(false)
 
 	private fun batchIsCurrent(batch: Batch): Boolean =
+		batch.drainingOutcome == null && batchAcceptsWrite(batch)
+
+	// The batch may still settle its overlapped write (also while a deferral drains).
+	private fun batchAcceptsWrite(batch: Batch): Boolean =
 		lifecycle == Lifecycle.Active &&
 			activeBatch === batch &&
 			batch.rasterGeneration == bundleSource.currentGeneration() &&

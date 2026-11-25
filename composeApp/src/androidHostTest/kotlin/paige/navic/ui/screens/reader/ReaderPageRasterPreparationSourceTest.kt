@@ -920,6 +920,20 @@ class ReaderPageRasterPreparationSourceTest {
 				complete.indexOf("reportTargetDurable(batch, target)")
 		)
 		assertContains(complete, "batch.onProgress(batch.durableCount, batch.targets.size)")
+		// A deferral drains the overlapped write first: the retry must not publish the same raster
+		// while it is still being written (the ledger rejected the third waiter as a write failure).
+		val finish = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun finish(",
+			endDelimiter = "private fun Batch.releaseCommittedCapture("
+		)
+		assertTrue(
+			finish.indexOf("batch.afterInFlightWrite = { finish(batch, outcome) }") in
+				0 until finish.indexOf("activeBatch = null")
+		)
+		assertContains(adapter, "batch.drainingOutcome == null && batchAcceptsWrite(batch)")
+		assertContains(currentLive, "if (overlapped) batchAcceptsWrite(batch) else batchIsCurrent(batch)")
+		assertContains(admission, "if (overlapped) batchAcceptsWrite(batch) else batchIsCurrent(batch)")
 	}
 
 	@Test
