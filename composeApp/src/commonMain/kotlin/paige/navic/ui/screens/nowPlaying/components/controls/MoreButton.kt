@@ -41,6 +41,7 @@ import paige.navic.shared.MediaPlayerViewModel
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
+import paige.navic.ui.screens.artist.structuredArtistCreditRoute
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.ui.screens.share.dialogs.ShareDialog
 import paige.navic.ui.theme.NavicTheme
@@ -114,16 +115,8 @@ fun NowPlayingMoreButton(
 					}
 				},
 				onViewCreditedArtist = { artist ->
-					scope.launch {
-						resolveArtistCreditDestination(
-							artist.artistId,
-							artist.artistName,
-							false
-						)?.let { destination ->
-							backStack.remove(Screen.NowPlaying)
-							backStack.add(destination)
-						}
-					}
+					backStack.remove(Screen.NowPlaying)
+					backStack.add(structuredArtistCreditRoute(artist))
 				},
 				onShare = {
 					shareId = song.id

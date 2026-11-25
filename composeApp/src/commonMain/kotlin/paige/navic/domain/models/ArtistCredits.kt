@@ -40,6 +40,17 @@ private fun List<DomainContributor>.withRole(role: String): List<DomainContribut
 	filter { it.role.equals(role, ignoreCase = true) && it.artistId.isNotBlank() }
 		.distinctBy { it.artistId }
 
+/** The name the server's arrays give [artistId]; null when no song credits that id. */
+fun List<DomainSong>.structuredArtistName(artistId: String): String? =
+	asSequence()
+		.flatMap { song -> song.contributors.asSequence() }
+		.firstOrNull { contributor ->
+			contributor.artistId == artistId && contributor.artistName.isNotBlank() &&
+				(contributor.role.equals(ContributorRoleArtist, ignoreCase = true) ||
+					contributor.role.equals(ContributorRoleAlbumArtist, ignoreCase = true))
+		}
+		?.artistName
+
 /** The song's credited artists from the server's array; empty when the server sent none. */
 fun DomainSong.structuredArtists(): List<DomainContributor> =
 	contributors.withRole(ContributorRoleArtist)

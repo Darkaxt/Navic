@@ -1,7 +1,9 @@
 package paige.navic.domain.models
 
 import paige.navic.data.database.Converters
+import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.artist.artistDetailSongCreditAlbumIds
+import paige.navic.ui.screens.artist.structuredArtistCreditRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
@@ -51,6 +53,14 @@ class ArtistCreditsTest {
 		// Cherish's page finds the album through her id, not through a name split.
 		val cherish = DomainArtist(id = "106uJQW1ymogri5aggVVnS", name = "Cherish")
 		assertEquals(listOf("do-it-to-it"), artistDetailSongCreditAlbumIds(cherish, listOf(song)))
+		// She is not in getArtists (participant only): the credit opens her library page by id,
+		// and the page names her from the songs, not from the raw id.
+		val credit = song.structuredArtists().last()
+		assertEquals(Screen.ArtistDetail("106uJQW1ymogri5aggVVnS"), structuredArtistCreditRoute(credit))
+		assertEquals("Cherish", listOf(song).structuredArtistName("106uJQW1ymogri5aggVVnS"))
+		assertEquals(null, listOf(song).structuredArtistName("unknown"))
+		val fromRouteId = DomainArtist(id = "106uJQW1ymogri5aggVVnS", name = "106uJQW1ymogri5aggVVnS")
+		assertEquals(listOf("do-it-to-it"), artistDetailSongCreditAlbumIds(fromRouteId, listOf(song)))
 	}
 
 	@Test

@@ -33,6 +33,7 @@ import paige.navic.data.database.mappers.toDomainModel
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.structuredArtistName
 import paige.navic.domain.models.AurralMissingAlbumRow
 import paige.navic.domain.models.AurralAlbumRequest
 import paige.navic.domain.models.AurralArtistEnrichment
@@ -233,8 +234,15 @@ class ArtistDetailViewModel(
 		viewModelScope.launch(Dispatchers.IO) {
 			try {
 				val artistEntity = artistDao.getArtistById(artistId)
+				// #76: a participant-only artist (not in getArtists) opens by server id; its name
+				// comes from the songs that credit it.
 				val domainArtist = artistEntity?.toDomainModel()
-					?: fallbackArtistFromRouteId(artistId)
+					?: fallbackArtistFromRouteId(artistId).let { fallback ->
+						songRepository.getSongsByArtistCredit(fallback)
+							.structuredArtistName(fallback.id)
+							?.let { name -> fallback.copy(name = name) }
+							?: fallback
+					}
 
 				var albumsWithSongs =
 					albumDao.getAlbumsByArtist(artistId).firstOrNull() ?: emptyList()

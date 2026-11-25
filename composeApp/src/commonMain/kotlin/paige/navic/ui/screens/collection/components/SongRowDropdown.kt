@@ -25,6 +25,7 @@ import paige.navic.ui.components.dialogs.QueueDuplicateDialog
 import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.screens.artist.rememberArtistCreditDestinationResolver
+import paige.navic.ui.screens.artist.structuredArtistCreditRoute
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 
 @Composable
@@ -115,13 +116,7 @@ fun CollectionDetailScreenSongRowDropdown(
 				}
 			},
 			onViewCreditedArtist = { artist ->
-				scope.launch {
-					resolveArtistCreditDestination(
-						artist.artistId,
-						artist.artistName,
-						false
-					)?.let(backStack::add)
-				}
+				backStack.add(structuredArtistCreditRoute(artist))
 			},
 			onAddToPlaylist = {
 				playlistDialogShown = true

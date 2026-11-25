@@ -2,6 +2,7 @@ package paige.navic.ui.screens.artist
 
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.DomainArtist
+import paige.navic.domain.models.DomainContributor
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.navigation.SearchScope
 
@@ -70,6 +71,13 @@ fun artistCreditRoute(
 		artistName = name
 	)
 }
+
+/**
+ * #76: an entry of the server's `artists` array carries a real server artist id, so it opens the
+ * library artist page even when the artist only appears as a participant (not in getArtists).
+ */
+fun structuredArtistCreditRoute(credit: DomainContributor): Screen =
+	Screen.ArtistDetail(credit.artistId)
 
 fun isAurralNameLookupArtistId(value: String?): Boolean =
 	value?.trim()?.startsWith(AURRAL_NAME_LOOKUP_PREFIX) == true
