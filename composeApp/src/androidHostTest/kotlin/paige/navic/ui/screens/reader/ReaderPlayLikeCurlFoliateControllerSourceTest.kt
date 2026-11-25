@@ -1483,6 +1483,11 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		// A destination without stored pages falls back to the full preparation.
 		assertContains(relocate, "invalidate(\"external-page-relocation\")")
 		assertTrue(source.split("fallBackFromStoredPageRelocation(centerOrdinal)").size - 1 >= 3)
+		// The host's content-ready refresh must not void the refill's publication fence (tablet v1.6.39).
+		val refresh = source
+			.substringAfter("private fun refreshPreparedDeck(")
+			.substringBefore("val request = ++requestGeneration")
+		assertContains(refresh, "storedPageRelocationOrdinal == currentOrdinal -> \"stored-page-relocation-in-flight\"")
 	}
 
 	@Test

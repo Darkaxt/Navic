@@ -1194,6 +1194,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (submissionCallbackFence.onDeckRejected(generationId, reason)) return
 				val activeRejected = generationId == activeDeckGenerationId
 				val pendingRejected = generationId == pendingDeckGenerationId
+				if (activeRejected) storedPageRelocationOrdinal = null
 				releaseGeneration(generationId)
 				val recoveryRejected = deckRecoveryCoordinator.onDeckRejected(generationId, reason)
 				if (!recoveryRejected) {
@@ -3423,6 +3424,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 			!authoritativeLocationReady -> "authoritative-location-unavailable"
 			hostLayoutMutationInFlight -> "settings-mutation-in-flight"
 			preparationBlocksDeck() -> "preparation-in-progress"
+			// #75: the stored-page refill already rebuilds the deck for this page; a refresh would
+			// advance requestGeneration, void the refill's publication fence and force re-preparation.
+			storedPageRelocationOrdinal == currentOrdinal -> "stored-page-relocation-in-flight"
 			else -> null
 		}
 		if (gate != null) {
@@ -5328,6 +5332,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		if (result.status == PageSurfaceDeckSubmissionResult.Status.REJECTED) {
 			deckDiagnosticTracker?.cancel(generationId)
 			releaseRejectedLibraryDeck(pages, role)
+			if (role == ReaderDeckSubmissionRole.Active) storedPageRelocationOrdinal = null
 			when (role) {
 				ReaderDeckSubmissionRole.Active -> updateReadiness(
 					textureDeck = ReaderTextureDeckState.Failed,
