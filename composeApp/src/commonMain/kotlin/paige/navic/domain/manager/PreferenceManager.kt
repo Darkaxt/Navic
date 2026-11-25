@@ -187,6 +187,7 @@ class PreferenceManager(
 			newValue = value,
 			assign = { lidaClipsEnabledPreference = it }
 		)
+	var nameLookupArtistPhotosPurged by preference(false)
 	var lidaClipsBaseUrl by preference("")
 	var lidaClipsApiKey by preference("")
 	var lidaClipsPictureInPicture by preference(false)

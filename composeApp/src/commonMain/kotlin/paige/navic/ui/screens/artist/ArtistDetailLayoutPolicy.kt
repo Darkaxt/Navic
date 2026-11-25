@@ -315,9 +315,12 @@ fun artistListAurralPhotoCandidate(
 	val localMusicBrainzId = localArtist.musicBrainzId.normalizedArtistHeaderImageId()
 	val localName = localArtist.name.normalizedArtistHeaderImageName()
 	val withImages = candidates.filter { candidate -> candidate.imageUrl?.isAbsoluteHttpUrl() == true }
-	return withImages.firstOrNull { candidate ->
+	withImages.firstOrNull { candidate ->
 		candidate.id.normalizedArtistHeaderImageId()?.let { it == localMusicBrainzId } == true
-	} ?: withImages.firstOrNull { candidate ->
+	}?.let { return it }
+	// Several artists share the name (seven are called "Cherish"): no photo beats another artist's.
+	if (candidates.count { candidate -> candidate.name.normalizedArtistHeaderImageName() == localName } > 1) return null
+	return withImages.firstOrNull { candidate ->
 		candidate.name.normalizedArtistHeaderImageName()?.let { it == localName } == true
 	} ?: withImages.firstOrNull()
 }

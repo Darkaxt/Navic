@@ -620,6 +620,22 @@ class ArtistDetailLayoutPolicyTest {
 	}
 
 	@Test
+	fun artistListPhotoSkipsAnAmbiguousNameButKeepsAnMbidMatch() {
+		val cherishes = listOf(
+			AurralDiscoverArtist(id = "rnb-group", name = "Cherish", imageUrl = "https://aurral.example.com/group.webp"),
+			AurralDiscoverArtist(id = "vocalist", name = "Cherish", imageUrl = "https://aurral.example.com/vocalist.webp")
+		)
+		assertNull(artistListAurralPhotoCandidate(DomainArtist(id = "name:cherish", name = "Cherish"), cherishes))
+		assertEquals(
+			"vocalist",
+			artistListAurralPhotoCandidate(
+				DomainArtist(id = "local", name = "Cherish", musicBrainzId = "vocalist"),
+				cherishes
+			)?.id
+		)
+	}
+
+	@Test
 	fun artistListHydrationUsesAurralCandidateAndCreatesPersistentCache() {
 		val localArtist = DomainArtist(
 			id = "local-jason",

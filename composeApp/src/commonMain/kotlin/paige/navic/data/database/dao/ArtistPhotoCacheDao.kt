@@ -35,4 +35,8 @@ interface ArtistPhotoCacheDao {
 
 	@Query("DELETE FROM ArtistPhotoCacheEntity")
 	suspend fun clearArtistPhotoCache()
+
+	/** Photos cached for name-only credit rows (artistId `name:…`), chosen before ambiguous names were refused. */
+	@Query("DELETE FROM ArtistPhotoCacheEntity WHERE artistId LIKE 'name:%' AND source = 'Aurral'")
+	suspend fun clearNameLookupArtistPhotos()
 }

@@ -149,6 +149,23 @@ internal fun List<AurralDiscoverArtist>.findAurralLibraryArtist(
 	}
 }
 
+/** True when several results carry exactly [artistName] (seven MusicBrainz artists are called "Cherish"). */
+internal fun List<AurralDiscoverArtist>.hasAmbiguousAurralName(artistName: String): Boolean {
+	val key = artistName.normalizedAurralSearchName() ?: return false
+	return count { candidate -> candidate.name.normalizedAurralSearchName() == key } > 1
+}
+
+/**
+ * The artist a name-only lookup may adopt: the single exact-name result, else the top result. An
+ * ambiguous name resolves to nothing, so a credited name never borrows another artist's
+ * discography, photo or monitoring.
+ */
+internal fun List<AurralDiscoverArtist>.aurralNameLookupCandidate(artistName: String): AurralDiscoverArtist? {
+	if (hasAmbiguousAurralName(artistName)) return null
+	val key = artistName.normalizedAurralSearchName()
+	return firstOrNull { candidate -> candidate.name.normalizedAurralSearchName() == key } ?: firstOrNull()
+}
+
 internal fun String?.normalizedAurralSearchName(): String? =
 	this
 		?.trim()

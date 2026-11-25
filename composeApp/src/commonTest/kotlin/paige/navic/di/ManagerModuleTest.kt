@@ -84,6 +84,8 @@ private class FakeArtistPhotoCacheDao : ArtistPhotoCacheDao {
 	override suspend fun upsertArtistPhotoCacheEntries(entries: List<ArtistPhotoCacheEntity>) = Unit
 
 	override suspend fun clearArtistPhotoCache() = Unit
+
+	override suspend fun clearNameLookupArtistPhotos() = Unit
 }
 
 private class FakeArtworkColorDao : ArtworkColorDao {

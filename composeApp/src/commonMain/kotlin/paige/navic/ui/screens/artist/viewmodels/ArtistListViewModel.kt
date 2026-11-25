@@ -113,6 +113,13 @@ class ArtistListViewModel(
 	private var artistsCollectorJob: Job? = null
 
 	init {
+		if (!preferenceManager.nameLookupArtistPhotosPurged) {
+			viewModelScope.launch(Dispatchers.IO) {
+				// Once: re-resolve name-only photos that may show another artist with the same name.
+				artistPhotoCacheDao.clearNameLookupArtistPhotos()
+				preferenceManager.nameLookupArtistPhotosPurged = true
+			}
+		}
 		observeArtists()
 		viewModelScope.launch(Dispatchers.IO) {
 			sessionManager.isLoggedIn.collect { if (it) refreshAurralLibraryMonitorStates() }

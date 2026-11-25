@@ -932,10 +932,7 @@ class AurralRepository(
 		}.onFailure { error ->
 			Logger.w(TAG, "Aurral artist name lookup failed for $artistName", error)
 		}.getOrNull() ?: return null
-		val normalizedName = artistName.normalizedAurralSearchName()
-		val artist = search.artists.firstOrNull {
-			it.name.normalizedAurralSearchName() == normalizedName
-		} ?: search.artists.firstOrNull()
+		val artist = search.artists.aurralNameLookupCandidate(artistName)
 		val resolvedMbid = artist?.id?.trim()
 			?.takeIf { it.isNotEmpty() && artist.detailsIdVerified }
 			?: return null
@@ -1281,7 +1278,8 @@ class AurralRepository(
 					request = request
 				)
 			}.artists
-				.firstOrNull { candidate ->
+				.takeUnless { artists -> artists.hasAmbiguousAurralName(artistName) }
+				?.firstOrNull { candidate ->
 					candidate.name.normalizedAurralImageLookupName() == nameKey &&
 						!candidate.imageUrl.isNullOrBlank()
 				}

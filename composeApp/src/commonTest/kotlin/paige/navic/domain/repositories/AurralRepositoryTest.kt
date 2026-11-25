@@ -1173,6 +1173,29 @@ class AurralRepositoryTest {
 	}
 
 	@Test
+	fun repositoryArtistEnrichmentLeavesAnAmbiguousNameUnresolved(): Unit = runBlocking {
+		val preferenceManager = PreferenceManager(MapSettings()).apply {
+			aurralEnabled = true
+			aurralBaseUrl = "https://aurral.example.com"
+		}
+		val apiClient = FakeAurralApiClient(
+			artistSearch = AurralArtistSearchResult(
+				query = "Cherish",
+				artists = listOf(
+					AurralDiscoverArtist(id = "rnb-group", name = "Cherish", detailsIdVerified = true),
+					AurralDiscoverArtist(id = "vocalist", name = "Cherish", detailsIdVerified = true)
+				)
+			)
+		)
+		val repository = AurralRepository(preferenceManager, apiClient)
+
+		val artist = DomainArtist(id = "name:cherish", name = "Cherish")
+		assertNull(repository.getArtistCoreEnrichment(artist).getOrThrow())
+		assertNull(repository.getArtistEnrichment(artist).getOrThrow())
+		assertEquals(emptyList(), apiClient.libraryArtistMonitoringRequests)
+	}
+
+	@Test
 	fun repositoryArtistCoreEnrichmentUsesCoreEndpointWithoutFullSectionFetch(): Unit = runBlocking {
 		val preferenceManager = PreferenceManager(MapSettings()).apply {
 			aurralEnabled = true
