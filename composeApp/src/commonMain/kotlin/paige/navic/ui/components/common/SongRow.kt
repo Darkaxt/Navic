@@ -59,6 +59,7 @@ import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
 import paige.navic.util.core.InlineExplicitIcon
+import paige.navic.ui.screens.artist.rememberSongArtistNavigation
 
 @Composable
 fun SongRow(
@@ -240,6 +241,7 @@ fun SongRow(
 	)
 
 	if (selected) {
+		val songArtistNavigation = rememberSongArtistNavigation(song)
 		SongSheet(
 			onDismissRequest = onDismissRequest,
 			song = song,
@@ -266,6 +268,8 @@ fun SongRow(
 			onTrackInfo = dropUnlessResumed {
 				backStack.add(Screen.SongDetail(song.id))
 			},
+			onViewArtist = songArtistNavigation.viewArtist,
+			onViewCreditedArtist = songArtistNavigation.viewCreditedArtist,
 			onViewAlbum = dropUnlessResumed {
 				backStack.add(
 					Screen.CollectionDetail(

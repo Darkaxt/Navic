@@ -119,6 +119,7 @@ import paige.navic.ui.screens.search.viewmodels.visibleSearchHistory
 import paige.navic.domain.repositories.AurralRepository
 import paige.navic.data.remote.aurral.aurralRequestHeadersForUrl
 import paige.navic.data.remote.aurral.configuredAurralBaseUrl
+import paige.navic.ui.screens.artist.rememberSongArtistNavigation
 
 enum class SearchCategory(val res: StringResource) {
 	ALL(Res.string.title_all),
@@ -381,6 +382,7 @@ fun SearchScreen(
 											}
 										)
 										if (selectedSong == song) {
+											val songArtistNavigation = rememberSongArtistNavigation(song)
 											SongSheet(
 												onDismissRequest = { viewModel.clearSelectedSong() },
 												song = song,
@@ -405,6 +407,8 @@ fun SearchScreen(
 												onTrackInfo = dropUnlessResumed {
 													backStack.add(Screen.SongDetail(song.id))
 												},
+												onViewArtist = songArtistNavigation.viewArtist,
+												onViewCreditedArtist = songArtistNavigation.viewCreditedArtist,
 												onViewAlbum = song.albumId?.let { albumId ->
 													dropUnlessResumed {
 														backStack.add(

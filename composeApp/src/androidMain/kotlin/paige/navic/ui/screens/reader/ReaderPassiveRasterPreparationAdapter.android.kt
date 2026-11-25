@@ -218,6 +218,10 @@ internal class ReaderPassiveRasterPreparationAdapter(
 		val onProgress: (Int, Int) -> Unit,
 		val onComplete: (ReaderPageRasterBatchOutcome) -> Unit,
 		var targetIndex: Int = 0,
+		var durableCount: Int = 0,
+		// #78: the captured target whose durable write runs while the next target renders.
+		var inFlightWrite: ReaderPageRasterBatchTarget? = null,
+		var afterInFlightWrite: (() -> Unit)? = null,
 		var hydration: ReaderPageRasterHydrationRequest? = null,
 		var committedCapture: ReaderPassiveRasterCommittedCapture<Bitmap>? = null,
 		var pendingCapture: ReaderPassiveRasterCaptureResult<Bitmap>? = null
@@ -335,6 +339,11 @@ internal class ReaderPassiveRasterPreparationAdapter(
 			return
 		}
 		if (batch.targetIndex >= batch.targets.size) {
+			// Ready only once every target is durable, including the overlapped write.
+			if (batch.inFlightWrite != null) {
+				batch.afterInFlightWrite = { prepareTarget(batch) }
+				return
+			}
 			finish(batch, ReaderPageRasterBatchOutcome.Ready)
 			return
 		}
@@ -1046,6 +1055,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				return@currentAuthority
 			}
 			var passiveRasterRejection: ReaderPassiveRasterRejection? = null
+			var publicationSettled = false
 			bundleSource.admitPassiveRasterCapture(
 				capture = capture,
 				currentAuthority = ReaderPassiveRasterAdmissionAuthority(
@@ -1062,6 +1072,7 @@ internal class ReaderPassiveRasterPreparationAdapter(
 				isStillCurrent = { batchIsCurrent(batch) },
 				onRejected = { rejection -> passiveRasterRejection = rejection }
 			) admitted@{ completion ->
+				publicationSettled = true
 				if (!batchIsCurrent(batch)) return@admitted
 				when (completion.result) {
 					ReaderPageRasterPublicationResult.Durable -> {
@@ -1077,7 +1088,16 @@ internal class ReaderPassiveRasterPreparationAdapter(
 								)
 							)
 						}
-						completeTarget(batch, target)
+						if (batch.inFlightWrite === target) {
+							batch.inFlightWrite = null
+							reportTargetDurable(batch, target)
+							batch.afterInFlightWrite?.let { next ->
+								batch.afterInFlightWrite = null
+								next()
+							}
+						} else {
+							completeTarget(batch, target)
+						}
 					}
 					ReaderPageRasterPublicationResult.CapacityReached -> {
 						if (batch.capacityPolicy == ReaderPageRasterCapacityPolicy.StopBackgroundRefill) {
@@ -1121,6 +1141,19 @@ internal class ReaderPassiveRasterPreparationAdapter(
 					)
 				}
 			}
+			// #78: the raster is admitted and its encode runs off the main thread; render the
+			// next target meanwhile. One write overlaps at most, and the batch still counts a
+			// target (and reaches Ready) only when its write is durable.
+			if (
+				!publicationSettled &&
+				batchIsCurrent(batch) &&
+				batch.inFlightWrite == null &&
+				batch.targets.getOrNull(batch.targetIndex) === target
+			) {
+				batch.inFlightWrite = target
+				batch.targetIndex += 1
+				prepareTarget(batch)
+			}
 		}
 	}
 
@@ -1135,10 +1168,20 @@ internal class ReaderPassiveRasterPreparationAdapter(
 
 	private fun completeTarget(batch: Batch, target: ReaderPageRasterBatchTarget) {
 		if (!batchIsCurrent(batch)) return
-		batch.onTargetDurable(target)
+		// Durability is reported in target order: wait for the overlapped earlier write.
+		if (batch.inFlightWrite != null) {
+			batch.afterInFlightWrite = { completeTarget(batch, target) }
+			return
+		}
+		reportTargetDurable(batch, target)
 		batch.targetIndex += 1
-		batch.onProgress(batch.targetIndex, batch.targets.size)
 		prepareTarget(batch)
+	}
+
+	private fun reportTargetDurable(batch: Batch, target: ReaderPageRasterBatchTarget) {
+		batch.onTargetDurable(target)
+		batch.durableCount += 1
+		batch.onProgress(batch.durableCount, batch.targets.size)
 	}
 
 	private fun finish(batch: Batch, outcome: ReaderPageRasterBatchOutcome) {

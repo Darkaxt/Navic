@@ -22,6 +22,7 @@ import paige.navic.ui.components.sheets.SongSheet
 import paige.navic.ui.components.sheets.lidaClipsMusicVideoAction
 import paige.navic.ui.navigation.Screen
 import paige.navic.ui.screens.playlist.dialogs.PlaylistUpdateDialog
+import paige.navic.ui.screens.artist.rememberSongArtistNavigation
 
 @Composable
 fun QuickPickSongCard(
@@ -73,6 +74,7 @@ fun QuickPickSongCard(
 			tab = "quick-picks"
 		)
 		if (selected) {
+			val songArtistNavigation = rememberSongArtistNavigation(song)
 			SongSheet(
 				onDismissRequest = onDeselect,
 				song = song,
@@ -87,6 +89,8 @@ fun QuickPickSongCard(
 				onTrackInfo = dropUnlessResumed {
 					backStack.add(Screen.SongDetail(song.id))
 				},
+				onViewArtist = songArtistNavigation.viewArtist,
+				onViewCreditedArtist = songArtistNavigation.viewCreditedArtist,
 				onViewAlbum = song.albumId?.let { albumId ->
 					dropUnlessResumed {
 						backStack.add(

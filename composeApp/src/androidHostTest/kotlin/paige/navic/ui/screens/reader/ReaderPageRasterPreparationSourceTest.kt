@@ -867,6 +867,43 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun passiveBatchOverlapsOneDurableEncodeWithTheNextRenderInTargetOrder() {
+		val adapter = readerSource("ReaderPassiveRasterPreparationAdapter.android.kt")
+		val admission = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun admitCapturedTarget(",
+			endDelimiter = "private fun staleDestinationCommitOutcome("
+		)
+		val prepare = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun prepareTarget(batch: Batch) {",
+			endDelimiter = "private fun fulfillCurrentLiveTarget("
+		)
+		val complete = requiredReaderSourceSlice(
+			source = adapter,
+			startDelimiter = "private fun completeTarget(",
+			endDelimiter = "private fun finish("
+		)
+
+		// The next target starts only after the admission handed the raster to the writer.
+		val overlap = admission.indexOf("batch.inFlightWrite = target")
+		assertTrue(overlap > admission.indexOf("bundleSource.admitPassiveRasterCapture("))
+		assertContains(admission, "!publicationSettled &&")
+		assertContains(admission, "batch.inFlightWrite == null &&")
+		assertContains(admission, "if (batch.inFlightWrite === target) {")
+		// Ready waits for the overlapped write; durability is reported in target order.
+		assertTrue(
+			prepare.indexOf("if (batch.inFlightWrite != null) {") <
+				prepare.indexOf("finish(batch, ReaderPageRasterBatchOutcome.Ready)")
+		)
+		assertTrue(
+			complete.indexOf("batch.afterInFlightWrite = { completeTarget(batch, target) }") <
+				complete.indexOf("reportTargetDurable(batch, target)")
+		)
+		assertContains(complete, "batch.onProgress(batch.durableCount, batch.targets.size)")
+	}
+
+	@Test
 	fun lowMemoryRetiresAllPassiveWorkWithoutInvalidatingLiveOrPersistentCache() {
 		val source = readerRasterPreparationSource()
 		val callbacks = requiredReaderSourceSlice(
