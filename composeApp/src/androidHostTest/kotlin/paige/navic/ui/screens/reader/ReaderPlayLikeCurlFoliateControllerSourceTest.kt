@@ -1488,6 +1488,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringAfter("private fun refreshPreparedDeck(")
 			.substringBefore("val request = ++requestGeneration")
 		assertContains(refresh, "storedPageRelocationOrdinal == currentOrdinal -> \"stored-page-relocation-in-flight\"")
+		// A destination the preparation controller is already preparing is not invalidated again.
+		val fallback = source
+			.substringAfter("private fun fallBackFromStoredPageRelocation(centerOrdinal: Int): Boolean {")
+			.substringBefore("private fun refillDecodedWorkingSet(")
+		assertTrue(
+			fallback.indexOf("preparationPhase == ReaderPagePreparationPhase.Preparing && !backgroundPreparationInProgress") in
+				0 until fallback.indexOf("invalidate(\"external-page-relocation\")")
+		)
+		assertContains(fallback, "stored-page-relocation-awaits-preparation")
 	}
 
 	@Test

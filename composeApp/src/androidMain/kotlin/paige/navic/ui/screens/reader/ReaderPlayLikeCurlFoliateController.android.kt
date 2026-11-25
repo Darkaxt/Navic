@@ -3787,6 +3787,23 @@ internal class ReaderPlayLikeCurlFoliateController(
 		storedPageRelocationOrdinal = null
 		decodedRefillCenterOrdinal = null
 		logActivationState("stored-page-relocation-fallback", "center=$centerOrdinal")
+		if (preparationPhase == ReaderPagePreparationPhase.Preparing && !backgroundPreparationInProgress) {
+			// The preparation controller is already preparing the destination (chapter entry).
+			// Invalidating would cancel its in-flight WebView capture and start over (tablet
+			// v1.6.40: +2.4 s). Drop the working set; the deck is rebuilt when it releases.
+			activePages?.let { pages ->
+				pages.obsolete = true
+				closeIfUnused(pages)
+			}
+			activePages = null
+			updateReadiness(
+				textureDeck = ReaderTextureDeckState.Preparing,
+				pendingTextureDeck = ReaderTextureDeckState.Empty,
+				interaction = blockingPreparationState(),
+				reason = "stored-page-relocation-awaits-preparation:$centerOrdinal"
+			)
+			return true
+		}
 		invalidate("external-page-relocation")
 		if (enabled) onRequestPrewarm()
 		return true
