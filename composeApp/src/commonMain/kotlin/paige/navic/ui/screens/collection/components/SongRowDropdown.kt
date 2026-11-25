@@ -114,6 +114,15 @@ fun CollectionDetailScreenSongRowDropdown(
 					)?.let(backStack::add)
 				}
 			},
+			onViewCreditedArtist = { artist ->
+				scope.launch {
+					resolveArtistCreditDestination(
+						artist.artistId,
+						artist.artistName,
+						false
+					)?.let(backStack::add)
+				}
+			},
 			onAddToPlaylist = {
 				playlistDialogShown = true
 			},

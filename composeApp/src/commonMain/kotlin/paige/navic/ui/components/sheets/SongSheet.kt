@@ -63,9 +63,11 @@ import paige.navic.data.database.entities.DownloadStatus
 import paige.navic.domain.manager.PreferenceManager
 import paige.navic.domain.manager.SleepTimerManager
 import paige.navic.domain.models.DomainAlbum
+import paige.navic.domain.models.DomainContributor
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainSong
 import paige.navic.domain.models.DomainSongCollection
+import paige.navic.domain.models.structuredArtists
 import paige.navic.icons.Icons
 import paige.navic.icons.filled.Star
 import paige.navic.icons.filled.Play
@@ -112,6 +114,8 @@ fun SongSheet(
 	onTrackInfo: (() -> Unit)? = null,
 	onViewAlbum: (() -> Unit)? = null,
 	onViewArtist: (() -> Unit)? = null,
+	/** One "View artist" per artist in the server's array; [onViewArtist] when it names one or none. */
+	onViewCreditedArtist: ((DomainContributor) -> Unit)? = null,
 	onAddToPlaylist: (() -> Unit)? = null,
 	onRemoveFromPlaylist: (() -> Unit)? = null,
 	downloadStatus: DownloadStatus? = null,
@@ -436,7 +440,23 @@ fun SongSheet(
 				)
 			}
 
-			if (onViewArtist != null) {
+			val creditedArtists = song.structuredArtists()
+			if (onViewCreditedArtist != null && creditedArtists.size > 1) {
+				creditedArtists.forEach { artist ->
+					ListItem(
+						content = { Text(stringResource(Res.string.action_view_artist)) },
+						supportingContent = { Text(artist.artistName) },
+						leadingContent = { Icon(Icons.Outlined.Artist, null) },
+						onClick = {
+							platformContext.clickSound()
+							onViewCreditedArtist(artist)
+							onDismissRequest()
+						},
+						colors = colors,
+						contentPadding = contentPadding
+					)
+				}
+			} else if (onViewArtist != null) {
 				ListItem(
 					content = { Text(stringResource(Res.string.action_view_artist)) },
 					leadingContent = { Icon(Icons.Outlined.Artist, null) },

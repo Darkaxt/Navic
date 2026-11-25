@@ -5,6 +5,8 @@ import paige.navic.domain.models.DomainContributor
 import paige.navic.domain.models.DomainExplicitStatus
 import paige.navic.domain.models.DomainReplayGain
 import paige.navic.domain.models.DomainSong
+import paige.navic.domain.models.StructuredArtistCredit
+import paige.navic.domain.models.contributorsWithStructuredArtists
 import paige.navic.domain.models.songCoverArtIdWithAlbumFallback
 import paige.navic.domain.models.resolveArtistId
 import kotlin.time.Duration.Companion.seconds
@@ -46,14 +48,18 @@ fun ApiSong.toEntity(
 	audioChannelCount = this.audioChannelCount,
 	fileSize = this.fileSize ?: 0L,
 	musicBrainzId = this.musicBrainzId,
-	contributors = this.contributors.map {
-		DomainContributor(
-			role = it.role,
-			subRole = it.subRole,
-			artistId = it.artist.id,
-			artistName = it.artist.name
-		)
-	},
+	contributors = contributorsWithStructuredArtists(
+		contributors = this.contributors.map {
+			DomainContributor(
+				role = it.role,
+				subRole = it.subRole,
+				artistId = it.artist.id,
+				artistName = it.artist.name
+			)
+		},
+		artists = this.artists.map { StructuredArtistCredit(it.id, it.name) },
+		albumArtists = this.albumArtists.map { StructuredArtistCredit(it.id, it.name) }
+	),
 	replayGain = this.replayGain?.let {
 		DomainReplayGain(
 			albumGain = it.albumGain,

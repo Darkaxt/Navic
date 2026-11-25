@@ -113,6 +113,18 @@ fun NowPlayingMoreButton(
 						}
 					}
 				},
+				onViewCreditedArtist = { artist ->
+					scope.launch {
+						resolveArtistCreditDestination(
+							artist.artistId,
+							artist.artistName,
+							false
+						)?.let { destination ->
+							backStack.remove(Screen.NowPlaying)
+							backStack.add(destination)
+						}
+					}
+				},
 				onShare = {
 					shareId = song.id
 				},

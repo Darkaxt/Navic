@@ -36,6 +36,7 @@ import paige.navic.domain.models.DomainGenreCollection
 import paige.navic.domain.models.DomainPlaylist
 import paige.navic.domain.models.DomainSongCollection
 import paige.navic.domain.models.displayName
+import paige.navic.domain.models.structuredAlbumArtists
 import paige.navic.ui.components.common.GeneratedArtworkVariant
 import paige.navic.ui.components.common.CoverArt
 import paige.navic.ui.components.common.collectionArtworkRenderSpec
@@ -109,7 +110,16 @@ fun CollectionDetailScreenHeadingRow(
 			}
 			subtitle?.let { subtitle ->
 				if (collection is DomainAlbum) {
-					val artistParts = aurralAlbumArtistCreditParts(subtitle).ifEmpty { listOf(subtitle) }
+					// The server's album-artist array names each artist with its id; the name split
+					// is only for credits the server left combined ("Chase & Status" is one artist).
+					val structuredArtists = if (subtitle == collection.artistName) {
+						collection.structuredAlbumArtists()
+					} else {
+						emptyList()
+					}
+					val artistParts = structuredArtists.map { it.artistName }.ifEmpty {
+						aurralAlbumArtistCreditParts(subtitle).ifEmpty { listOf(subtitle) }
+					}
 					FlowRow(
 						modifier = Modifier.fillMaxWidth(),
 						horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
@@ -123,7 +133,8 @@ fun CollectionDetailScreenHeadingRow(
 									platformContext.clickSound()
 									scope.launch {
 										resolveArtistCreditDestination(
-											if (artistParts.size == 1) collection.artistId else null,
+											structuredArtists.getOrNull(index)?.artistId
+												?: if (artistParts.size == 1) collection.artistId else null,
 											artistName,
 											false
 										)?.let(backStack::add)
