@@ -130,6 +130,49 @@ private class ReaderPageBundleRasterCurrentReferencePort(
 		isCurrent: () -> Boolean,
 		onResolved: (ReaderPageSlideSnapshot?) -> Unit
 	) {
+		// #75: a page stored on disk is hydrated rather than drawn from the WebView, which blocks
+		// the main thread for seconds after a jump away from the decoded pages.
+		val geometryReference = bundleSource.retainedReferenceSnapshot(pageIndex, kind)
+		if (geometryReference == null) {
+			capture(webView, pageIndex, kind, captureGeometry, generation, isCurrent, onResolved)
+			return
+		}
+		bundleSource.hydrateSnapshot(
+			webView = webView,
+			pageIndex = pageIndex,
+			kind = kind,
+			reference = geometryReference,
+			publicationFence = isCurrent
+		) { hydrated ->
+			// The hydrated page counts only when it matches the WebView's current layout.
+			val stored = if (
+				hydrated != null &&
+				generation == bundleSource.currentGeneration() &&
+				isCurrent()
+			) {
+				bundleSource.retainedCurrentLayoutSnapshot(pageIndex, kind)
+			} else {
+				null
+			}
+			hydrated?.release()
+			geometryReference.release()
+			if (stored != null) {
+				onResolved(stored)
+			} else {
+				capture(webView, pageIndex, kind, captureGeometry, generation, isCurrent, onResolved)
+			}
+		}
+	}
+
+	private fun capture(
+		webView: WebView,
+		pageIndex: Int,
+		kind: ReaderPageTurnTransitionKind,
+		captureGeometry: ReaderPageTurnCaptureGeometry?,
+		generation: Long,
+		isCurrent: () -> Boolean,
+		onResolved: (ReaderPageSlideSnapshot?) -> Unit
+	) {
 		bundleSource.captureCurrentSurface(webView, generation, captureGeometry) { current ->
 			if (
 				current == null ||
@@ -168,12 +211,13 @@ internal fun readerPageCanReusePreparedWindow(
 	visualCenterChanging: Boolean,
 	rasterRepairPending: Boolean,
 	prewarmPending: Boolean
-): Boolean = reason == "page-turn:exact" &&
-	requiredWindowDurable &&
-	(
-		!visualCenterChanging ||
-			(!rasterRepairPending && !prewarmPending)
-	)
+): Boolean = requiredWindowDurable && when (reason) {
+	"page-turn:exact" -> !visualCenterChanging || (!rasterRepairPending && !prewarmPending)
+	// #75: a jump (search, TOC, link) onto stored pages is presented by the curl deck like a
+	// turn: no cover and no blocking session; the rest prepares in the background.
+	"go-to" -> !rasterRepairPending && !prewarmPending
+	else -> false
+}
 
 /**
  * Pages are prepared when a chapter is entered. Once a chapter is prepared, any visual

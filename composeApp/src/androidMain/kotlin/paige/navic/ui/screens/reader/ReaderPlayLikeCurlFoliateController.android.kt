@@ -896,6 +896,8 @@ internal class ReaderPlayLikeCurlFoliateController(
 	private var ownershipCapacityRunnable: Runnable? = null
 	private var foliateRasterLoader: ReaderPlayLikeCurlFoliateRasterLoader? = null
 	private var activePages: PreparedPages? = null
+	// #75: the page a search/TOC jump landed on while its deck is rebuilt from stored pages.
+	private var storedPageRelocationOrdinal: Int? = null
 	private var requestedProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var publishedRasterProfile: ReaderPlayLikeCurlRasterProfile? = null
 	private var publishedRasterProfileEpoch: Long? = null
@@ -1157,6 +1159,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (generationId == activeDeckGenerationId) {
 					activeDeckPreparationGeneration = preparationGeneration
 					hasPreparedDeckBefore = true
+					storedPageRelocationOrdinal = null
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Ready,
 						interaction = preparedInteractionState(),
@@ -2705,8 +2708,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 					relocationQueue.occupiedCount() != 0
 				) {
 					currentOrdinal = normalized
-					invalidate("external-page-relocation")
-					if (enabled) onRequestPrewarm()
+					// #75: a jump onto pages already stored only re-centres the deck there.
+					if (sessionRelocation || !relocateToStoredPages(normalized)) {
+						invalidate("external-page-relocation")
+						if (enabled) onRequestPrewarm()
+					}
 				}
 			}
 		}
@@ -2815,6 +2821,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		confirmedDecklessPassiveAuthority.clear()
 		cancelPassiveManifestAuthorityRecovery()
 		releaseInitialLivePresentationAuthority()
+		storedPageRelocationOrdinal = null
 		requestGeneration += 1L
 		decodedRefillGeneration += 1L
 		failedLivePresentationGeneration = null
@@ -3734,6 +3741,53 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
+	/**
+	 * #75: a jump (search, TOC, link) inside the prepared profile keeps the profile and its raster
+	 * adapter: the deck is rebuilt around [ordinal] from the stored pages without the preparation
+	 * screen. False when that is not possible; a destination without stored pages falls back to
+	 * the full re-preparation ([fallBackFromStoredPageRelocation]).
+	 */
+	private fun relocateToStoredPages(ordinal: Int): Boolean {
+		if (
+			!enabled ||
+			destroyed ||
+			activeGestureId != null ||
+			requestedProfile == null ||
+			rasterAdapter == null ||
+			relocationQueue.occupiedCount() != 0 ||
+			failedLivePresentationGeneration != null ||
+			livePresentationRecoveryRequest.pending ||
+			!hasUsablePreparedActiveDeck()
+		) {
+			return false
+		}
+		discardDecodedWorkingSetPrefetch("stored-page-relocation")
+		hideSurface()
+		generationOwners.keys.toList().forEach(::releaseRendererOwnedGeneration)
+		decodedRefillCenterOrdinal = null
+		deferredDecodedRefillCenterOrdinal = null
+		storedPageRelocationOrdinal = ordinal
+		updateReadiness(
+			textureDeck = ReaderTextureDeckState.Preparing,
+			pendingTextureDeck = ReaderTextureDeckState.Empty,
+			interaction = ReaderPageInteractionState.RefillingWorkingSet,
+			reason = "stored-page-relocation:$ordinal"
+		)
+		refillDecodedWorkingSet(ordinal, "stored-page-relocation")
+		return true
+	}
+
+	private fun fallBackFromStoredPageRelocation(centerOrdinal: Int): Boolean {
+		// Once a deck is submitted the relocation is presented; a later miss is ordinary.
+		if (storedPageRelocationOrdinal != centerOrdinal || activeDeckGenerationId != null) return false
+		storedPageRelocationOrdinal = null
+		decodedRefillCenterOrdinal = null
+		logActivationState("stored-page-relocation-fallback", "center=$centerOrdinal")
+		invalidate("external-page-relocation")
+		if (enabled) onRequestPrewarm()
+		return true
+	}
+
 	private fun refillDecodedWorkingSet(centerOrdinal: Int, reason: String) {
 		val profile = requestedProfile ?: return
 		val adapter = rasterAdapter ?: return
@@ -3790,6 +3844,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				if (failure != null) {
 					prefetch?.publicationAllowed = false
 					if (refill == decodedRefillGeneration) {
+						if (fallBackFromStoredPageRelocation(centerOrdinal)) return@withContext
 						decodedRefillCenterOrdinal = null
 						Logger.e(
 							ReaderPlayLikeCurlFoliateControllerTag,
@@ -3824,6 +3879,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 					prefetch?.publicationAllowed = false
 					deck?.close()
 					val isCurrentRefill = refill == decodedRefillGeneration
+					if (isCurrentRefill && fallBackFromStoredPageRelocation(centerOrdinal)) {
+						return@withContext
+					}
 					val waitsForPreparation =
 						deck == null &&
 							isCurrentRefill &&
@@ -3900,9 +3958,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 				)
 				if (activeDeckGenerationId == null) {
 					currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
+					val storedRelocation = storedPageRelocationOrdinal == centerOrdinal
 					updateReadiness(
 						textureDeck = ReaderTextureDeckState.Preparing,
-						interaction = blockingPreparationState(),
+						// #75: a jump onto stored pages never shows the preparation screen.
+						interaction = if (storedRelocation) {
+							ReaderPageInteractionState.RefillingWorkingSet
+						} else {
+							blockingPreparationState()
+						},
 						reason = "decoded-repair-submitting:$refill"
 					)
 					submitLibraryDeck(
@@ -4355,7 +4419,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 						request == requestGeneration &&
 						enabled &&
 						!destroyed &&
-						publicationFence.isCurrent()
+						publicationFence.isCurrent() &&
+						// #75: a jump destination without stored pages re-prepares the book.
+						!fallBackFromStoredPageRelocation(centerOrdinal)
 					) {
 						if (readinessState.textureDeck == ReaderTextureDeckState.Ready) {
 							updateReadiness(
@@ -4436,9 +4502,14 @@ internal class ReaderPlayLikeCurlFoliateController(
 				preparedPageSets += pages
 				activePages = pages
 				currentOrdinal = centerOrdinal.coerceIn(0, profile.pageCount - 1)
+				val storedRelocation = storedPageRelocationOrdinal == centerOrdinal
 				updateReadiness(
 					textureDeck = ReaderTextureDeckState.Preparing,
-					interaction = blockingPreparationState(),
+					interaction = if (storedRelocation) {
+						ReaderPageInteractionState.RefillingWorkingSet
+					} else {
+						blockingPreparationState()
+					},
 					reason = "deck-submitting:$request"
 				)
 					activeDeckPreparationGeneration = null

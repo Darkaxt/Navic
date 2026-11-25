@@ -15,3 +15,13 @@ internal fun ArtistState.withAurralCoreFailure(message: String): ArtistState = c
 	aurralSimilarArtistsError = message,
 	aurralRequestsError = message
 )
+
+// Aurral has no such artist: its sections end quietly, without an error.
+internal fun ArtistState.withAurralCoreUnavailable(): ArtistState = copy(
+	aurralLoading = false,
+	aurralProfileLoading = false,
+	aurralOwnershipLoading = false,
+	aurralPreviewTracksLoading = false,
+	aurralSimilarArtistsLoading = false,
+	aurralRequestsLoading = false
+)

@@ -1462,6 +1462,30 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun aJumpOntoStoredPagesRecentresTheDeckWithoutThePreparationScreen() {
+		val source = controllerFile.readText()
+		val synchronize = source
+			.substringAfter("fun synchronizeVisualPageIndex(")
+			.substringBefore("private fun completeAcknowledgedRelocation(")
+		val relocate = source
+			.substringAfter("private fun relocateToStoredPages(ordinal: Int): Boolean {")
+			.substringBefore("private fun refillDecodedWorkingSet(")
+
+		// #75: only a jump that cannot be served from stored pages re-prepares the book.
+		assertTrue(
+			synchronize.indexOf("!relocateToStoredPages(normalized)") in
+				0 until synchronize.indexOf("invalidate(\"external-page-relocation\")")
+		)
+		assertContains(relocate, "relocationQueue.occupiedCount() != 0")
+		assertContains(relocate, "interaction = ReaderPageInteractionState.RefillingWorkingSet")
+		assertContains(relocate, "refillDecodedWorkingSet(ordinal, \"stored-page-relocation\")")
+		assertFalse(relocate.substringBefore("private fun fallBackFromStoredPageRelocation(").contains("invalidate("))
+		// A destination without stored pages falls back to the full preparation.
+		assertContains(relocate, "invalidate(\"external-page-relocation\")")
+		assertTrue(source.split("fallBackFromStoredPageRelocation(centerOrdinal)").size - 1 >= 3)
+	}
+
+	@Test
 	fun preparedInitialDeckEstablishesFreshLivePresentationAuthority() {
 		val source = controllerFile.readText()
 		val deckPrepared = source

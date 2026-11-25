@@ -7,6 +7,7 @@ import paige.navic.domain.models.AurralSimilarArtist
 import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.ui.screens.artist.viewmodels.ArtistState
 import paige.navic.ui.screens.artist.viewmodels.withAurralCoreFailure
+import paige.navic.ui.screens.artist.viewmodels.withAurralCoreUnavailable
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,6 +26,16 @@ class AurralCoreFailureStateTest {
 		assertEquals(AurralArtistSectionUiState.Error, ui.previewTracks)
 		assertEquals(AurralArtistSectionUiState.Error, ui.similarArtists)
 		assertEquals(AurralArtistSectionUiState.Error, ui.requests)
+	}
+
+	@Test
+	fun anArtistAurralDoesNotKnowEndsItsSectionsWithoutAnError() {
+		val unknown = loadingState().withAurralCoreUnavailable()
+		assertFalse(unknown.aurralLoading)
+		assertFalse(unknown.aurralProfileLoading)
+		assertFalse(unknown.aurralRequestsLoading)
+		assertEquals(null, unknown.aurralError)
+		assertEquals(null, unknown.aurralProfileError)
 	}
 
 	@Test

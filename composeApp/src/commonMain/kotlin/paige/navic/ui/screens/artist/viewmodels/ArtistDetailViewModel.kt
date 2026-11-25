@@ -570,9 +570,15 @@ class ArtistDetailViewModel(
 			val coreEnrichment = coreEnrichmentResult.getOrNull()
 			if (coreEnrichment == null) {
 				val error = coreEnrichmentResult.exceptionOrNull()
-					?: IllegalStateException("Aurral artist profile failed")
-				Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist profile", error)
 				val latestState = (_artistState.value as? UiState.Success)?.data
+				// An artist Aurral does not know (a featured-only credit) is not an error (#76).
+				if (error == null) {
+					if (latestState != null) {
+						publishAurralState { latestState -> latestState.withAurralCoreUnavailable() }
+					}
+					return@launch
+				}
+				Logger.w("ArtistDetailViewModel", "Failed to fetch Aurral artist profile", error)
 				if (latestState != null) {
 					publishAurralState { latestState ->
 						latestState.withAurralCoreFailure(

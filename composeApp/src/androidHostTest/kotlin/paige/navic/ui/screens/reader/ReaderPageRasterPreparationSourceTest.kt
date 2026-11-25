@@ -438,6 +438,57 @@ class ReaderPageRasterPreparationSourceTest {
 	}
 
 	@Test
+	fun aJumpOntoStoredPagesReusesThePreparedWindow() {
+		// #75: a search/TOC jump onto stored pages neither restores the cover nor blocks.
+		assertTrue(
+			readerPageCanReusePreparedWindow(
+				reason = "go-to",
+				requiredWindowDurable = true,
+				visualCenterChanging = true,
+				rasterRepairPending = false,
+				prewarmPending = false
+			)
+		)
+		assertFalse(
+			readerPageCanReusePreparedWindow(
+				reason = "go-to",
+				requiredWindowDurable = false,
+				visualCenterChanging = true,
+				rasterRepairPending = false,
+				prewarmPending = false
+			)
+		)
+		assertFalse(
+			readerPageCanReusePreparedWindow(
+				reason = "go-to",
+				requiredWindowDurable = true,
+				visualCenterChanging = true,
+				rasterRepairPending = true,
+				prewarmPending = false
+			)
+		)
+		assertFalse(
+			readerPageCanReusePreparedWindow(
+				reason = "relayout",
+				requiredWindowDurable = true,
+				visualCenterChanging = true,
+				rasterRepairPending = false,
+				prewarmPending = false
+			)
+		)
+	}
+
+	@Test
+	fun theCurrentPageReferenceHydratesStoredPagesBeforeDrawingTheWebView() {
+		val source = readerRasterPreparationSource()
+		val port = source
+			.substringAfter("private class ReaderPageBundleRasterCurrentReferencePort(")
+			.substringBefore("internal fun readerPageTurnCanStartPassivePrewarm(")
+		assertTrue(port.indexOf("bundleSource.hydrateSnapshot(") in 0 until port.indexOf("captureCurrentSurface("))
+		assertContains(port, "bundleSource.retainedCurrentLayoutSnapshot(pageIndex, kind)")
+	}
+
+	@Test
 	fun sameCenterExactUpdatePreservesDeferredPrewarmOwnership() {
 		assertTrue(
 			readerPageCanReusePreparedWindow(
