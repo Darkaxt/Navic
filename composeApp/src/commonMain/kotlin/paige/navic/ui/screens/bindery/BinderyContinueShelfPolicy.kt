@@ -143,6 +143,8 @@ fun binderyContinueListeningItems(
 		.filter { progress -> progress.progressFraction > 0.0 }
 		.filterNot { progress -> progress.bookId to progress.audiobookId in realKeys }
 		.sortedByDescending(BinderyWhispersyncCompanionProgress::updatedAtMs)
+		// One card per audiobook: each ebook edition keeps its own companion entry, the player opens the newest.
+		.distinctBy { progress -> progress.bookId.trim() to progress.audiobookId.trim() }
 		.mapNotNull { progress ->
 			val audiobookId = progress.audiobookId.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
 			val bookId = progress.bookId.trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null

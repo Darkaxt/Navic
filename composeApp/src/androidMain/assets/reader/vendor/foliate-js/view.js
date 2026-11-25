@@ -220,6 +220,16 @@ const languageInfo = lang => {
     }
 }
 
+// Navic: illustration plates and spacers (navic-reader-render-profile.js) are absent from clean
+// documents; loose-text paragraph wrappers (navic-reader-typography.js) only regroup their text.
+// Line fragments merged by typography cannot be undone here.
+const navicSearchCFIFilter = node => {
+    if (node.nodeType !== 1) return NodeFilter.FILTER_ACCEPT
+    if (node.hasAttribute('data-navic-illustration')) return NodeFilter.FILTER_REJECT
+    if (node.hasAttribute('data-navic-loose-text-paragraph')) return NodeFilter.FILTER_SKIP
+    return NodeFilter.FILTER_ACCEPT
+}
+
 export class View extends HTMLElement {
     #root = this.attachShadow({ mode: 'closed' })
     #sectionProgress
@@ -446,13 +456,15 @@ export class View extends HTMLElement {
         if (!range) return baseCFI
         return CFI.joinIndir(baseCFI, CFI.fromRange(range))
     }
-    resolveCFI(cfi) {
+    // Navic: search CFIs are computed on clean section documents (#searchSection), so they resolve
+    // with navicSearchCFIFilter, which hides nodes Navic inserts into the rendered document.
+    resolveCFI(cfi, filter = this.#searchCFIs.has(cfi) ? navicSearchCFIFilter : undefined) {
         if (this.book.resolveCFI)
-            return this.book.resolveCFI(cfi)
+            return this.book.resolveCFI(cfi, filter)
         else {
             const parts = CFI.parse(cfi)
             const index = CFI.fake.toIndex((parts.parent ?? parts).shift())
-            const anchor = doc => CFI.toRange(doc, parts)
+            const anchor = doc => CFI.toRange(doc, parts, filter)
             return { index, anchor }
         }
     }
@@ -559,6 +571,7 @@ export class View extends HTMLElement {
             if (subitems.length) yield { index, subitems }
         }
     }
+    #searchCFIs = new Set()
     async * search(opts) {
         this.clearSearch()
         const { searchMatcher } = await import('./search.js')
@@ -574,6 +587,7 @@ export class View extends HTMLElement {
 
         for await (const result of iter) {
             if (result.subitems){
+                for (const { cfi } of result.subitems) this.#searchCFIs.add(cfi)
                 const list = result.subitems
                     .map(({ cfi }) => ({ value: SEARCH_PREFIX + cfi }))
                 this.#searchResults.set(result.index, list)
@@ -585,6 +599,7 @@ export class View extends HTMLElement {
             }
             else {
                 if (result.cfi) {
+                    this.#searchCFIs.add(result.cfi)
                     const item = { value: SEARCH_PREFIX + result.cfi }
                     list.push(item)
                     this.addAnnotation(item)
@@ -598,6 +613,7 @@ export class View extends HTMLElement {
         for (const list of this.#searchResults.values())
             for (const item of list) this.deleteAnnotation(item)
         this.#searchResults.clear()
+        this.#searchCFIs.clear()
     }
     async initTTS(granularity = 'word') {
         const doc = this.renderer.getContents()[0].doc

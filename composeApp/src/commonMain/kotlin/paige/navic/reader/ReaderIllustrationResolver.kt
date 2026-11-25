@@ -1,11 +1,23 @@
 package paige.navic.reader
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import okio.ByteString.Companion.toByteString
 import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.util.core.Logger
 import kotlin.coroutines.cancellation.CancellationException
 
 private const val ReaderIllustrationResolverTag = "ReaderIllustrations"
+
+/** How long a book open waits for the plate refresh before using what is already on disk. */
+internal const val ReaderIllustrationOpenRefreshWaitMillis = 2_500L
 
 /**
  * On-disk illustration images, kept permanently like downloaded EPUBs. On Android the files live in
@@ -33,17 +45,24 @@ interface ReaderIllustrationStorage {
 internal fun ByteArray.readerIllustrationSha256(): String = toByteString().sha256().hex()
 
 /**
- * Builds the [ReaderIllustrationSet] the reader takes once at open. It only reads (cached index,
- * fixture, files on disk); only `fetchMissing` (the user turning plates on in an open book) fetches
- * the book's plates first. Failures resolve to [ReaderIllustrationSet.None].
+ * Builds the [ReaderIllustrationSet] the reader takes once at open. Each open first refreshes the
+ * book's plates from Bindery (readiness is re-read, so plates published later appear), waiting at
+ * most [ReaderIllustrationOpenRefreshWaitMillis]; a slower or offline refresh keeps running and its
+ * plates apply at the next open. `fetchMissing` (the user turning plates on in an open book) waits
+ * for the refresh. Failures resolve to what is on disk, or [ReaderIllustrationSet.None].
  *
  * Fixture: when `reader-illustrations/fixtures/<bookId>.json` exists it replaces the cached index
  * (its own `ebookBookFileId` is accepted); images still come from `reader-illustrations/<sha256>.webp`.
  */
 class ReaderIllustrationResolver(
 	private val repository: BinderyRepository,
-	private val storage: ReaderIllustrationStorage?
+	private val storage: ReaderIllustrationStorage?,
+	private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+	private val openRefreshWaitMillis: Long = ReaderIllustrationOpenRefreshWaitMillis
 ) {
+	private val refreshLock = Mutex()
+	private val refreshes = mutableMapOf<String, Deferred<Int>>()
+
 	/**
 	 * @param bookId the Bindery book id (`Screen.Reader.bookId`).
 	 * @param ebookBookFileId the opened ebook file; null uses the book's only ready file.
@@ -56,21 +75,26 @@ class ReaderIllustrationResolver(
 		fetchMissing: Boolean = false
 	): ReaderIllustrationSet {
 		if (!enabled) return ReaderIllustrationSet.None
-		val cached = resolveCached(bookId, ebookBookFileId)
+		val refresh = refresh(bookId)
+		val stored = if (fetchMissing) refresh?.await() else withTimeoutOrNull(openRefreshWaitMillis) { refresh?.await() }
+		val resolved = resolveCached(bookId, ebookBookFileId)
 		Logger.i(
 			ReaderIllustrationResolverTag,
-			"Illustrations resolved book=$bookId file=$ebookBookFileId placements=${cached.placements.size} fetchMissing=$fetchMissing"
+			"Illustrations resolved book=$bookId file=$ebookBookFileId placements=${resolved.placements.size} " +
+				"fetchMissing=$fetchMissing refreshed=${stored != null} stored=${stored ?: 0}"
 		)
-		if (cached != ReaderIllustrationSet.None || !fetchMissing) return cached
-		// Turned on in an open book whose plates were never fetched: fetch them once, then resolve.
-		val store = storage ?: return cached
-		val stored = prefetchReaderIllustrations(repository, store, bookId)
-		val fetched = resolveCached(bookId, ebookBookFileId)
-		Logger.i(
-			ReaderIllustrationResolverTag,
-			"Illustrations fetched on enable book=$bookId stored=$stored placements=${fetched.placements.size}"
-		)
-		return fetched
+		return resolved
+	}
+
+	/** One refresh per book at a time; it outlives the open that started it, so a slow one still lands. */
+	private suspend fun refresh(bookId: String): Deferred<Int>? {
+		val store = storage ?: return null
+		val key = bookId.trim().takeIf { it.isNotEmpty() } ?: return null
+		return refreshLock.withLock {
+			refreshes[key]?.takeIf { it.isActive } ?: scope.async {
+				prefetchReaderIllustrations(repository, store, key, forceRefresh = true)
+			}.also { refreshes[key] = it }
+		}
 	}
 
 	private suspend fun resolveCached(bookId: String, ebookBookFileId: Long?): ReaderIllustrationSet {
@@ -121,12 +145,14 @@ internal fun readerIllustrationSet(
 suspend fun prefetchReaderIllustrations(
 	repository: BinderyRepository,
 	storage: ReaderIllustrationStorage,
-	bookId: String
+	bookId: String,
+	/** Re-read readiness from Bindery instead of trusting a fresh cache (plates may have been published since). */
+	forceRefresh: Boolean = false
 ): Int {
 	val numericBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L } ?: return 0
 	var stored = 0
 	try {
-		val readiness = repository.getIllustrationsReadiness(numericBookId).getOrElse { return 0 }
+		val readiness = repository.getIllustrationsReadiness(numericBookId, forceRefresh).getOrElse { return 0 }
 		for (file in readiness.readyFiles) {
 			val index = repository.getIllustrationIndex(numericBookId, file).getOrElse { error ->
 				Logger.i(ReaderIllustrationResolverTag, "Illustrations index skipped book=$numericBookId error=${error::class.simpleName}")

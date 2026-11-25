@@ -56,6 +56,42 @@ class ArtistCreditRowPolicyTest {
 	}
 
 	@Test
+	fun creditedNameWithoutLibraryArtistCountsTheCreditsAlbums() {
+		val artists = listOf(
+			DomainArtist(id = "combined", name = "ACRAZE, Sub Focus, Cherish", albumCount = 1),
+			DomainArtist(id = "other", name = "Sub Focus & Cherish", albumCount = 2),
+			DomainArtist(id = "acraze", name = "ACRAZE", albumCount = 2),
+			DomainArtist(id = "subfocus", name = "Sub Focus", albumCount = 11)
+		)
+		val splits = mapOf(
+			"ACRAZE, Sub Focus, Cherish" to listOf("ACRAZE", "Sub Focus", "Cherish"),
+			"Sub Focus & Cherish" to listOf("Sub Focus", "Cherish")
+		)
+
+		val rows = artistCreditResolvedRows(artists) { artist ->
+			splits[artist.name]?.let { names ->
+				ArtistCreditResolution(
+					displayNames = names,
+					reason = ArtistCreditResolutionReason.ValidatedSplit,
+					confidence = 0.92
+				)
+			}
+		}
+
+		assertEquals(listOf("ACRAZE", "Sub Focus", "Cherish"), rows.map { it.name })
+		assertEquals(3, rows.first { it.name == "Cherish" }.albumCount)
+		assertEquals(11, rows.first { it.name == "Sub Focus" }.albumCount)
+	}
+
+	@Test
+	fun creditIncludesOnlyWholeCreditedNames() {
+		assertTrue(artistCreditIncludesName("ACRAZE, Sub Focus, Cherish", "cherish"))
+		assertTrue(artistCreditIncludesName("Cherish", "Cherish"))
+		assertFalse(artistCreditIncludesName("Cherished Memories", "Cherish"))
+		assertFalse(artistCreditIncludesName(null, "Cherish"))
+	}
+
+	@Test
 	fun unresolvedCompositeArtistCreditIsHiddenFromVisibleRows() {
 		val artists = listOf(
 			DomainArtist(id = "solo", name = "LISA"),

@@ -125,6 +125,37 @@ class BinderyContinueShelfPolicyTest {
 	}
 
 	@Test
+	fun continueListeningShowsOneCardPerAudiobookAcrossEbookEditions() {
+		fun edition(href: String, fraction: Double, updatedAt: Long) = BinderyWhispersyncCompanionProgress(
+			bookId = "3816",
+			ebookResourceHref = href,
+			audiobookId = "69",
+			audiobookBookFileId = "694",
+			artifactId = "3",
+			progressFraction = fraction,
+			updatedAtMs = updatedAt
+		)
+		val json = binderyWhispersyncCompanionProgressJsonWithUpdate(
+			json = binderyWhispersyncCompanionProgressJsonWithUpdate(
+				json = "",
+				progress = edition("/opds/books/3816/resources/ebook-435", 0.12, 100L)
+			),
+			progress = edition("/opds/books/3816/resources/ebook-436", 0.03, 200L)
+		)
+		assertEquals(2, binderyWhispersyncCompanionProgressEntries(json).size)
+
+		val items = binderyContinueListeningItems(
+			progresses = emptyList(),
+			companionProgresses = binderyWhispersyncCompanionProgressEntries(json),
+			manifestsByBookId = mapOf("3816" to BinderyManifest(id = "urn:bindery:book:3816", title = "The Hobbit")),
+			audiobookDetailsById = mapOf("69" to andySerkis())
+		)
+
+		assertEquals(1, items.size)
+		assertEquals("Andy Serkis / Whispersync / 3%", items.single().subtitle)
+	}
+
+	@Test
 	fun continueListeningItemsPreferRealPlaybackProgressOverCompanionProgress() {
 		val playback = BinderyAudiobookPlaybackProgress(
 			bookId = "3816",

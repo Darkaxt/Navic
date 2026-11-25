@@ -104,6 +104,11 @@ interface AlbumDao {
 	@Query("SELECT * FROM AlbumEntity WHERE artistName = :artistName ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByArtistName(artistName: String): Flow<List<AlbumWithSongs>>
 
+	/** Candidates for a credited name inside combined credits; callers keep exact credit matches. */
+	@Transaction
+	@Query("SELECT * FROM AlbumEntity WHERE artistName LIKE '%' || :artistName || '%' ORDER BY year DESC, name COLLATE NOCASE ASC")
+	fun getAlbumsByArtistNameContaining(artistName: String): Flow<List<AlbumWithSongs>>
+
 	@Transaction
 	@Query("SELECT * FROM AlbumEntity WHERE artistId = :artistId AND albumId != :albumId ORDER BY year DESC, name COLLATE NOCASE ASC")
 	fun getAlbumsByArtistExcluding(artistId: String, albumId: String): Flow<List<AlbumWithSongs>>

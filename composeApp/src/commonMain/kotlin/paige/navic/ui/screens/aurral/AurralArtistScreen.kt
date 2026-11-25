@@ -84,6 +84,7 @@ import paige.navic.domain.models.AurralSimilarArtistRow
 import paige.navic.domain.models.DomainAlbum
 import paige.navic.domain.models.DomainArtist
 import paige.navic.domain.models.aurralArtistAlbumRows
+import paige.navic.ui.screens.artist.artistCreditIncludesName
 import paige.navic.domain.models.aurralMissingAlbumRows
 import paige.navic.domain.models.aurralSimilarArtistRows
 import paige.navic.domain.models.settings.ArtworkSourcePriority
@@ -176,7 +177,9 @@ fun AurralArtistScreen(route: Screen.AurralArtist) {
 			val artist = localArtist ?: route.toDomainArtist()
 			val localAlbums = when {
 				localArtist != null -> albumDao.getAlbumsByArtist(localArtist.id).firstOrNull().orEmpty()
-				else -> albumDao.getAlbumsByArtistName(route.artistName).firstOrNull().orEmpty()
+				// Not a library artist: the albums of the credits naming it (Cherish on "ACRAZE, Sub Focus, Cherish").
+				else -> albumDao.getAlbumsByArtistNameContaining(route.artistName).firstOrNull().orEmpty()
+					.filter { album -> artistCreditIncludesName(album.album.artistName, route.artistName) }
 			}.map { it.toDomainModel() }.sortedByAlbumYearDescending()
 			AurralArtistLocalCatalog(
 				artist = artist,

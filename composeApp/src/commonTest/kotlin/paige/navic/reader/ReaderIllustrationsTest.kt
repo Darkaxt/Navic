@@ -104,7 +104,7 @@ class ReaderIllustrationsTest {
 		assertEquals(1, prefetchReaderIllustrations(repository, storage, "7"))
 		assertEquals(setOf(shaA), storage.images.keys)
 
-		val resolver = ReaderIllustrationResolver(repository, storage)
+		val resolver = ReaderIllustrationResolver(repository, storage, scope = backgroundScope)
 		val set = resolver.resolve("7", ebookBookFileId = null, enabled = true)
 		assertEquals("digest-1", set.digest)
 		assertEquals(listOf("s1"), set.placements.map { it.sceneId })
@@ -115,25 +115,38 @@ class ReaderIllustrationsTest {
 	}
 
 	@Test
-	fun turningPlatesOnFetchesThemOnlyWhenAsked() = runTest {
+	fun openFetchesPlatesAndPicksUpPlatesPublishedSinceAFreshCache() = runTest {
 		val storage = MemoryIllustrationStorage()
-		val repository = configuredBinderyRepository(
+		val cache = RecordingBinderyMetadataCache()
+		val before = configuredBinderyRepository(
 			FakeBinderyApiClient(
 				illustrationsReadinessJson = ReadinessJson,
 				illustrationsIndexJson = indexJson(placement("s1", shaA)),
 				illustrationImages = mapOf(shaA to imageA)
 			),
-			RecordingBinderyMetadataCache()
+			cache
 		) { 10_000L }
-		val resolver = ReaderIllustrationResolver(repository, storage)
+		// The first open fetches the plates itself.
+		val first = ReaderIllustrationResolver(before, storage, scope = backgroundScope)
+			.resolve("7", ebookBookFileId = 11, enabled = true)
+		assertEquals(listOf("s1"), first.placements.map { it.sceneId })
 
-		// At open nothing is fetched: an empty cache means no plates.
-		assertSame(ReaderIllustrationSet.None, resolver.resolve("7", ebookBookFileId = 11, enabled = true))
-		assertEquals(emptySet(), storage.images.keys)
-
-		val set = resolver.resolve("7", ebookBookFileId = 11, enabled = true, fetchMissing = true)
-		assertEquals(listOf("s1"), set.placements.map { it.sceneId })
-		assertEquals(setOf(shaA), storage.images.keys)
+		// A mid-chapter plate is published while the cached readiness is still fresh.
+		val after = configuredBinderyRepository(
+			FakeBinderyApiClient(
+				illustrationsReadinessJson = ReadinessJson.replace("digest-1", "digest-2"),
+				illustrationsIndexJson = indexJson(
+					placement("s1", shaA),
+					placement("s2", shaB, position = ReaderIllustrationPositionPlateBeforeBlock, ebookStart = 40)
+				).replace("digest-1", "digest-2"),
+				illustrationImages = mapOf(shaA to imageA, shaB to imageB)
+			),
+			cache
+		) { 10_000L }
+		val next = ReaderIllustrationResolver(after, storage, scope = backgroundScope)
+			.resolve("7", ebookBookFileId = 11, enabled = true)
+		assertEquals("digest-2", next.digest)
+		assertEquals(listOf("s1", "s2"), next.placements.map { it.sceneId })
 	}
 
 	@Test
@@ -144,7 +157,7 @@ class ReaderIllustrationsTest {
 		}
 		val repository = configuredBinderyRepository(FakeBinderyApiClient(), RecordingBinderyMetadataCache()) { 10_000L }
 
-		val set = ReaderIllustrationResolver(repository, storage).resolve("7", ebookBookFileId = null, enabled = true)
+		val set = ReaderIllustrationResolver(repository, storage, scope = backgroundScope).resolve("7", ebookBookFileId = null, enabled = true)
 
 		assertEquals("fixture-digest", set.digest)
 		assertEquals(listOf("fixture"), set.placements.map { it.sceneId })
