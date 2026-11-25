@@ -1562,6 +1562,50 @@ window.NavicReaderBridge = {
     runtime.activeExactPageTurnSettlementToken = null
     runtime.nativePageTurnSettledState = null
   },
+  // #77: the illustration plates fully inside the WebView viewport, in CSS px, for the native
+  // living-plate overlay. The image box is the contained image itself (readerIllustrationCss).
+  livingPlateRects: () => {
+    const plates = []
+    try {
+      const renderer = runtime.view?.renderer
+      const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      for (const content of contents) {
+        const doc = content?.doc
+        const frame = doc?.defaultView?.frameElement
+        if (!doc?.body || !frame?.isConnected) continue
+        const frameRect = frame.getBoundingClientRect()
+        const scaleX = frame.offsetWidth > 0 ? frameRect.width / frame.offsetWidth : 1
+        const scaleY = frame.offsetHeight > 0 ? frameRect.height / frame.offsetHeight : 1
+        for (const image of doc.body.querySelectorAll('img[data-navic-illustration-image]')) {
+          const sceneId = image.parentElement?.getAttribute('data-navic-illustration')
+          const loopSha256 = image.dataset.navicLivingLoop
+          if (!sceneId || !loopSha256 || !image.complete) continue
+          const rect = image.getBoundingClientRect()
+          const left = frameRect.left + rect.left * scaleX
+          const top = frameRect.top + rect.top * scaleY
+          const width = rect.width * scaleX
+          const height = rect.height * scaleY
+          if (width < 2 || height < 2) continue
+          if (left < -1 || top < -1 || left + width > viewportWidth + 1 || top + height > viewportHeight + 1) continue
+          plates.push({
+            sceneId,
+            sha256: image.dataset.navicSha256 || '',
+            loopSha256,
+            revealSha256: image.dataset.navicLivingReveal || '',
+            left,
+            top,
+            width,
+            height,
+          })
+        }
+      }
+    } catch {
+      plates.length = 0
+    }
+    return JSON.stringify({ dpr: window.devicePixelRatio || 1, plates })
+  },
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),

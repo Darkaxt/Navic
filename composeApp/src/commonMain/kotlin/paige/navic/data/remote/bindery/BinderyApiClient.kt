@@ -4,6 +4,7 @@ import paige.navic.domain.repositories.*
 
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -116,6 +117,15 @@ interface BinderyApiClient {
 		bookId: Long,
 		sha256: String
 	): ByteArray
+
+	/** A living plate's loop (`mp4`) or reveal map (`png`), by sha256 (#77). */
+	suspend fun fetchIllustrationLivingBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String,
+		extension: String
+	): ByteArray = throw UnsupportedOperationException("Living plates are not supported")
 
 	suspend fun fetchResourceBytes(
 		baseUrl: String,
@@ -405,6 +415,27 @@ internal class KtorBinderyApiClient(
 		}
 		if (!response.status.isSuccess()) {
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery illustration image", response.status))
+		}
+		return response.body<ByteArray>()
+	}
+
+	override suspend fun fetchIllustrationLivingBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String,
+		extension: String
+	): ByteArray {
+		val response = client.get(binderyIllustrationLivingUrl(baseUrl, bookId, sha256, extension)) {
+			binderyScopedHeaders(baseUrl, requestHeaders)
+			// A loop is ~12 MB: allow slow links more than the client's 45 s.
+			timeout {
+				requestTimeoutMillis = 180_000
+				socketTimeoutMillis = 60_000
+			}
+		}
+		if (!response.status.isSuccess()) {
+			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery living plate", response.status))
 		}
 		return response.body<ByteArray>()
 	}

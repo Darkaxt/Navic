@@ -269,6 +269,8 @@ data class ReaderSettings(
 	val volumeKeyPageTurns: Boolean? = null,
 	val webContentsDebuggingEnabled: Boolean? = null,
 	val illustrationsEnabled: Boolean? = null,
+	/** Darkaxt/Navic#79 animation level; None is [dragAnimationMode] none. Native only, not sent to JS. */
+	val animationLevel: String? = null,
 	val illustrations: ReaderIllustrationSet? = null
 )
 
@@ -1654,6 +1656,11 @@ private fun ReaderIllustrationSet.toIllustrationsJsonObject(): JsonObject =
 							put("width", placement.width)
 							put("height", placement.height)
 							put("imageUrl", placement.imageUrl)
+							put("sha256", placement.sha256)
+							placement.living?.let { living ->
+								put("loopSha256", living.loopSha256)
+								put("revealSha256", living.revealSha256)
+							}
 						}
 					)
 				}

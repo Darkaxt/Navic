@@ -282,6 +282,10 @@ const createReaderIllustrationPlate = (doc, placement, height, block) => {
   image.setAttribute('height', String(placement.height))
   image.setAttribute('alt', '')
   image.setAttribute('decoding', 'sync')
+  // Living plates (#77): the native overlay finds the loop of the plate on screen by these.
+  if (placement.sha256) image.dataset.navicSha256 = placement.sha256
+  if (placement.loopSha256) image.dataset.navicLivingLoop = placement.loopSha256
+  if (placement.revealSha256) image.dataset.navicLivingReveal = placement.revealSha256
   figure.append(image)
   return figure
 }

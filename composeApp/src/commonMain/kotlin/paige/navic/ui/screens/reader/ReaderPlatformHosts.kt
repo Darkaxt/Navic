@@ -43,6 +43,8 @@ expect fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	/** Living plates (#77) play over settled plate pages. */
+	livingPlatesEnabled: Boolean = false,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageCacheScope: String?,

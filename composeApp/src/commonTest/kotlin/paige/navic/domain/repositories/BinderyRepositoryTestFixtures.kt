@@ -30,6 +30,7 @@ internal class FakeBinderyApiClient(
 	private val illustrationsReadinessJson: String? = null,
 	private val illustrationsIndexJson: String? = null,
 	private val illustrationImages: Map<String, ByteArray> = emptyMap(),
+	private val illustrationLiving: Map<String, ByteArray> = emptyMap(),
 	private val progress: BinderyReadingProgress = BinderyReadingProgress(
 		bookId = "book",
 		kind = BinderyReadingProgressKind.Ebook
@@ -278,6 +279,18 @@ internal class FakeBinderyApiClient(
 		callLog?.add("illustration-image:$sha256")
 		return illustrationImages[sha256]
 			?: throw BinderyApiException(HttpStatusCode.NotFound, "Bindery illustration image failed")
+	}
+
+	override suspend fun fetchIllustrationLivingBytes(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		bookId: Long,
+		sha256: String,
+		extension: String
+	): ByteArray {
+		callLog?.add("illustration-living:$sha256.$extension")
+		return illustrationLiving["$sha256.$extension"]
+			?: throw BinderyApiException(HttpStatusCode.NotFound, "Bindery living plate failed")
 	}
 
 	override suspend fun fetchResourceBytes(

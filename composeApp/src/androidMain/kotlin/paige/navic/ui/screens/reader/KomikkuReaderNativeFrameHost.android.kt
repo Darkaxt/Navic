@@ -22,6 +22,8 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.webkit.WebView
+import paige.navic.reader.AndroidReaderIllustrationStorage
+import kotlin.math.roundToInt
 import android.widget.FrameLayout
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
@@ -353,6 +355,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	invertedColors: Boolean,
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
+	livingPlatesEnabled: Boolean,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageCacheScope: String?,
@@ -509,6 +512,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setBookPreparationAlternate(bookPreparationAlternate)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+					setLivingPlatesEnabled(livingPlatesEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
 					setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 					setPageTurnContentReadyKey(pageTurnContentReadyKey)
@@ -566,6 +570,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setBookPreparationAlternate(bookPreparationAlternate)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
+				root.setLivingPlatesEnabled(livingPlatesEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
 				root.setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 				root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
@@ -808,6 +813,10 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
+	}
+
+	fun setLivingPlatesEnabled(enabled: Boolean) {
+		viewerContainer.setLivingPlatesEnabled(enabled)
 	}
 
 	fun setPageTurnReadingDirection(direction: String?) {
@@ -1206,6 +1215,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	FrameLayout(context),
 	ReaderSettingsWebViewMutationHost {
 	private val viewerContentContainer = FrameLayout(context)
+	private val livingPlateOverlay = ReaderLivingPlateOverlay(context)
+	private val livingPlateStorage = AndroidReaderIllustrationStorage(context)
+	private var livingPlatesEnabled = false
+	private var livingPlateProbeAttempts = 0
+	private val livingPlateProbe = Runnable { probeLivingPlates() }
 	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
@@ -1427,6 +1441,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			onPageTurnBoundary(direction)
 		},
 		onTurnPhase = { phase ->
+			scheduleLivingPlateProbe()
 			onPageCurlTurnPhase(phase)
 		},
 		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
@@ -1884,6 +1899,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 		addView(
+			livingPlateOverlay,
+			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+		)
+		addView(
 			playLikeCurlController.inlineRasterShieldView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
@@ -1953,6 +1972,77 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			ReaderPageHostLifecycleEvent.ReaderSettingsChanged
 		)
 		verticalPageDragPreview = value
+	}
+
+	fun setLivingPlatesEnabled(enabled: Boolean) {
+		if (livingPlatesEnabled == enabled) return
+		livingPlatesEnabled = enabled
+		if (enabled) scheduleLivingPlateProbe() else stopLivingPlates()
+	}
+
+	private fun stopLivingPlates() {
+		removeCallbacks(livingPlateProbe)
+		livingPlateOverlay.clear()
+	}
+
+	/** A page settles: probe for plates once the curl surface and any raster shield are gone. */
+	private fun scheduleLivingPlateProbe() {
+		stopLivingPlates()
+		if (!livingPlatesEnabled) return
+		livingPlateProbeAttempts = 0
+		postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
+	}
+
+	private fun probeLivingPlates() {
+		if (!livingPlatesEnabled || !isAttachedToWindow || windowVisibility != VISIBLE || shellCoverVisible) return
+		val curlVisible = playLikeCurlController.surfaceView.alpha != 0f
+		if (curlVisible || playLikeCurlController.ownsInlineRasterShieldPresentation) {
+			if (++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
+				postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
+			} else {
+				Logger.i(KomikkuReaderNativeFrameHostTag, "living-plates probe gave up curl=$curlVisible shield=true")
+			}
+			return
+		}
+		val webView = viewerContentContainer.findDescendantWebView() ?: return
+		val probedPage = pageTurnVisualPageIndex
+		webView.evaluateJavascript(
+			"(window.NavicReaderBridge && NavicReaderBridge.livingPlateRects) ? NavicReaderBridge.livingPlateRects() : ''"
+		) { raw ->
+			if (!livingPlatesEnabled || probedPage != pageTurnVisualPageIndex || !webView.isAttachedToWindow) return@evaluateJavascript
+			livingPlateOverlay.show(livingPlateTargets(webView, raw))
+		}
+	}
+
+	private fun livingPlateTargets(webView: WebView, raw: String?): List<ReaderLivingPlateTarget> = runCatching {
+		val json = org.json.JSONTokener(raw ?: return emptyList()).nextValue() as? String ?: return emptyList()
+		if (json.isBlank()) return emptyList()
+		val root = org.json.JSONObject(json)
+		val dpr = root.optDouble("dpr", 1.0).toFloat().takeIf { it > 0f } ?: 1f
+		val webLocation = IntArray(2).also(webView::getLocationInWindow)
+		val ownLocation = IntArray(2).also(livingPlateOverlay::getLocationInWindow)
+		val offsetX = webLocation[0] - ownLocation[0]
+		val offsetY = webLocation[1] - ownLocation[1]
+		val plates = root.optJSONArray("plates") ?: return emptyList()
+		(0 until plates.length()).mapNotNull { index ->
+			val plate = plates.optJSONObject(index) ?: return@mapNotNull null
+			val image = livingPlateStorage.imageFilePath(plate.optString("sha256")) ?: return@mapNotNull null
+			val loop = livingPlateStorage.livingFilePath(plate.optString("loopSha256"), "mp4") ?: return@mapNotNull null
+			val reveal = livingPlateStorage.livingFilePath(plate.optString("revealSha256"), "png") ?: return@mapNotNull null
+			val left = offsetX + (plate.optDouble("left") * dpr).roundToInt()
+			val top = offsetY + (plate.optDouble("top") * dpr).roundToInt()
+			val bounds = android.graphics.Rect(
+				left,
+				top,
+				left + (plate.optDouble("width") * dpr).roundToInt(),
+				top + (plate.optDouble("height") * dpr).roundToInt()
+			)
+			if (bounds.width() < 8 || bounds.height() < 8) return@mapNotNull null
+			ReaderLivingPlateTarget(plate.optString("sceneId"), bounds, image, loop, reveal)
+		}
+	}.getOrElse { error ->
+		Logger.w(KomikkuReaderNativeFrameHostTag, "living-plates probe unreadable", error)
+		emptyList()
 	}
 
 	fun setPageTurnCanvasEnabled(enabled: Boolean) {
@@ -2194,6 +2284,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		val visualLocationBecameKnown = pageTurnVisualPageIndex == null && normalized != null
+		if (pageTurnVisualPageIndex != normalized || sessionChanged) scheduleLivingPlateProbe()
 		pageTurnFoliateSessionId = currentFoliateSessionId
 		playLikeCurlController.setFoliateSessionId(currentFoliateSessionId)
 		val origin = if (sessionChanged) {
@@ -3560,6 +3651,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	override fun onWindowVisibilityChanged(visibility: Int) {
 		super.onWindowVisibilityChanged(visibility)
+		if (visibility == VISIBLE) scheduleLivingPlateProbe() else stopLivingPlates()
 		if (!pageTurnCanvasEnabled) return
 		if (visibility == VISIBLE) {
 			val resumed =
@@ -3593,6 +3685,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	override fun onDetachedFromWindow() {
+		stopLivingPlates()
 		closePassiveRasterPreparationAdapter()
 		pageRasterHostEventController.webViewAttachmentChanged(false)
 		pageRasterHostEventController.lifecycleResumedChanged(false)
@@ -3686,6 +3779,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		}
 	}
 }
+
+private const val LivingPlateSettleDelayMillis = 600L
+private const val LivingPlateProbeAttemptLimit = 8
 
 private fun View.findDescendantWebView(): WebView? {
 	if (this is WebView) return this

@@ -60,13 +60,14 @@ internal fun KomikkuReadingSettingsPage(
 			selectedValue = normalizedReaderNavBarType(settings.navBarType),
 			onSelect = { navBarType -> onSettingsChange(settings.copy(navBarType = navBarType)) }
 		)
+		// Darkaxt/Navic#79: None = instant pages, Basic = page curl, Moderate = curl + living plates.
 		SettingsSelectableChipRow(
-			title = "Page turn animation",
-			options = ReaderSupportedDragAnimationModes.map { mode ->
-				mode to readerDragAnimationModeShortLabel(mode)
+			title = "Animations",
+			options = ReaderSupportedAnimationLevels.map { level ->
+				level to readerAnimationLevelShortLabel(level)
 			},
-			selectedValue = normalizedReaderDragAnimationMode(settings.dragAnimationMode),
-			onSelect = { mode -> onSettingsChange(settings.copy(dragAnimationMode = mode)) }
+			selectedValue = readerEffectiveAnimationLevel(settings.dragAnimationMode, settings.animationLevel),
+			onSelect = { level -> onSettingsChange(settings.withReaderAnimationLevel(level)) }
 		)
 		SettingsSelectableChipRow(
 			title = "Page cache scope",

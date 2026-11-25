@@ -355,7 +355,9 @@ class PreferenceManager(
 	var readerCoverBackdropEnabled by preference(true)
 	var readerNavBarType by preference("vertical-right")
 	var readerFlowMode by preference("paged")
-	var readerDragAnimationMode by preference("none")
+	var readerDragAnimationMode by preference("canvas")
+	/** Darkaxt/Navic#79: what animates while the page curl is on ("basic", "moderate", "magic"). */
+	var readerAnimationLevel by preference("moderate")
 	var readerPageBitmapQuality by preference("100")
 	var readerPageCacheScope by preference("per-chapter")
 	var readerPageCacheLayouts by preference("current")

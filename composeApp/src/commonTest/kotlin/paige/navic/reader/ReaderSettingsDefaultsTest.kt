@@ -62,6 +62,7 @@ class ReaderSettingsDefaultsTest {
 				pageEdgesEnabled = true,
 				paperStainsEnabled = true,
 				illustrationsEnabled = true,
+				animationLevel = ReaderAnimationLevelModerate,
 				coverBackdropEnabled = true,
 				navBarType = ReaderNavBarTypeVerticalRight,
 				flowMode = ReaderFlowScrolled,
@@ -158,6 +159,7 @@ class ReaderSettingsDefaultsTest {
 				pageEdgesEnabled = true,
 				paperStainsEnabled = true,
 				illustrationsEnabled = true,
+				animationLevel = ReaderAnimationLevelModerate,
 				coverBackdropEnabled = true,
 				navBarType = ReaderNavBarTypeBottom,
 				flowMode = ReaderFlowPaged,
@@ -398,6 +400,23 @@ class ReaderSettingsDefaultsTest {
 		)
 		assertEquals(ReaderFlowPaged, normalizedReaderFlowMode(flowMode = null, paged = true))
 		assertEquals(ReaderFlowScrolled, normalizedReaderFlowMode(flowMode = null, paged = false))
+	}
+
+	@Test
+	fun animationLevelsMapOntoTheCurlAndLivingPlates() {
+		assertEquals(ReaderAnimationLevelModerate, defaultReaderSettings().animationLevel)
+		val none = defaultReaderSettings().withReaderAnimationLevel(ReaderAnimationLevelNone)
+		assertEquals(ReaderDragAnimationNone, none.dragAnimationMode)
+		assertEquals(ReaderAnimationLevelNone, readerEffectiveAnimationLevel(none.dragAnimationMode, none.animationLevel))
+		assertEquals(false, readerLivingPlatesEnabled(none.dragAnimationMode, none.animationLevel))
+		val basic = none.withReaderAnimationLevel(ReaderAnimationLevelBasic)
+		assertEquals(ReaderDragAnimationCanvas, basic.dragAnimationMode)
+		assertEquals(false, readerLivingPlatesEnabled(basic.dragAnimationMode, basic.animationLevel))
+		val moderate = basic.withReaderAnimationLevel(ReaderAnimationLevelModerate)
+		assertEquals(true, readerLivingPlatesEnabled(moderate.dragAnimationMode, moderate.animationLevel))
+		// The curl users of earlier versions keep the curl and gain living plates (default Moderate).
+		assertEquals(true, readerLivingPlatesEnabled(ReaderDragAnimationCanvas, null))
+		assertEquals(ReaderAnimationLevelModerate, normalizedReaderAnimationLevel("unknown"))
 	}
 
 	@Test

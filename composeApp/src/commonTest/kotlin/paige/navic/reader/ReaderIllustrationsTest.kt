@@ -3,6 +3,7 @@ package paige.navic.reader
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import paige.navic.data.remote.bindery.binderyIllustrationImageUrl
+import paige.navic.data.remote.bindery.binderyIllustrationLivingUrl
 import paige.navic.data.remote.bindery.binderyIllustrationsIndexUrl
 import paige.navic.data.remote.bindery.binderyIllustrationsReadinessUrl
 import paige.navic.domain.manager.BinderyReaderPrefetcher
@@ -112,6 +113,43 @@ class ReaderIllustrationsTest {
 
 		assertSame(ReaderIllustrationSet.None, resolver.resolve("7", ebookBookFileId = 11, enabled = false))
 		assertSame(ReaderIllustrationSet.None, resolver.resolve("7", ebookBookFileId = 99, enabled = true))
+	}
+
+	@Test
+	fun livingPlatesDecodeAndDownloadVerifiedLoopsAndRevealMaps() = runTest {
+		val loop = "loop-mp4".encodeToByteArray()
+		val reveal = "reveal-png".encodeToByteArray()
+		val loopSha = loop.readerIllustrationSha256()
+		val revealSha = reveal.readerIllustrationSha256()
+		val living = ""","living":{"loopSha256":"$loopSha","revealSha256":"$revealSha","seconds":8,""" +
+			""""fps":24,"loopBytes":${loop.size},"revealBytes":${reveal.size}}}"""
+		val storage = MemoryIllustrationStorage()
+		val calls = mutableListOf<String>()
+		val repository = configuredBinderyRepository(
+			FakeBinderyApiClient(
+				illustrationsReadinessJson = ReadinessJson,
+				illustrationsIndexJson = indexJson(placement("s1", shaA).dropLast(1) + living),
+				illustrationImages = mapOf(shaA to imageA),
+				illustrationLiving = mapOf("$loopSha.mp4" to loop, "$revealSha.png" to "tampered".encodeToByteArray()),
+				callLog = calls
+			),
+			RecordingBinderyMetadataCache()
+		) { 10_000L }
+
+		assertEquals(1, prefetchReaderIllustrations(repository, storage, "7"))
+		val set = ReaderIllustrationResolver(repository, storage, scope = backgroundScope)
+			.resolve("7", ebookBookFileId = null, enabled = true)
+		assertEquals(ReaderIllustrationLiving(loopSha, revealSha, 8.0, loop.size.toLong(), reveal.size.toLong()), set.placements.single().living)
+
+		// The tampered reveal map is rejected; the verified loop is stored.
+		assertEquals(1, prefetchReaderIllustrationLiving(repository, storage, "7"))
+		assertEquals(setOf("$loopSha.mp4"), storage.living.keys)
+		assertEquals(0, prefetchReaderIllustrationLiving(repository, storage.also { it.free = 0L }, "7"))
+		assertEquals(
+			"https://bindery.example.com/api/v1/books/7/illustrations/living/$loopSha.mp4",
+			binderyIllustrationLivingUrl("https://bindery.example.com", 7L, loopSha, "mp4")
+		)
+		assertFailsWith<IllegalArgumentException> { binderyIllustrationLivingUrl("https://bindery.example.com", 7L, loopSha, "exe") }
 	}
 
 	@Test
@@ -229,4 +267,16 @@ private class MemoryIllustrationStorage : ReaderIllustrationStorage {
 	override fun readFixtureIndexJson(bookId: Long): String? = fixtures[bookId]
 
 	override fun imageUrl(sha256: String): String = "asset://$sha256"
+
+	val living = linkedMapOf<String, ByteArray>()
+	var free = Long.MAX_VALUE
+
+	override fun livingFilePath(sha256: String, extension: String): String? =
+		"$sha256.$extension".takeIf { it in living }
+
+	override suspend fun writeLiving(sha256: String, extension: String, bytes: ByteArray) {
+		living["$sha256.$extension"] = bytes
+	}
+
+	override fun freeSpaceBytes(): Long = free
 }

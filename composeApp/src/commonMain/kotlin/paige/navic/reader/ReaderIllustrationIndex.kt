@@ -53,7 +53,21 @@ data class ReaderIllustrationIndexPlacement(
 	val width: Int,
 	val height: Int,
 	val imageHref: String?,
-	val sha256: String
+	val sha256: String,
+	/** Optional living plate (Darkaxt/Navic#77); null shows the static plate only. */
+	val living: ReaderIllustrationLiving? = null
+)
+
+/**
+ * A placement's `living` object: an 8 s seamless H.264 loop of the plate and a greyscale reveal-order
+ * map (0 = gets its colour first), both served by sha256 from `illustrations/living/`.
+ */
+data class ReaderIllustrationLiving(
+	val loopSha256: String,
+	val revealSha256: String,
+	val seconds: Double,
+	val loopBytes: Long?,
+	val revealBytes: Long?
 )
 
 /** Per-spine proof, same shape as the Whispersync index, kept for a later drift check. */
@@ -178,7 +192,22 @@ private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement
 		width = width.toInt(),
 		height = height.toInt(),
 		imageHref = string("imageHref"),
-		sha256 = sha256
+		sha256 = sha256,
+		living = (this["living"] as? JsonObject)?.decodeLivingOrNull()
+	)
+}
+
+private fun JsonObject.decodeLivingOrNull(): ReaderIllustrationLiving? {
+	val loop = string("loopSha256")?.takeIf(String::isReaderIllustrationSha256) ?: return null
+	val reveal = string("revealSha256")?.takeIf(String::isReaderIllustrationSha256) ?: return null
+	val seconds = (this["seconds"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+		?.takeIf { it > 0.0 && it <= 60.0 } ?: 8.0
+	return ReaderIllustrationLiving(
+		loopSha256 = loop,
+		revealSha256 = reveal,
+		seconds = seconds,
+		loopBytes = long("loopBytes")?.takeIf { it > 0L },
+		revealBytes = long("revealBytes")?.takeIf { it > 0L }
 	)
 }
 

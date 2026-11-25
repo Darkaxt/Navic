@@ -20,7 +20,8 @@ internal fun ReaderSettings.readerEngineSettingsProjection(): ReaderSettings =
 		whispersyncHighlightLeadMs = null,
 		whispersyncPageBoundary = null,
 		volumeKeyPageTurns = null,
-		webContentsDebuggingEnabled = null
+		webContentsDebuggingEnabled = null,
+		animationLevel = null
 	)
 
 internal fun ReaderSettings.readerPageRasterSnapshotKey(): Int =

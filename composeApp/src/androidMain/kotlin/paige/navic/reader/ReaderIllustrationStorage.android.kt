@@ -29,19 +29,7 @@ class AndroidReaderIllustrationStorage internal constructor(
 
 	override suspend fun writeImage(sha256: String, bytes: ByteArray) {
 		require(sha256.isReaderIllustrationSha256()) { "Illustration image hash is invalid." }
-		withContext(Dispatchers.IO) {
-			val target = imageFile(sha256)
-			target.parentFile?.mkdirs()
-			val staging = File(target.parentFile, "${target.name}.tmp")
-			staging.outputStream().use { output ->
-				output.write(bytes)
-				output.fd.sync()
-			}
-			if (!staging.renameTo(target)) {
-				target.delete()
-				check(staging.renameTo(target)) { "Illustration image could not be stored" }
-			}
-		}
+		withContext(Dispatchers.IO) { writeAtomically(imageFile(sha256), bytes) }
 	}
 
 	override fun readFixtureIndexJson(bookId: Long): String? {
@@ -52,5 +40,42 @@ class AndroidReaderIllustrationStorage internal constructor(
 	override fun imageUrl(sha256: String): String =
 		readerPublicationAssetUrl("$ReaderIllustrationStorageDirectoryName/$sha256.webp")
 
+	/** Absolute path of a stored plate image, or null when absent. */
+	fun imageFilePath(sha256: String): String? =
+		if (imageSizeBytes(sha256) > 0L) imageFile(sha256).absolutePath else null
+
+	override fun livingFilePath(sha256: String, extension: String): String? {
+		if (!sha256.isReaderIllustrationSha256() || extension !in LivingExtensions) return null
+		val file = root().resolve("$sha256.$extension")
+		return if (file.isFile && file.length() > 0L) file.absolutePath else null
+	}
+
+	override suspend fun writeLiving(sha256: String, extension: String, bytes: ByteArray) {
+		require(sha256.isReaderIllustrationSha256() && extension in LivingExtensions) { "Living plate name is invalid." }
+		withContext(Dispatchers.IO) { writeAtomically(root().resolve("$sha256.$extension"), bytes) }
+	}
+
+	override fun freeSpaceBytes(): Long {
+		val dir = root().also { it.mkdirs() }
+		return dir.usableSpace.takeIf { it > 0L } ?: Long.MAX_VALUE
+	}
+
 	private fun imageFile(sha256: String): File = root().resolve("$sha256.webp")
+
+	private companion object {
+		val LivingExtensions = setOf("mp4", "png")
+
+		fun writeAtomically(target: File, bytes: ByteArray) {
+			target.parentFile?.mkdirs()
+			val staging = File(target.parentFile, "${target.name}.tmp")
+			staging.outputStream().use { output ->
+				output.write(bytes)
+				output.fd.sync()
+			}
+			if (!staging.renameTo(target)) {
+				target.delete()
+				check(staging.renameTo(target)) { "Illustration file could not be stored" }
+			}
+		}
+	}
 }

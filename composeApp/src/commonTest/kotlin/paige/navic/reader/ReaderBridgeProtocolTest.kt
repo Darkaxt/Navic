@@ -246,9 +246,10 @@ class ReaderBridgeProtocolTest {
 		assertContains(script, "\"illustrationsEnabled\":true")
 		assertContains(
 			script,
-			"\"illustrations\":{\"digest\":\"plates-1\",\"placements\":[{\"sceneId\":\"scene-3\",\"spineIndex\":4,\"ebookHref\":\"OEBPS/ch03.xhtml\",\"position\":\"plate-before-chapter\",\"ebookStart\":0,\"width\":1024,\"height\":1536,\"imageUrl\":\"https://appassets.androidplatform.net/reader-cache/plates/scene-3.png\"}]}"
+			"\"illustrations\":{\"digest\":\"plates-1\",\"placements\":[{\"sceneId\":\"scene-3\",\"spineIndex\":4,\"ebookHref\":\"OEBPS/ch03.xhtml\",\"position\":\"plate-before-chapter\",\"ebookStart\":0,\"width\":1024,\"height\":1536,\"imageUrl\":\"https://appassets.androidplatform.net/reader-cache/plates/scene-3.png\",\"sha256\":\"abc123\"}]}"
 		)
-		assertFalse(script.contains("abc123"))
+		// Living-plate hashes (#77) travel only for plates that have a loop.
+		assertFalse(script.contains("loopSha256"))
 	}
 
 	@Test

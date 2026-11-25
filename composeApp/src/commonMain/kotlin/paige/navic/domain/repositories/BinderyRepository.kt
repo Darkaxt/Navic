@@ -518,6 +518,12 @@ class BinderyRepository(
 			runCatching { apiClient.fetchIllustrationImageBytes(baseUrl, headers, bookId, sha256) }
 		}
 
+	/** Immutable living-plate bytes (`mp4` loop or `png` reveal map); the caller verifies the sha256. */
+	suspend fun getIllustrationLivingBytes(bookId: Long, sha256: String, extension: String): Result<ByteArray> =
+		withConfiguredClientAvailability { baseUrl, headers ->
+			runCatching { apiClient.fetchIllustrationLivingBytes(baseUrl, headers, bookId, sha256, extension) }
+		}
+
 	suspend fun clearMetadataCache(): Result<Unit> =
 		withConfiguredClientAvailability { baseUrl, _ ->
 			metadataCache.clearBaseUrl(baseUrl)

@@ -699,11 +699,11 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(chromeText, "dragAnimationMode = ReaderDragAnimationNone")
 		assertContains(
 			settingsModePagesText,
-			"title = \"Page turn animation\"",
-			message = "Reader settings must let users select the page-turn animation (#32)."
+			"title = \"Animations\"",
+			message = "Reader settings must let users select the animation level, None turning the curl off (#32, #79)."
 		)
-		assertContains(settingsModePagesText, "ReaderSupportedDragAnimationModes")
-		assertContains(settingsModePagesText, "settings.copy(dragAnimationMode = mode)")
+		assertContains(settingsModePagesText, "ReaderSupportedAnimationLevels")
+		assertContains(settingsModePagesText, "settings.withReaderAnimationLevel(level)")
 		assertContains(bridgeText, "\"dragAnimationMode\"")
 		assertContains(appearanceText, "this.readerDragAnimationModeValue")
 		assertContains(pageTurnsText, "readerDragAnimationModeAllowsCurl")

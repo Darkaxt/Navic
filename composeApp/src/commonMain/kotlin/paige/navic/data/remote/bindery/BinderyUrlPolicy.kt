@@ -474,6 +474,18 @@ internal fun binderyIllustrationsIndexUrl(
 }
 
 /** Immutable, content-addressed image route; always built from the verified sha256. */
+/** `illustrations/living/{sha256}.{mp4|png}`: a living plate's loop or reveal map (#77). */
+internal fun binderyIllustrationLivingUrl(
+	baseUrl: String,
+	bookId: Long,
+	sha256: String,
+	extension: String
+): String {
+	require(sha256.isReaderIllustrationSha256()) { "Bindery living plate hash is invalid." }
+	require(extension == "mp4" || extension == "png") { "Bindery living plate type is invalid." }
+	return binderyIllustrationsReadinessUrl(baseUrl, bookId) + "/living/$sha256.$extension"
+}
+
 internal fun binderyIllustrationImageUrl(baseUrl: String, bookId: Long, sha256: String): String {
 	require(sha256.isReaderIllustrationSha256()) { "Bindery illustration image hash is invalid." }
 	return binderyIllustrationsReadinessUrl(baseUrl, bookId) + "/images/$sha256"

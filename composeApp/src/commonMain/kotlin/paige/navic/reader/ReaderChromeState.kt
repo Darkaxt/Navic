@@ -84,6 +84,10 @@ const val ReaderNavBarTypeVerticalLeft = "vertical-left"
 const val ReaderNavBarTypeBottom = "bottom"
 const val ReaderDragAnimationNone = "none"
 const val ReaderDragAnimationCanvas = "canvas"
+const val ReaderAnimationLevelNone = "none"
+const val ReaderAnimationLevelBasic = "basic"
+const val ReaderAnimationLevelModerate = "moderate"
+const val ReaderAnimationLevelMagic = "magic"
 const val ReaderFlowPaged = "paged"
 const val ReaderFlowPagedVertical = "paged-vertical"
 const val ReaderFlowScrolled = "scrolled"
@@ -282,6 +286,51 @@ fun normalizedReaderDragAnimationMode(dragAnimationMode: String?): String =
 		ReaderDragAnimationNone, "standard" -> ReaderDragAnimationNone
 		ReaderDragAnimationCanvas -> ReaderDragAnimationCanvas
 		else -> ReaderDragAnimationNone
+	}
+
+/** The levels the settings offer; Magic (write-on text) follows in Darkaxt/Navic#79. */
+val ReaderSupportedAnimationLevels: List<String> = listOf(
+	ReaderAnimationLevelNone,
+	ReaderAnimationLevelBasic,
+	ReaderAnimationLevelModerate
+)
+
+/** The stored level used while the curl is on: basic, moderate (default) or magic. */
+fun normalizedReaderAnimationLevel(animationLevel: String?): String =
+	when (animationLevel?.trim()?.lowercase()) {
+		ReaderAnimationLevelBasic -> ReaderAnimationLevelBasic
+		ReaderAnimationLevelMagic -> ReaderAnimationLevelMagic
+		else -> ReaderAnimationLevelModerate
+	}
+
+/** None turns the curl off (instant pages); the other levels keep it and add animation on top. */
+fun readerEffectiveAnimationLevel(dragAnimationMode: String?, animationLevel: String?): String =
+	if (normalizedReaderDragAnimationMode(dragAnimationMode) == ReaderDragAnimationNone) {
+		ReaderAnimationLevelNone
+	} else {
+		normalizedReaderAnimationLevel(animationLevel)
+	}
+
+/** Living plates (#77) play from Moderate up. */
+fun readerLivingPlatesEnabled(dragAnimationMode: String?, animationLevel: String?): Boolean =
+	readerEffectiveAnimationLevel(dragAnimationMode, animationLevel).let {
+		it == ReaderAnimationLevelModerate || it == ReaderAnimationLevelMagic
+	}
+
+/** Applies a chosen level: None turns the curl off; every other level turns it on. */
+fun ReaderSettings.withReaderAnimationLevel(level: String): ReaderSettings =
+	if (level == ReaderAnimationLevelNone) {
+		copy(dragAnimationMode = ReaderDragAnimationNone)
+	} else {
+		copy(dragAnimationMode = ReaderDragAnimationCanvas, animationLevel = normalizedReaderAnimationLevel(level))
+	}
+
+fun readerAnimationLevelShortLabel(level: String): String =
+	when (level) {
+		ReaderAnimationLevelNone -> "None"
+		ReaderAnimationLevelBasic -> "Basic"
+		ReaderAnimationLevelMagic -> "Magic"
+		else -> "Moderate"
 	}
 
 fun normalizedReaderPdfFitMode(pdfFitMode: String?): String =
@@ -708,6 +757,7 @@ fun defaultReaderSettings(): ReaderSettings =
 		pageEdgesEnabled = true,
 		paperStainsEnabled = true,
 		illustrationsEnabled = true,
+		animationLevel = ReaderAnimationLevelModerate,
 		coverBackdropEnabled = true,
 		navBarType = ReaderNavBarTypeVerticalRight,
 		dragAnimationMode = ReaderDragAnimationNone,
@@ -763,6 +813,7 @@ fun normalizedReaderSettings(
 	pageEdgesEnabled: Boolean = true,
 	paperStainsEnabled: Boolean = true,
 	illustrationsEnabled: Boolean = true,
+	animationLevel: String? = ReaderAnimationLevelModerate,
 	coverBackdropEnabled: Boolean = true,
 	navBarType: String? = ReaderNavBarTypeVerticalRight,
 	dragAnimationMode: String? = ReaderDragAnimationNone,
@@ -860,6 +911,7 @@ fun normalizedReaderSettings(
 		pageEdgesEnabled = pageEdgesEnabled,
 		paperStainsEnabled = paperStainsEnabled,
 		illustrationsEnabled = illustrationsEnabled,
+		animationLevel = normalizedReaderAnimationLevel(animationLevel),
 		coverBackdropEnabled = coverBackdropEnabled,
 		navBarType = normalizedReaderNavBarType(navBarType),
 		dragAnimationMode = normalizedReaderDragAnimationMode(dragAnimationMode),
@@ -926,6 +978,7 @@ fun ReaderSettings.normalizedReaderSettings(): ReaderSettings =
 		pageEdgesEnabled = pageEdgesEnabled ?: true,
 		paperStainsEnabled = paperStainsEnabled ?: true,
 		illustrationsEnabled = illustrationsEnabled ?: true,
+		animationLevel = normalizedReaderAnimationLevel(animationLevel),
 		coverBackdropEnabled = coverBackdropEnabled ?: true,
 		navBarType = navBarType,
 		dragAnimationMode = dragAnimationMode,

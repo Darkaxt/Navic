@@ -16,7 +16,9 @@ data class ReaderIllustrationPlacement(
 	val height: Int,
 	/** WebView URL of the local image, e.g. https://appassets.androidplatform.net/reader-cache/... */
 	val imageUrl: String,
-	val sha256: String
+	val sha256: String,
+	/** The living loop (#77) when Bindery serves one; its files may still be downloading. */
+	val living: ReaderIllustrationLiving? = null
 )
 
 /**

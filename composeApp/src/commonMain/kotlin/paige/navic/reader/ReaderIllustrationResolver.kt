@@ -40,7 +40,19 @@ interface ReaderIllustrationStorage {
 
 	/** WebView URL of a stored image. */
 	fun imageUrl(sha256: String): String
+
+	/** Absolute path of a stored living-plate file (`mp4` loop or `png` reveal map), or null when absent (#77). */
+	fun livingFilePath(sha256: String, extension: String): String? = null
+
+	/** Writes a verified living-plate file atomically. */
+	suspend fun writeLiving(sha256: String, extension: String, bytes: ByteArray) {}
+
+	/** Usable free space for living plates; [Long.MAX_VALUE] when unknown. */
+	fun freeSpaceBytes(): Long = Long.MAX_VALUE
 }
+
+/** Living plates (~12 MB each) are skipped when they would leave less than this free. */
+internal const val ReaderIllustrationLivingFreeSpaceReserveBytes = 1_024L * 1_024L * 1_024L
 
 internal fun ByteArray.readerIllustrationSha256(): String = toByteString().sha256().hex()
 
@@ -62,6 +74,7 @@ class ReaderIllustrationResolver(
 ) {
 	private val refreshLock = Mutex()
 	private val refreshes = mutableMapOf<String, Deferred<Int>>()
+	private val livingDownloads = mutableMapOf<String, Deferred<Int>>()
 
 	/**
 	 * @param bookId the Bindery book id (`Screen.Reader.bookId`).
@@ -72,10 +85,12 @@ class ReaderIllustrationResolver(
 		bookId: String,
 		ebookBookFileId: Long?,
 		enabled: Boolean,
-		fetchMissing: Boolean = false
+		fetchMissing: Boolean = false,
+		/** The animation level allows living plates (#79 Moderate or Magic): download their loops after the plates. */
+		living: Boolean = false
 	): ReaderIllustrationSet {
 		if (!enabled) return ReaderIllustrationSet.None
-		val refresh = refresh(bookId)
+		val refresh = refresh(bookId, living)
 		val stored = if (fetchMissing) refresh?.await() else withTimeoutOrNull(openRefreshWaitMillis) { refresh?.await() }
 		val resolved = resolveCached(bookId, ebookBookFileId)
 		Logger.i(
@@ -87,13 +102,21 @@ class ReaderIllustrationResolver(
 	}
 
 	/** One refresh per book at a time; it outlives the open that started it, so a slow one still lands. */
-	private suspend fun refresh(bookId: String): Deferred<Int>? {
+	private suspend fun refresh(bookId: String, living: Boolean): Deferred<Int>? {
 		val store = storage ?: return null
 		val key = bookId.trim().takeIf { it.isNotEmpty() } ?: return null
 		return refreshLock.withLock {
-			refreshes[key]?.takeIf { it.isActive } ?: scope.async {
+			val refresh = refreshes[key]?.takeIf { it.isActive } ?: scope.async {
 				prefetchReaderIllustrations(repository, store, key, forceRefresh = true)
 			}.also { refreshes[key] = it }
+			// Living loops are large: they follow the plates in the background and never hold an open.
+			if (living && livingDownloads[key]?.isActive != true) {
+				livingDownloads[key] = scope.async {
+					runCatching { refresh.await() }
+					prefetchReaderIllustrationLiving(repository, store, key)
+				}
+			}
+			refresh
 		}
 	}
 
@@ -132,7 +155,8 @@ internal fun readerIllustrationSet(
 				width = placement.width,
 				height = placement.height,
 				imageUrl = storage.imageUrl(placement.sha256),
-				sha256 = placement.sha256
+				sha256 = placement.sha256,
+				living = placement.living
 			)
 		}
 	return if (placements.isEmpty()) ReaderIllustrationSet.None else ReaderIllustrationSet(index.digest, placements)
@@ -173,6 +197,53 @@ suspend fun prefetchReaderIllustrations(
 		throw cancellation
 	} catch (error: Throwable) {
 		Logger.w(ReaderIllustrationResolverTag, "Illustrations prefetch failed book=$numericBookId", error)
+	}
+	return stored
+}
+
+/**
+ * Downloads the living-plate loops and reveal maps (#77) of every ready file of a book that are not
+ * on disk yet, verifying each sha256. Stops when the next file would leave less than
+ * [ReaderIllustrationLivingFreeSpaceReserveBytes] free. Returns the number of files newly stored.
+ */
+suspend fun prefetchReaderIllustrationLiving(
+	repository: BinderyRepository,
+	storage: ReaderIllustrationStorage,
+	bookId: String
+): Int {
+	val numericBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L } ?: return 0
+	var stored = 0
+	try {
+		val readiness = repository.getIllustrationsReadiness(numericBookId, false).getOrElse { return 0 }
+		val wanted = linkedMapOf<String, Pair<String, Long?>>()
+		for (file in readiness.readyFiles) {
+			val index = repository.getIllustrationIndex(numericBookId, file).getOrNull() ?: continue
+			for (living in index.placements.mapNotNull { it.living }) {
+				wanted.getOrPut("${living.revealSha256}.png") { living.revealSha256 to living.revealBytes }
+				wanted.getOrPut("${living.loopSha256}.mp4") { living.loopSha256 to living.loopBytes }
+			}
+		}
+		for ((name, entry) in wanted) {
+			val (sha256, expectedBytes) = entry
+			val extension = name.substringAfterLast('.')
+			if (storage.livingFilePath(sha256, extension) != null) continue
+			if (storage.freeSpaceBytes() - (expectedBytes ?: 0L) < ReaderIllustrationLivingFreeSpaceReserveBytes) {
+				Logger.w(ReaderIllustrationResolverTag, "Living plates stopped for low storage book=$numericBookId")
+				break
+			}
+			val bytes = repository.getIllustrationLivingBytes(numericBookId, sha256, extension).getOrNull() ?: continue
+			if (bytes.isEmpty() || bytes.readerIllustrationSha256() != sha256) {
+				Logger.w(ReaderIllustrationResolverTag, "Living plate hash mismatch book=$numericBookId")
+				continue
+			}
+			storage.writeLiving(sha256, extension, bytes)
+			stored += 1
+		}
+		Logger.i(ReaderIllustrationResolverTag, "Living plates book=$numericBookId wanted=${wanted.size} stored=$stored")
+	} catch (cancellation: CancellationException) {
+		throw cancellation
+	} catch (error: Throwable) {
+		Logger.w(ReaderIllustrationResolverTag, "Living plates prefetch failed book=$numericBookId", error)
 	}
 	return stored
 }
