@@ -1129,4 +1129,15 @@ class FoliateAnxParityTest {
 			"navic-reader-content-interactions.js must cite its Anx reference source"
 		)
 	}
+
+	@Test
+	fun searchCfiFilterReachesTheEpubResolver() {
+		// Search CFIs come from clean documents; the plate filter must reach CFI.toRange or a jump
+		// into a chapter with plates resolves past its text and falls back to the chapter start.
+		assertTrue(navicViewText.contains("return this.book.resolveCFI(cfi, filter)"))
+		val epub = readerAssetRoot().resolve("vendor/foliate-js/epub.js").readText()
+		assertTrue(epub.contains("return this.resources.resolveCFI(cfi, filter)"))
+		assertTrue(!epub.contains("return this.resources.resolveCFI(cfi)"))
+		assertTrue(epub.contains("const anchor = doc => CFI.toRange(doc, parts, filter)"))
+	}
 }

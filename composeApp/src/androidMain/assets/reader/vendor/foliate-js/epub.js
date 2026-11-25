@@ -1037,8 +1037,8 @@ ${doc.querySelector('parsererror').innerText}`)
     getMediaOverlay() {
         return new MediaOverlay(this, this.#loadXML.bind(this))
     }
-    resolveCFI(cfi) {
-        return this.resources.resolveCFI(cfi)
+    resolveCFI(cfi, filter) {
+        return this.resources.resolveCFI(cfi, filter)
     }
     resolveHref(href) {
         const [path, hash] = href.split('#')

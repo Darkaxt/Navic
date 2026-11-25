@@ -54,7 +54,7 @@
     {
       "path": "foliate-js/epub.js",
       "component": "foliate-js",
-      "sha256": "213fa219f4a2098157016f6ffb23bed596ec51a1f9bdcf230eef393388979087"
+      "sha256": "7e99a23a28dd729bb1e5d6d216512944863fad466e160f1977c5a18dbb82967e"
     },
     {
       "path": "foliate-js/epubcfi.js",
