@@ -286,6 +286,7 @@ const createReaderIllustrationPlate = (doc, placement, height, block) => {
   if (placement.sha256) image.dataset.navicSha256 = placement.sha256
   if (placement.loopSha256) image.dataset.navicLivingLoop = placement.loopSha256
   if (placement.revealSha256) image.dataset.navicLivingReveal = placement.revealSha256
+  if (placement.advancedLoopSha256) image.dataset.navicLivingAdvanced = placement.advancedLoopSha256
   figure.append(image)
   return figure
 }

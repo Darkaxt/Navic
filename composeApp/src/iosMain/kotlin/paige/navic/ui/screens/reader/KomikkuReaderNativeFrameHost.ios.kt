@@ -32,6 +32,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
 	livingPlatesEnabled: Boolean,
+	livingAdvancedEnabled: Boolean,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageCacheScope: String?,

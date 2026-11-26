@@ -45,6 +45,8 @@ expect fun KomikkuReaderNativeFrameHost(
 	pageTurnCanvasEnabled: Boolean,
 	/** Living plates (#77) play over settled plate pages. */
 	livingPlatesEnabled: Boolean = false,
+	/** Magic (#79): plates with a video-model loop play it instead. */
+	livingAdvancedEnabled: Boolean = false,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageCacheScope: String?,

@@ -28,6 +28,7 @@ import paige.navic.util.core.Logger
 private const val LivingPlateTag = "ReaderLivingPlates"
 private const val LivingPlateRevealMillis = 1_800L
 private const val LivingPlateCrossfadeMillis = 500L
+private const val LivingPlateAdvancedDissolveMillis = 1_500L
 private const val LivingPlateRevealSoftEdge = 0.12f
 private const val LivingPlateEdgeFadeFraction = 0.07f
 
@@ -37,7 +38,10 @@ internal data class ReaderLivingPlateTarget(
 	val bounds: Rect,
 	val imagePath: String,
 	val loopPath: String,
-	val revealPath: String
+	/** The warp loop's reveal map; null plays the loop after a plain dissolve from the plate. */
+	val revealPath: String?,
+	/** A Magic-level video-model loop (#79): its first frame is its poster, reached by a slow dissolve. */
+	val advanced: Boolean = false
 )
 
 /**
@@ -62,7 +66,7 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 
 	/** Shows exactly these plates; the same set already showing keeps playing. */
 	fun show(targets: List<ReaderLivingPlateTarget>) {
-		val key = targets.joinToString("|") { "${it.sceneId}@${it.bounds.flattenToString()}" }
+		val key = targets.joinToString("|") { "${it.sceneId}@${it.bounds.flattenToString()}:${it.loopPath}" }
 		if (targets.isEmpty()) {
 			clear()
 			return
@@ -71,7 +75,8 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 		clear()
 		shownKey = key
 		for (target in targets) {
-			val plate = LivingPlateView(context, target, skipReveal = target.sceneId in revealedScenes) {
+			val skipReveal = target.revealPath == null || target.sceneId in revealedScenes
+			val plate = LivingPlateView(context, target, skipReveal) {
 				revealedScenes += target.sceneId
 			}
 			addView(plate, LayoutParams(target.bounds.width(), target.bounds.height()).apply {
@@ -80,7 +85,7 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 			})
 		}
 		visibility = VISIBLE
-		Logger.i(LivingPlateTag, "living-plates show scenes=${targets.joinToString(",") { it.sceneId }}")
+		Logger.i(LivingPlateTag, "living-plates show scenes=${targets.joinToString(",") { it.sceneId + if (it.advanced) "+advanced" else "" }}")
 	}
 
 	/** Stops and removes every plate immediately (page turn, curl, pause, detach). */
@@ -176,8 +181,9 @@ private class LivingPlateView(
 
 	private fun crossfadeIfReady() {
 		if (released || !videoStarted || !revealDone) return
-		textureView.animate().alpha(1f).setDuration(LivingPlateCrossfadeMillis).start()
-		revealView.animate().alpha(0f).setDuration(LivingPlateCrossfadeMillis).withEndAction {
+		val fade = if (target.advanced) LivingPlateAdvancedDissolveMillis else LivingPlateCrossfadeMillis
+		textureView.animate().alpha(1f).setDuration(fade).start()
+		revealView.animate().alpha(0f).setDuration(fade).withEndAction {
 			revealView.visibility = INVISIBLE
 		}.start()
 	}
@@ -274,7 +280,7 @@ private class RevealView(context: Context) : View(context) {
 		val h = target.bounds.height().coerceAtLeast(1)
 		colour = decodeSampled(target.imagePath, w, h)
 		if (colourOnly) return
-		val reveal = decodeSampled(target.revealPath, w / 4, h / 4) ?: return
+		val reveal = decodeSampled(target.revealPath ?: return, w / 4, h / 4) ?: return
 		val mw = (w / 4).coerceAtLeast(1)
 		val mh = (h / 4).coerceAtLeast(1)
 		val scaled = if (reveal.width == mw && reveal.height == mh) reveal else Bitmap.createScaledBitmap(reveal, mw, mh, true)

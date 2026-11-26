@@ -87,10 +87,12 @@ class ReaderIllustrationResolver(
 		enabled: Boolean,
 		fetchMissing: Boolean = false,
 		/** The animation level allows living plates (#79 Moderate or Magic): download their loops after the plates. */
-		living: Boolean = false
+		living: Boolean = false,
+		/** The Magic level (#79): also download the video-model loops. */
+		advanced: Boolean = false
 	): ReaderIllustrationSet {
 		if (!enabled) return ReaderIllustrationSet.None
-		val refresh = refresh(bookId, living)
+		val refresh = refresh(bookId, living, advanced)
 		val stored = if (fetchMissing) refresh?.await() else withTimeoutOrNull(openRefreshWaitMillis) { refresh?.await() }
 		val resolved = resolveCached(bookId, ebookBookFileId)
 		Logger.i(
@@ -102,7 +104,7 @@ class ReaderIllustrationResolver(
 	}
 
 	/** One refresh per book at a time; it outlives the open that started it, so a slow one still lands. */
-	private suspend fun refresh(bookId: String, living: Boolean): Deferred<Int>? {
+	private suspend fun refresh(bookId: String, living: Boolean, advanced: Boolean): Deferred<Int>? {
 		val store = storage ?: return null
 		val key = bookId.trim().takeIf { it.isNotEmpty() } ?: return null
 		return refreshLock.withLock {
@@ -110,10 +112,11 @@ class ReaderIllustrationResolver(
 				prefetchReaderIllustrations(repository, store, key, forceRefresh = true)
 			}.also { refreshes[key] = it }
 			// Living loops are large: they follow the plates in the background and never hold an open.
-			if (living && livingDownloads[key]?.isActive != true) {
-				livingDownloads[key] = scope.async {
+			val livingKey = if (advanced) "$key:advanced" else key
+			if (living && livingDownloads[livingKey]?.isActive != true) {
+				livingDownloads[livingKey] = scope.async {
 					runCatching { refresh.await() }
-					prefetchReaderIllustrationLiving(repository, store, key)
+					prefetchReaderIllustrationLiving(repository, store, key, advanced)
 				}
 			}
 			refresh
@@ -156,7 +159,8 @@ internal fun readerIllustrationSet(
 				height = placement.height,
 				imageUrl = storage.imageUrl(placement.sha256),
 				sha256 = placement.sha256,
-				living = placement.living
+				living = placement.living,
+				livingAdvanced = placement.livingAdvanced
 			)
 		}
 	return if (placements.isEmpty()) ReaderIllustrationSet.None else ReaderIllustrationSet(index.digest, placements)
@@ -209,7 +213,9 @@ suspend fun prefetchReaderIllustrations(
 suspend fun prefetchReaderIllustrationLiving(
 	repository: BinderyRepository,
 	storage: ReaderIllustrationStorage,
-	bookId: String
+	bookId: String,
+	/** Also the Magic-level `livingAdvanced` loops (#79). */
+	advanced: Boolean = false
 ): Int {
 	val numericBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L } ?: return 0
 	var stored = 0
@@ -221,6 +227,9 @@ suspend fun prefetchReaderIllustrationLiving(
 			for (living in index.placements.mapNotNull { it.living }) {
 				wanted.getOrPut("${living.revealSha256}.png") { living.revealSha256 to living.revealBytes }
 				wanted.getOrPut("${living.loopSha256}.mp4") { living.loopSha256 to living.loopBytes }
+			}
+			if (advanced) for (loop in index.placements.mapNotNull { it.livingAdvanced }) {
+				wanted.getOrPut("${loop.loopSha256}.mp4") { loop.loopSha256 to loop.loopBytes }
 			}
 		}
 		for ((name, entry) in wanted) {

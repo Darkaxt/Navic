@@ -55,7 +55,9 @@ data class ReaderIllustrationIndexPlacement(
 	val imageHref: String?,
 	val sha256: String,
 	/** Optional living plate (Darkaxt/Navic#77); null shows the static plate only. */
-	val living: ReaderIllustrationLiving? = null
+	val living: ReaderIllustrationLiving? = null,
+	/** Optional video-model loop for the Magic animation level (#79); null keeps [living]. */
+	val livingAdvanced: ReaderIllustrationLivingAdvanced? = null
 )
 
 /**
@@ -68,6 +70,16 @@ data class ReaderIllustrationLiving(
 	val seconds: Double,
 	val loopBytes: Long?,
 	val revealBytes: Long?
+)
+
+/**
+ * A placement's `livingAdvanced` object: a seamless H.264 loop re-rendered at the plate's own size,
+ * whose first frame is its poster, so a dissolve from the plate into the playing loop is seamless.
+ */
+data class ReaderIllustrationLivingAdvanced(
+	val loopSha256: String,
+	val seconds: Double,
+	val loopBytes: Long?
 )
 
 /** Per-spine proof, same shape as the Whispersync index, kept for a later drift check. */
@@ -193,7 +205,8 @@ private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement
 		height = height.toInt(),
 		imageHref = string("imageHref"),
 		sha256 = sha256,
-		living = (this["living"] as? JsonObject)?.decodeLivingOrNull()
+		living = (this["living"] as? JsonObject)?.decodeLivingOrNull(),
+		livingAdvanced = (this["livingAdvanced"] as? JsonObject)?.decodeLivingAdvancedOrNull()
 	)
 }
 
@@ -209,6 +222,13 @@ private fun JsonObject.decodeLivingOrNull(): ReaderIllustrationLiving? {
 		loopBytes = long("loopBytes")?.takeIf { it > 0L },
 		revealBytes = long("revealBytes")?.takeIf { it > 0L }
 	)
+}
+
+private fun JsonObject.decodeLivingAdvancedOrNull(): ReaderIllustrationLivingAdvanced? {
+	val loop = string("loopSha256")?.takeIf(String::isReaderIllustrationSha256) ?: return null
+	val seconds = (this["seconds"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+		?.takeIf { it > 0.0 && it <= 120.0 } ?: 8.0
+	return ReaderIllustrationLivingAdvanced(loop, seconds, long("loopBytes")?.takeIf { it > 0L })
 }
 
 private fun JsonObject.string(key: String): String? =

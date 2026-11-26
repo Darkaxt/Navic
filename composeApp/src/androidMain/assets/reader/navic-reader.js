@@ -1580,8 +1580,9 @@ window.NavicReaderBridge = {
         const scaleY = frame.offsetHeight > 0 ? frameRect.height / frame.offsetHeight : 1
         for (const image of doc.body.querySelectorAll('img[data-navic-illustration-image]')) {
           const sceneId = image.parentElement?.getAttribute('data-navic-illustration')
-          const loopSha256 = image.dataset.navicLivingLoop
-          if (!sceneId || !loopSha256 || !image.complete) continue
+          const loopSha256 = image.dataset.navicLivingLoop || ''
+          const advancedLoopSha256 = image.dataset.navicLivingAdvanced || ''
+          if (!sceneId || !(loopSha256 || advancedLoopSha256) || !image.complete) continue
           const rect = image.getBoundingClientRect()
           const left = frameRect.left + rect.left * scaleX
           const top = frameRect.top + rect.top * scaleY
@@ -1594,6 +1595,7 @@ window.NavicReaderBridge = {
             sha256: image.dataset.navicSha256 || '',
             loopSha256,
             revealSha256: image.dataset.navicLivingReveal || '',
+            advancedLoopSha256,
             left,
             top,
             width,

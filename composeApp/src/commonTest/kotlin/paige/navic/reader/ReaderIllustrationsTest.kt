@@ -153,6 +153,38 @@ class ReaderIllustrationsTest {
 	}
 
 	@Test
+	fun advancedLoopsDecodeAndDownloadOnlyAtMagic() = runTest {
+		val advanced = "advanced-mp4".encodeToByteArray()
+		val advancedSha = advanced.readerIllustrationSha256()
+		val fields = ""","livingAdvanced":{"loopSha256":"$advancedSha","loopBytes":${advanced.size},""" +
+			""""posterSha256":"$shaA","seconds":8,"fps":16,"width":1024,"height":1536}}"""
+		val storage = MemoryIllustrationStorage()
+		val repository = configuredBinderyRepository(
+			FakeBinderyApiClient(
+				illustrationsReadinessJson = ReadinessJson,
+				illustrationsIndexJson = indexJson(placement("s1", shaA).dropLast(1) + fields),
+				illustrationImages = mapOf(shaA to imageA),
+				illustrationLiving = mapOf("$advancedSha.mp4" to advanced)
+			),
+			RecordingBinderyMetadataCache()
+		) { 10_000L }
+
+		assertEquals(1, prefetchReaderIllustrations(repository, storage, "7"))
+		val placement = ReaderIllustrationResolver(repository, storage, scope = backgroundScope)
+			.resolve("7", ebookBookFileId = null, enabled = true).placements.single()
+		assertEquals(null, placement.living)
+		assertEquals(ReaderIllustrationLivingAdvanced(advancedSha, 8.0, advanced.size.toLong()), placement.livingAdvanced)
+
+		// Moderate keeps the warp loops only; Magic also stores the verified advanced loop.
+		assertEquals(0, prefetchReaderIllustrationLiving(repository, storage, "7"))
+		assertEquals(1, prefetchReaderIllustrationLiving(repository, storage, "7", advanced = true))
+		assertEquals(setOf("$advancedSha.mp4"), storage.living.keys)
+		assertEquals(false, readerLivingAdvancedEnabled(ReaderDragAnimationCanvas, ReaderAnimationLevelModerate))
+		assertEquals(true, readerLivingAdvancedEnabled(ReaderDragAnimationCanvas, ReaderAnimationLevelMagic))
+		assertEquals(false, readerLivingAdvancedEnabled(ReaderDragAnimationNone, ReaderAnimationLevelMagic))
+	}
+
+	@Test
 	fun openFetchesPlatesAndPicksUpPlatesPublishedSinceAFreshCache() = runTest {
 		val storage = MemoryIllustrationStorage()
 		val cache = RecordingBinderyMetadataCache()

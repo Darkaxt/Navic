@@ -356,6 +356,7 @@ actual fun KomikkuReaderNativeFrameHost(
 	verticalPageDragPreview: Boolean,
 	pageTurnCanvasEnabled: Boolean,
 	livingPlatesEnabled: Boolean,
+	livingAdvancedEnabled: Boolean,
 	pageTurnReadingDirection: String?,
 	pageTurnBitmapQuality: String?,
 	pageCacheScope: String?,
@@ -512,7 +513,7 @@ actual fun KomikkuReaderNativeFrameHost(
 					setBookPreparationAlternate(bookPreparationAlternate)
 					setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 					setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
-					setLivingPlatesEnabled(livingPlatesEnabled)
+					setLivingPlatesEnabled(livingPlatesEnabled, livingAdvancedEnabled)
 					setPageTurnReadingDirection(pageTurnReadingDirection)
 					setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 					setPageTurnContentReadyKey(pageTurnContentReadyKey)
@@ -570,7 +571,7 @@ actual fun KomikkuReaderNativeFrameHost(
 				root.setBookPreparationAlternate(bookPreparationAlternate)
 				root.setPageCacheOptions(pageCacheScope, pageCacheLayouts)
 				root.setPageTurnCanvasEnabled(pageTurnCanvasEnabled)
-				root.setLivingPlatesEnabled(livingPlatesEnabled)
+				root.setLivingPlatesEnabled(livingPlatesEnabled, livingAdvancedEnabled)
 				root.setPageTurnReadingDirection(pageTurnReadingDirection)
 				root.setPageTurnSnapshotKey(pageTurnSnapshotKey, pageTurnLayoutKey)
 				root.setPageTurnContentReadyKey(pageTurnContentReadyKey)
@@ -815,8 +816,8 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		viewerContainer.setPageTurnCanvasEnabled(enabled)
 	}
 
-	fun setLivingPlatesEnabled(enabled: Boolean) {
-		viewerContainer.setLivingPlatesEnabled(enabled)
+	fun setLivingPlatesEnabled(enabled: Boolean, advanced: Boolean) {
+		viewerContainer.setLivingPlatesEnabled(enabled, advanced)
 	}
 
 	fun setPageTurnReadingDirection(direction: String?) {
@@ -1218,6 +1219,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val livingPlateOverlay = ReaderLivingPlateOverlay(context)
 	private val livingPlateStorage = AndroidReaderIllustrationStorage(context)
 	private var livingPlatesEnabled = false
+	private var livingAdvancedEnabled = false
 	private var livingPlateProbeAttempts = 0
 	private val livingPlateProbe = Runnable { probeLivingPlates() }
 	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
@@ -1974,9 +1976,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		verticalPageDragPreview = value
 	}
 
-	fun setLivingPlatesEnabled(enabled: Boolean) {
-		if (livingPlatesEnabled == enabled) return
+	fun setLivingPlatesEnabled(enabled: Boolean, advanced: Boolean) {
+		if (livingPlatesEnabled == enabled && livingAdvancedEnabled == advanced) return
 		livingPlatesEnabled = enabled
+		livingAdvancedEnabled = advanced
 		if (enabled) scheduleLivingPlateProbe() else stopLivingPlates()
 	}
 
@@ -2027,8 +2030,17 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		(0 until plates.length()).mapNotNull { index ->
 			val plate = plates.optJSONObject(index) ?: return@mapNotNull null
 			val image = livingPlateStorage.imageFilePath(plate.optString("sha256")) ?: return@mapNotNull null
-			val loop = livingPlateStorage.livingFilePath(plate.optString("loopSha256"), "mp4") ?: return@mapNotNull null
-			val reveal = livingPlateStorage.livingFilePath(plate.optString("revealSha256"), "png") ?: return@mapNotNull null
+			// Magic plays the video-model loop when it is on disk; otherwise the warp loop with its reveal.
+			val advancedLoop = if (livingAdvancedEnabled) {
+				livingPlateStorage.livingFilePath(plate.optString("advancedLoopSha256"), "mp4")
+			} else {
+				null
+			}
+			val loop = advancedLoop
+				?: livingPlateStorage.livingFilePath(plate.optString("loopSha256"), "mp4")
+				?: return@mapNotNull null
+			val reveal = livingPlateStorage.livingFilePath(plate.optString("revealSha256"), "png")
+			if (reveal == null && advancedLoop == null) return@mapNotNull null
 			val left = offsetX + (plate.optDouble("left") * dpr).roundToInt()
 			val top = offsetY + (plate.optDouble("top") * dpr).roundToInt()
 			val bounds = android.graphics.Rect(
@@ -2038,7 +2050,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				top + (plate.optDouble("height") * dpr).roundToInt()
 			)
 			if (bounds.width() < 8 || bounds.height() < 8) return@mapNotNull null
-			ReaderLivingPlateTarget(plate.optString("sceneId"), bounds, image, loop, reveal)
+			ReaderLivingPlateTarget(plate.optString("sceneId"), bounds, image, loop, reveal, advanced = advancedLoop != null)
 		}
 	}.getOrElse { error ->
 		Logger.w(KomikkuReaderNativeFrameHostTag, "living-plates probe unreadable", error)

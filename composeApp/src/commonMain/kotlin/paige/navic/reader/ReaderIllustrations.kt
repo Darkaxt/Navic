@@ -18,7 +18,9 @@ data class ReaderIllustrationPlacement(
 	val imageUrl: String,
 	val sha256: String,
 	/** The living loop (#77) when Bindery serves one; its files may still be downloading. */
-	val living: ReaderIllustrationLiving? = null
+	val living: ReaderIllustrationLiving? = null,
+	/** The Magic-level loop (#79) when Bindery serves one; downloaded only at Magic. */
+	val livingAdvanced: ReaderIllustrationLivingAdvanced? = null
 )
 
 /**

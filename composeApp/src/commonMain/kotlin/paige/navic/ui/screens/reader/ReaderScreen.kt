@@ -39,6 +39,7 @@ import paige.navic.domain.repositories.BinderyRepository
 import paige.navic.data.remote.bindery.binderyApiKeyHeaders
 import paige.navic.reader.ReaderIllustrationResolver
 import paige.navic.reader.ReaderIllustrationSet
+import paige.navic.reader.readerLivingAdvancedEnabled
 import paige.navic.reader.readerLivingPlatesEnabled
 import paige.navic.reader.ReaderChromeState
 import paige.navic.reader.ReaderController
@@ -250,7 +251,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 		previousIllustrationsEnabled = illustrationsEnabled
 	}
 	val livingPlatesEnabled = readerLivingPlatesEnabled(settings.dragAnimationMode, settings.animationLevel)
-	LaunchedEffect(reader.bookId, illustrationsEnabled, livingPlatesEnabled) {
+	val livingAdvancedEnabled = readerLivingAdvancedEnabled(settings.dragAnimationMode, settings.animationLevel)
+	LaunchedEffect(reader.bookId, illustrationsEnabled, livingPlatesEnabled, livingAdvancedEnabled) {
 		illustrationSet = withContext(Dispatchers.IO) {
 			runCatching {
 				illustrationResolver.resolve(
@@ -259,7 +261,8 @@ fun ReaderScreen(reader: Screen.Reader) {
 						?: reader.ebookBookFileId?.trim()?.toLongOrNull()?.takeIf { it > 0L },
 					enabled = illustrationsEnabled,
 					fetchMissing = illustrationsTurnedOnHere,
-					living = livingPlatesEnabled
+					living = livingPlatesEnabled,
+					advanced = livingAdvancedEnabled
 				)
 			}.getOrDefault(ReaderIllustrationSet.None)
 		}

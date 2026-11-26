@@ -318,6 +318,10 @@ fun readerLivingPlatesEnabled(dragAnimationMode: String?, animationLevel: String
 	}
 
 /** Applies a chosen level: None turns the curl off; every other level turns it on. */
+/** Magic (#79): plates with a video-model loop play it instead of the warp loop. */
+fun readerLivingAdvancedEnabled(dragAnimationMode: String?, animationLevel: String?): Boolean =
+	readerEffectiveAnimationLevel(dragAnimationMode, animationLevel) == ReaderAnimationLevelMagic
+
 fun ReaderSettings.withReaderAnimationLevel(level: String): ReaderSettings =
 	if (level == ReaderAnimationLevelNone) {
 		copy(dragAnimationMode = ReaderDragAnimationNone)
