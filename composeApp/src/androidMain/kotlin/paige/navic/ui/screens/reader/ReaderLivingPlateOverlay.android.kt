@@ -20,21 +20,38 @@ import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
-import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import java.io.File
+import java.util.concurrent.Executors
+import org.koin.mp.KoinPlatform
+import paige.navic.domain.manager.PreferenceManager
 import paige.navic.util.core.Logger
 
 private const val LivingPlateTag = "ReaderLivingPlates"
-// The page draws a living plate grey; the overlay colours it in over 3 s, then the loop starts
-// from its first frame (the plate itself) and crossfades in within a second.
-private const val LivingPlateRevealMillis = 3_000L
-// A plate already coloured once on this open fades back to colour quickly on return.
-private const val LivingPlateReturnFadeMillis = 400L
-private const val LivingPlateCrossfadeMillis = 500L
+// The page draws a living plate grey; the overlay colours it in with ink spreading from the centre
+// (4 s by default, tunable in Developer settings), then the loop starts from its first frame (the
+// plate itself) and crossfades in.
 private const val LivingPlateAdvancedDissolveMillis = 900L
-private const val LivingPlateRevealSoftEdge = 0.12f
 private const val LivingPlateEdgeFadeFraction = 0.07f
+/** The ink mask is computed at half the plate's resolution and scaled up. */
+private const val LivingPlateInkMaskScale = 2
+private val livingPlateInkExecutor = Executors.newSingleThreadExecutor { runnable ->
+	Thread(runnable, "living-plate-ink").apply { isDaemon = true; priority = Thread.NORM_PRIORITY - 1 }
+}
+
+private fun livingPlateInkTuning(): LivingPlateInkTuning {
+	val prefs = KoinPlatform.getKoinOrNull()?.getOrNull<PreferenceManager>() ?: return LivingPlateInkTuning()
+	return LivingPlateInkTuning(
+		colourMillis = prefs.livingPlateColourMillis.coerceIn(200, 20_000),
+		pace = prefs.livingPlatePace.coerceIn(0, 3),
+		tendrilsPercent = prefs.livingPlateInkTendrils.coerceIn(0, 60),
+		raggedPercent = prefs.livingPlateInkRagged.coerceIn(0, 40),
+		specksPercent = prefs.livingPlateInkSpecks.coerceIn(0, 100),
+		edgePerMille = prefs.livingPlateInkEdge.coerceIn(2, 300),
+		seed = prefs.livingPlateInkSeed.coerceIn(1, 999),
+		loopFadeMillis = prefs.livingPlateLoopFadeMillis.coerceIn(0, 5_000)
+	)
+}
 
 /** One plate on screen, in this overlay's pixel coordinates, with its local files. */
 internal data class ReaderLivingPlateTarget(
@@ -42,7 +59,7 @@ internal data class ReaderLivingPlateTarget(
 	val bounds: Rect,
 	val imagePath: String,
 	val loopPath: String,
-	/** The warp loop's reveal map; null plays the loop after a plain dissolve from the plate. */
+	/** The warp loop's reveal map (part of what makes a plate playable; the ink colouring ignores it). */
 	val revealPath: String?,
 	/** A Magic-level video-model loop (#79): its first frame is its poster, reached by a slow dissolve. */
 	val advanced: Boolean = false
@@ -51,12 +68,11 @@ internal data class ReaderLivingPlateTarget(
 /**
  * Living plates (Darkaxt/Navic#77): a native layer drawn over the settled WebView page, below the
  * curl surface and the raster shield, so page captures and the curl never see it. Each plate first
- * shows greyscale, gains its colour in the order of its reveal map, then crossfades into its muted
- * seamless loop. The reveal runs once per plate per reader session; returning shows the loop at once.
+ * shows greyscale, gains its colour as ink spreading from its centre, then crossfades into its muted
+ * seamless loop. The page draws the plate grey, so every arrival colours it in again.
  * Edges fade like the CSS plate mask (7% on every side).
  */
 internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context) {
-	private val revealedScenes = mutableSetOf<String>()
 	private var shownKey: String? = null
 
 	init {
@@ -78,11 +94,10 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 		if (key == shownKey && visibility == VISIBLE) return
 		clear()
 		shownKey = key
+		val tuning = livingPlateInkTuning()
 		for (target in targets) {
-			val returning = target.sceneId in revealedScenes
-			val plate = LivingPlateView(context, target, returning) {
-				revealedScenes += target.sceneId
-			}
+			// Every arrival colours the grey page plate in again before the loop.
+			val plate = LivingPlateView(context, target, tuning)
 			addView(plate, LayoutParams(target.bounds.width(), target.bounds.height()).apply {
 				leftMargin = target.bounds.left
 				topMargin = target.bounds.top
@@ -110,8 +125,7 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 private class LivingPlateView(
 	context: Context,
 	private val target: ReaderLivingPlateTarget,
-	returning: Boolean,
-	private val onRevealed: () -> Unit
+	private val tuning: LivingPlateInkTuning
 ) : FrameLayout(context), TextureView.SurfaceTextureListener {
 	private val textureView = TextureView(context).also { it.alpha = 0f }
 	private val revealView = RevealView(context)
@@ -132,21 +146,35 @@ private class LivingPlateView(
 		textureView.surfaceTextureListener = this
 		addView(textureView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 		addView(revealView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-		// Without a reveal map (or on return) the colour fades in uniformly.
-		revealView.load(target, colourOnly = returning || target.revealPath == null)
-		startReveal(if (returning) LivingPlateReturnFadeMillis else LivingPlateRevealMillis)
+		revealView.load(target)
+		// The ink is generated off the main thread; the plate stays grey until it is ready.
+		val mw = (target.bounds.width() / LivingPlateInkMaskScale).coerceAtLeast(1)
+		val mh = (target.bounds.height() / LivingPlateInkMaskScale).coerceAtLeast(1)
+		livingPlateInkExecutor.execute {
+			val started = System.nanoTime()
+			val field = runCatching { livingPlateInkField(mw, mh, tuning) }
+				.onFailure { Logger.w(LivingPlateTag, "living-plate ink unavailable scene=${target.sceneId}", it) }
+				.getOrNull()
+			val tookMillis = (System.nanoTime() - started) / 1_000_000
+			post {
+				if (released) return@post
+				Logger.i(LivingPlateTag, "living-plate ink scene=${target.sceneId} mask=${mw}x$mh built=${tookMillis}ms colour=${tuning.colourMillis}ms pace=${tuning.pace}")
+				// Without an ink field the colour fades in uniformly.
+				field?.let { revealView.setInk(it, mw, mh, tuning.edge) }
+				startReveal(tuning.colourMillis.toLong())
+			}
+		}
 	}
 
 	private fun startReveal(millis: Long) {
 		animator = ValueAnimator.ofFloat(0f, 1f).apply {
 			duration = millis
-			interpolator = LinearInterpolator()
+			interpolator = android.animation.TimeInterpolator { livingPlateInkPace(it, tuning.pace) }
 			addUpdateListener { revealView.progress = it.animatedValue as Float }
 			addListener(object : android.animation.AnimatorListenerAdapter() {
 				override fun onAnimationEnd(animation: android.animation.Animator) {
 					if (released) return
 					revealDone = true
-					onRevealed()
 					startVideoIfReady()
 				}
 			})
@@ -197,7 +225,7 @@ private class LivingPlateView(
 
 	private fun crossfadeIfReady() {
 		if (released || !videoStarted || !revealDone) return
-		val fade = if (target.advanced) LivingPlateAdvancedDissolveMillis else LivingPlateCrossfadeMillis
+		val fade = if (target.advanced) LivingPlateAdvancedDissolveMillis else tuning.loopFadeMillis.toLong()
 		textureView.animate().alpha(1f).setDuration(fade).start()
 		revealView.animate().alpha(0f).setDuration(fade).withEndAction {
 			revealView.visibility = INVISIBLE
@@ -268,13 +296,14 @@ private class LivingPlateView(
 }
 
 /**
- * The static plate drawn greyscale, with its colour copy shown through a mask computed from the
- * reveal map: a pixel gains colour once the sweep passes its reveal value (0 = first), over a soft
- * edge. The mask is computed at reduced resolution and scaled up.
+ * The static plate drawn greyscale, with its colour copy shown through the ink mask: a pixel gains
+ * colour once the timeline passes its ink value (0 = first), over a soft front. The mask is computed
+ * at reduced resolution and scaled up.
  */
 private class RevealView(context: Context) : View(context) {
 	private var colour: Bitmap? = null
-	private var revealValues: FloatArray? = null
+	private var inkValues: FloatArray? = null
+	private var inkEdge = 0.025f
 	private var mask: Bitmap? = null
 	private var maskPixels: IntArray? = null
 	private val greyPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
@@ -292,30 +321,26 @@ private class RevealView(context: Context) : View(context) {
 			invalidate()
 		}
 
-	fun load(target: ReaderLivingPlateTarget, colourOnly: Boolean) {
+	fun load(target: ReaderLivingPlateTarget) {
 		val w = target.bounds.width().coerceAtLeast(1)
 		val h = target.bounds.height().coerceAtLeast(1)
 		colour = decodeSampled(target.imagePath, w, h)
-		if (colourOnly) return
-		val reveal = decodeSampled(target.revealPath ?: return, w / 4, h / 4) ?: return
-		val mw = (w / 4).coerceAtLeast(1)
-		val mh = (h / 4).coerceAtLeast(1)
-		val scaled = if (reveal.width == mw && reveal.height == mh) reveal else Bitmap.createScaledBitmap(reveal, mw, mh, true)
-		val pixels = IntArray(mw * mh)
-		scaled.getPixels(pixels, 0, mw, 0, 0, mw, mh)
-		revealValues = FloatArray(pixels.size) { index -> Color.red(pixels[index]) / 255f }
-		if (scaled !== reveal) scaled.recycle()
-		reveal.recycle()
-		mask = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
-		maskPixels = IntArray(mw * mh)
+	}
+
+	fun setInk(values: FloatArray, width: Int, height: Int, edge: Float) {
+		if (colour == null) return
+		inkValues = values
+		inkEdge = edge
+		mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+		maskPixels = IntArray(width * height)
 		updateMask()
 	}
 
 	private fun updateMask() {
-		val values = revealValues ?: return
+		val values = inkValues ?: return
 		val pixels = maskPixels ?: return
 		val bitmap = mask ?: return
-		val edge = LivingPlateRevealSoftEdge
+		val edge = inkEdge
 		val threshold = progress * (1f + edge) - edge
 		for (index in values.indices) {
 			val alpha = ((threshold + edge - values[index]) / edge).coerceIn(0f, 1f)
@@ -327,20 +352,20 @@ private class RevealView(context: Context) : View(context) {
 	override fun onDraw(canvas: Canvas) {
 		val image = colour ?: return
 		dst.set(0f, 0f, width.toFloat(), height.toFloat())
-		val revealMask = mask
+		val inkMask = mask
 		if (progress >= 1f) {
 			canvas.drawBitmap(image, null, dst, bitmapPaint)
 			return
 		}
 		canvas.drawBitmap(image, null, dst, greyPaint)
-		if (revealMask == null) {
+		if (inkMask == null) {
 			fadePaint.alpha = (progress * 255f).toInt()
 			canvas.drawBitmap(image, null, dst, fadePaint)
 			return
 		}
 		val save = canvas.saveLayer(dst, null)
 		canvas.drawBitmap(image, null, dst, bitmapPaint)
-		canvas.drawBitmap(revealMask, null, dst, maskPaint)
+		canvas.drawBitmap(inkMask, null, dst, maskPaint)
 		canvas.restoreToCount(save)
 	}
 
@@ -349,7 +374,7 @@ private class RevealView(context: Context) : View(context) {
 		colour = null
 		mask?.recycle()
 		mask = null
-		revealValues = null
+		inkValues = null
 		maskPixels = null
 	}
 

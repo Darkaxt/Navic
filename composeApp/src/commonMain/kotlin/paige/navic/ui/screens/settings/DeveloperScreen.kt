@@ -169,6 +169,9 @@ fun SettingsDeveloperScreen() {
 						Icon(Icons.Outlined.ChevronForward, null)
 					}
 				}
+				if (platformContext.platformType == PlatformType.Android) {
+					LivingPlateTuningSection(preferenceManager)
+				}
 				Form {
 					FormRow(onClick = {
 						exceptionConfirmationShown = true
