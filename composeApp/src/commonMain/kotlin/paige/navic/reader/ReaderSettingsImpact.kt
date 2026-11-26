@@ -45,5 +45,9 @@ internal fun ReaderSettings.readerPageLayoutKey(): Int =
 		nativeTapZones = null,
 		whispersyncHighlightColorArgb = null,
 		whispersyncHighlightLoading = null,
-		whispersyncHighlightStyle = null
+		whispersyncHighlightStyle = null,
+		// Whether a plate is drawn grey for its living overlay only changes its colours.
+		illustrations = illustrations?.let { set ->
+			set.copy(placements = set.placements.map { it.copy(livingPlayable = false) })
+		}
 	).hashCode()

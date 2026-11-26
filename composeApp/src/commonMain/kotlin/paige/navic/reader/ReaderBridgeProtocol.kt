@@ -1662,6 +1662,7 @@ private fun ReaderIllustrationSet.toIllustrationsJsonObject(): JsonObject =
 								put("revealSha256", living.revealSha256)
 							}
 							placement.livingAdvanced?.let { put("advancedLoopSha256", it.loopSha256) }
+							if (placement.livingPlayable) put("livingPlayable", true)
 						}
 					)
 				}

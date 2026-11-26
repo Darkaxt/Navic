@@ -38,7 +38,8 @@ class ReaderContentContrastLiftTest {
 		// Revision 4: plate pages are no longer stored as monochrome paper/text splits (#58).
 		// Revision 5: mid-chapter plates (plate-before-block) and their spread spacers.
 		// Revision 6: NBSP-padded chapter numerals are centred.
-		assertTrue(revision == "6", "centred chapter numerals must retire revision-5 rasters")
+		// Revision 7: living plates are drawn greyscale on the page for their overlay (#77).
+		assertTrue(revision == "7", "greyscale living plates must retire revision-6 rasters")
 		assertContains(renderProfile, "contentRenderRevision: ReaderContentRenderRevision,")
 		val descriptor = preview
 			.substringAfter("function pageTurnRasterDescriptor(")

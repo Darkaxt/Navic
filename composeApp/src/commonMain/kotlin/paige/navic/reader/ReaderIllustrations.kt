@@ -20,7 +20,12 @@ data class ReaderIllustrationPlacement(
 	/** The living loop (#77) when Bindery serves one; its files may still be downloading. */
 	val living: ReaderIllustrationLiving? = null,
 	/** The Magic-level loop (#79) when Bindery serves one; downloaded only at Magic. */
-	val livingAdvanced: ReaderIllustrationLivingAdvanced? = null
+	val livingAdvanced: ReaderIllustrationLivingAdvanced? = null,
+	/**
+	 * The animation level plays this plate and its files are on disk: the page draws it greyscale
+	 * and the living overlay colours it in, so it arrives grey through the page turn (#77).
+	 */
+	val livingPlayable: Boolean = false
 )
 
 /**

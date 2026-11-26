@@ -26,9 +26,13 @@ import java.io.File
 import paige.navic.util.core.Logger
 
 private const val LivingPlateTag = "ReaderLivingPlates"
-private const val LivingPlateRevealMillis = 1_800L
+// The page draws a living plate grey; the overlay colours it in over 3 s, then the loop starts
+// from its first frame (the plate itself) and crossfades in within a second.
+private const val LivingPlateRevealMillis = 3_000L
+// A plate already coloured once on this open fades back to colour quickly on return.
+private const val LivingPlateReturnFadeMillis = 400L
 private const val LivingPlateCrossfadeMillis = 500L
-private const val LivingPlateAdvancedDissolveMillis = 1_500L
+private const val LivingPlateAdvancedDissolveMillis = 900L
 private const val LivingPlateRevealSoftEdge = 0.12f
 private const val LivingPlateEdgeFadeFraction = 0.07f
 
@@ -75,8 +79,8 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 		clear()
 		shownKey = key
 		for (target in targets) {
-			val skipReveal = target.revealPath == null || target.sceneId in revealedScenes
-			val plate = LivingPlateView(context, target, skipReveal) {
+			val returning = target.sceneId in revealedScenes
+			val plate = LivingPlateView(context, target, returning) {
 				revealedScenes += target.sceneId
 			}
 			addView(plate, LayoutParams(target.bounds.width(), target.bounds.height()).apply {
@@ -106,7 +110,7 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 private class LivingPlateView(
 	context: Context,
 	private val target: ReaderLivingPlateTarget,
-	skipReveal: Boolean,
+	returning: Boolean,
 	private val onRevealed: () -> Unit
 ) : FrameLayout(context), TextureView.SurfaceTextureListener {
 	private val textureView = TextureView(context).also { it.alpha = 0f }
@@ -115,7 +119,8 @@ private class LivingPlateView(
 	private var surface: Surface? = null
 	private var animator: ValueAnimator? = null
 	private var videoStarted = false
-	private var revealDone = skipReveal
+	private var videoPrepared = false
+	private var revealDone = false
 	private var released = false
 	private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
 	private var edgeShaders: Pair<Shader, Shader>? = null
@@ -127,13 +132,14 @@ private class LivingPlateView(
 		textureView.surfaceTextureListener = this
 		addView(textureView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 		addView(revealView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-		revealView.load(target, skipReveal)
-		if (skipReveal) revealView.progress = 1f else startReveal()
+		// Without a reveal map (or on return) the colour fades in uniformly.
+		revealView.load(target, colourOnly = returning || target.revealPath == null)
+		startReveal(if (returning) LivingPlateReturnFadeMillis else LivingPlateRevealMillis)
 	}
 
-	private fun startReveal() {
+	private fun startReveal(millis: Long) {
 		animator = ValueAnimator.ofFloat(0f, 1f).apply {
-			duration = LivingPlateRevealMillis
+			duration = millis
 			interpolator = LinearInterpolator()
 			addUpdateListener { revealView.progress = it.animatedValue as Float }
 			addListener(object : android.animation.AnimatorListenerAdapter() {
@@ -141,7 +147,7 @@ private class LivingPlateView(
 					if (released) return
 					revealDone = true
 					onRevealed()
-					crossfadeIfReady()
+					startVideoIfReady()
 				}
 			})
 			start()
@@ -157,9 +163,11 @@ private class LivingPlateView(
 				setSurface(output)
 				isLooping = true
 				setVolume(0f, 0f)
-				setOnPreparedListener { prepared ->
+				// Prepared during the colouring, held at its first frame until the plate is coloured.
+				setOnPreparedListener {
 					if (released) return@setOnPreparedListener
-					prepared.start()
+					videoPrepared = true
+					startVideoIfReady()
 				}
 				setOnInfoListener { _, what, _ ->
 					if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
@@ -177,6 +185,14 @@ private class LivingPlateView(
 		}.onFailure { error ->
 			Logger.w(LivingPlateTag, "living-plate video unavailable scene=${target.sceneId}", error)
 		}
+	}
+
+	private fun startVideoIfReady() {
+		val prepared = player ?: return
+		if (released || !videoPrepared || !revealDone || prepared.isPlaying) return
+		prepared.start()
+		// Some decoders report rendering start for the held first frame, before start().
+		crossfadeIfReady()
 	}
 
 	private fun crossfadeIfReady() {
@@ -265,6 +281,7 @@ private class RevealView(context: Context) : View(context) {
 		colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 	}
 	private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+	private val fadePaint = Paint(Paint.FILTER_BITMAP_FLAG)
 	private val maskPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
 	private val dst = RectF()
 
@@ -311,11 +328,16 @@ private class RevealView(context: Context) : View(context) {
 		val image = colour ?: return
 		dst.set(0f, 0f, width.toFloat(), height.toFloat())
 		val revealMask = mask
-		if (revealMask == null || progress >= 1f) {
+		if (progress >= 1f) {
 			canvas.drawBitmap(image, null, dst, bitmapPaint)
 			return
 		}
 		canvas.drawBitmap(image, null, dst, greyPaint)
+		if (revealMask == null) {
+			fadePaint.alpha = (progress * 255f).toInt()
+			canvas.drawBitmap(image, null, dst, fadePaint)
+			return
+		}
 		val save = canvas.saveLayer(dst, null)
 		canvas.drawBitmap(image, null, dst, bitmapPaint)
 		canvas.drawBitmap(revealMask, null, dst, maskPaint)

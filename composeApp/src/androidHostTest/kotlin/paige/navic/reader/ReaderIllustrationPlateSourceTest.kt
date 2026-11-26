@@ -194,8 +194,12 @@ class ReaderIllustrationPlateSourceTest {
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		assertContains(preview, "illustrationsDigest: readerIllustrationsDigest(settings),")
-		assertContains(preview, "contentRenderRevision: 6,")
-		assertContains(renderProfile, "export const ReaderContentRenderRevision = 6")
+		assertContains(preview, "contentRenderRevision: 7,")
+		// Living plates are drawn grey on the page; which ones is part of both raster fingerprints.
+		assertContains(planned, "livingPlateGrey: readerLivingPlateGreyKey(settings),")
+		assertContains(preview, "livingPlateGrey: readerIllustrationPlacements(settings)")
+		assertContains(renderProfile, "[${'$'}{ReaderLivingPlateGreyAttribute}] {\n    filter: grayscale(1) !important;")
+		assertContains(renderProfile, "export const ReaderContentRenderRevision = 7")
 	}
 
 	@Test

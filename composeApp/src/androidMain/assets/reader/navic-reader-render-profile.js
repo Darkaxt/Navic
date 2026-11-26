@@ -30,7 +30,7 @@ import {
 
 // Bump when the content render changes pixels for the same settings, so cached rasters retire.
 // Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
-export const ReaderContentRenderRevision = 6
+export const ReaderContentRenderRevision = 7
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -164,6 +164,7 @@ export const ReaderIllustrationAttribute = 'data-navic-illustration'
 export const ReaderIllustrationImageAttribute = 'data-navic-illustration-image'
 export const ReaderIllustrationSelector = `[${ReaderIllustrationAttribute}]`
 export const ReaderIllustrationImageSelector = `img[${ReaderIllustrationImageAttribute}]`
+export const ReaderLivingPlateGreyAttribute = 'data-navic-living-grey'
 
 const normalizedIllustrationHref = value => {
   let text = String(value ?? '').trim().split('#')[0]
@@ -323,7 +324,10 @@ export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = 
     (readerIllustrationPlacementKind(placements[0]) !== ReaderIllustrationPositionChapter ||
       figures[0] === body.firstChild) &&
     body.dataset.navicIllustrationsMapped === readerIllustrationsDigest(settings)
-  ) return figures[0] || null
+  ) {
+    syncReaderLivingPlateGrey(figures, placements)
+    return figures[0] || null
+  }
   for (const element of existing) element.remove()
   delete body.dataset.navicIllustrationsMapped
   if (!placements.length) return null
@@ -343,7 +347,28 @@ export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = 
     inserted.push(figure)
   }
   body.dataset.navicIllustrationsMapped = readerIllustrationsDigest(settings)
+  syncReaderLivingPlateGrey(inserted, placements)
   return inserted[0] || null
+}
+
+// Mirrored by pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
+export const readerLivingPlateGreyKey = settings =>
+  readerIllustrationPlacements(settings)
+    .filter(placement => placement.livingPlayable === true)
+    .map(placement => placement.sceneId)
+    .join(',')
+
+// A plate the living overlay will colour in (#77) is drawn greyscale on the page, so the page
+// rasters carry it grey through the turn and the overlay's reveal starts from what is on screen.
+const syncReaderLivingPlateGrey = (figures, placements) => {
+  for (const figure of figures) {
+    const image = figure.querySelector(ReaderIllustrationImageSelector)
+    if (!image) continue
+    const sceneId = figure.getAttribute(ReaderIllustrationAttribute)
+    const playable = placements.some(placement => placement.sceneId === sceneId && placement.livingPlayable === true)
+    if (playable) image.setAttribute(ReaderLivingPlateGreyAttribute, '')
+    else image.removeAttribute(ReaderLivingPlateGreyAttribute)
+  }
 }
 
 const ReaderIllustrationEdgeMask =
@@ -399,6 +424,9 @@ export const readerIllustrationCss = () => `
     mask-composite: intersect;
     mask-repeat: no-repeat;
     mask-size: 100% 100%;
+  }
+  html body figure${ReaderIllustrationSelector} > ${ReaderIllustrationImageSelector}[${ReaderLivingPlateGreyAttribute}] {
+    filter: grayscale(1) !important;
   }
   html body figure${ReaderIllustrationSelector}[${ReaderIllustrationBlockAttribute}] {
     break-before: column !important;
@@ -652,6 +680,7 @@ export const readerLiveIssuedRasterPlan = target => {
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
     illustrationsDigest: readerIllustrationsDigest(settings),
+    livingPlateGrey: readerLivingPlateGreyKey(settings),
     contentRenderRevision: ReaderContentRenderRevision,
   }))
   const rasterProfileKey = stableHash(JSON.stringify({

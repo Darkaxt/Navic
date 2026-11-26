@@ -94,7 +94,7 @@ class ReaderIllustrationResolver(
 		if (!enabled) return ReaderIllustrationSet.None
 		val refresh = refresh(bookId, living, advanced)
 		val stored = if (fetchMissing) refresh?.await() else withTimeoutOrNull(openRefreshWaitMillis) { refresh?.await() }
-		val resolved = resolveCached(bookId, ebookBookFileId)
+		val resolved = resolveCached(bookId, ebookBookFileId, living, advanced)
 		Logger.i(
 			ReaderIllustrationResolverTag,
 			"Illustrations resolved book=$bookId file=$ebookBookFileId placements=${resolved.placements.size} " +
@@ -123,7 +123,12 @@ class ReaderIllustrationResolver(
 		}
 	}
 
-	private suspend fun resolveCached(bookId: String, ebookBookFileId: Long?): ReaderIllustrationSet {
+	private suspend fun resolveCached(
+		bookId: String,
+		ebookBookFileId: Long?,
+		living: Boolean,
+		advanced: Boolean
+	): ReaderIllustrationSet {
 		val store = storage ?: return ReaderIllustrationSet.None
 		val numericBookId = bookId.trim().toLongOrNull()?.takeIf { it > 0L } ?: return ReaderIllustrationSet.None
 		return try {
@@ -131,7 +136,7 @@ class ReaderIllustrationResolver(
 				?.let { json -> decodeReaderIllustrationIndex(json, numericBookId, expectedEbookBookFileId = null) }
 				?: repository.getCachedIllustrationIndex(numericBookId, ebookBookFileId).getOrNull()
 				?: return ReaderIllustrationSet.None
-			readerIllustrationSet(index, store)
+			readerIllustrationSet(index, store, living, advanced)
 		} catch (cancellation: CancellationException) {
 			throw cancellation
 		} catch (error: Throwable) {
@@ -144,7 +149,9 @@ class ReaderIllustrationResolver(
 /** Keeps only placements whose image is on disk; no valid placement means [ReaderIllustrationSet.None]. */
 internal fun readerIllustrationSet(
 	index: ReaderIllustrationIndex,
-	storage: ReaderIllustrationStorage
+	storage: ReaderIllustrationStorage,
+	living: Boolean = false,
+	advanced: Boolean = false
 ): ReaderIllustrationSet {
 	val placements = index.placements
 		.filter { placement -> storage.imageSizeBytes(placement.sha256) > 0L }
@@ -160,10 +167,26 @@ internal fun readerIllustrationSet(
 				imageUrl = storage.imageUrl(placement.sha256),
 				sha256 = placement.sha256,
 				living = placement.living,
-				livingAdvanced = placement.livingAdvanced
+				livingAdvanced = placement.livingAdvanced,
+				livingPlayable = livingPlayable(placement, storage, living, advanced)
 			)
 		}
 	return if (placements.isEmpty()) ReaderIllustrationSet.None else ReaderIllustrationSet(index.digest, placements)
+}
+
+/** The native overlay's own rule: an advanced loop at Magic, else the warp loop with its reveal map. */
+private fun livingPlayable(
+	placement: ReaderIllustrationIndexPlacement,
+	storage: ReaderIllustrationStorage,
+	living: Boolean,
+	advanced: Boolean
+): Boolean {
+	if (!living) return false
+	val advancedLoop = placement.livingAdvanced?.takeIf { advanced }
+	if (advancedLoop != null && storage.livingFilePath(advancedLoop.loopSha256, "mp4") != null) return true
+	val warp = placement.living ?: return false
+	return storage.livingFilePath(warp.loopSha256, "mp4") != null &&
+		storage.livingFilePath(warp.revealSha256, "png") != null
 }
 
 /**

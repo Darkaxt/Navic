@@ -3482,7 +3482,7 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 		val tap = source.substringAfter("private fun startTapTurn(")
 			.substringBefore("activeGestureId = gestureId")
 
-		assertContains(source, "private const val ReaderPageRelocationBrowseIdleMillis = 1_200L")
+		assertContains(source, "private const val ReaderPageRelocationBrowseIdleMillis = 800L")
 		listOf("activeGestureId != null", "trackingDeferredSwipe != null",
 			"queuedDeferredSwipes.isNotEmpty()").forEach { guard ->
 			assertContains(idle, guard)

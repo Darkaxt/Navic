@@ -144,6 +144,12 @@ class ReaderIllustrationsTest {
 		// The tampered reveal map is rejected; the verified loop is stored.
 		assertEquals(1, prefetchReaderIllustrationLiving(repository, storage, "7"))
 		assertEquals(setOf("$loopSha.mp4"), storage.living.keys)
+		// A plate is drawn grey for its overlay only when the level plays it and its files are on disk.
+		val index = decodeReaderIllustrationIndex(indexJson(placement("s1", shaA).dropLast(1) + living), 7L, null)
+		assertEquals(false, readerIllustrationSet(index, storage, living = true).placements.single().livingPlayable)
+		storage.living["$revealSha.png"] = reveal
+		assertEquals(true, readerIllustrationSet(index, storage, living = true).placements.single().livingPlayable)
+		assertEquals(false, readerIllustrationSet(index, storage, living = false).placements.single().livingPlayable)
 		assertEquals(0, prefetchReaderIllustrationLiving(repository, storage.also { it.free = 0L }, "7"))
 		assertEquals(
 			"https://bindery.example.com/api/v1/books/7/illustrations/living/$loopSha.mp4",
@@ -179,6 +185,9 @@ class ReaderIllustrationsTest {
 		assertEquals(0, prefetchReaderIllustrationLiving(repository, storage, "7"))
 		assertEquals(1, prefetchReaderIllustrationLiving(repository, storage, "7", advanced = true))
 		assertEquals(setOf("$advancedSha.mp4"), storage.living.keys)
+		val index = decodeReaderIllustrationIndex(indexJson(placement("s1", shaA).dropLast(1) + fields), 7L, null)
+		assertEquals(false, readerIllustrationSet(index, storage, living = true).placements.single().livingPlayable)
+		assertEquals(true, readerIllustrationSet(index, storage, living = true, advanced = true).placements.single().livingPlayable)
 		assertEquals(false, readerLivingAdvancedEnabled(ReaderDragAnimationCanvas, ReaderAnimationLevelModerate))
 		assertEquals(true, readerLivingAdvancedEnabled(ReaderDragAnimationCanvas, ReaderAnimationLevelMagic))
 		assertEquals(false, readerLivingAdvancedEnabled(ReaderDragAnimationNone, ReaderAnimationLevelMagic))

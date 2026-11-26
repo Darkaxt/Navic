@@ -14,6 +14,7 @@ import {
   readerSurfaceSpreadMode,
   readerTrace,
   readerIllustrationsDigest,
+  readerIllustrationPlacements,
   readerViewportSize,
   setStylesImportant,
 } from './navic-reader-helpers.js'
@@ -510,8 +511,12 @@ function pageTurnRasterDescriptor(pageIndex) {
     paperStainsEnabled: settings.paperStainsEnabled !== false,
     coverBackdropEnabled: settings.coverBackdropEnabled !== false,
     illustrationsDigest: readerIllustrationsDigest(settings),
+    livingPlateGrey: readerIllustrationPlacements(settings)
+      .filter(placement => placement.livingPlayable === true)
+      .map(placement => placement.sceneId)
+      .join(','),  // Mirrors readerLivingPlateGreyKey (navic-reader-render-profile.js).
     // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
-    contentRenderRevision: 6,
+    contentRenderRevision: 7,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),
