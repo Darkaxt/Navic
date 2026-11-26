@@ -152,6 +152,16 @@ internal fun readerRecoveredDeckDefersForInFlightRelocation(
  */
 internal const val ReaderDeferredSwipeQueueLimit = 3
 
+/**
+ * A queued swipe is meant for a fast burst behind a page that is landing. When the queue makes no
+ * progress for this long (slow preparation, repair, refill), the swipe is stale: it is dropped
+ * instead of replaying seconds later together with the others.
+ */
+internal const val ReaderDeferredSwipeMaxStallMillis = 1200L
+
+internal fun readerDeferredSwipeStale(releasedAtMillis: Long, lastProgressMillis: Long, nowMillis: Long): Boolean =
+	nowMillis - maxOf(releasedAtMillis, lastProgressMillis) > ReaderDeferredSwipeMaxStallMillis
+
 internal fun readerDeferredSwipePageChange(
 	deltaX: Float,
 	minimumDistance: Float,
@@ -964,7 +974,11 @@ internal class ReaderPlayLikeCurlFoliateController(
 
 	private class DeferredSwipe(val gestureId: Long, val downX: Float) {
 		var pageChange: PageChange? = null
+		var releasedAtMillis = 0L
 	}
+
+	/** When the deferred-swipe queue last replayed a swipe. */
+	private var lastDeferredSwipeReplayMillis = 0L
 
 	private var trackingDeferredSwipe: DeferredSwipe? = null
 	private val queuedDeferredSwipes = ArrayDeque<DeferredSwipe>()
@@ -1713,6 +1727,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	fun canQueueSwipeDuringSettlement(): Boolean =
 		!destroyed &&
 			isTurnStillSettling() &&
+			dropStaleDeferredSwipes() &&
 			queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit &&
 			canDeferSwipe()
 
@@ -1734,6 +1749,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 				trackingDeferredSwipe = null
 				deferred.pageChange = pageChange
+				deferred.releasedAtMillis = android.os.SystemClock.uptimeMillis()
 				queuedDeferredSwipes.addLast(deferred)
 				Logger.i(
 					ReaderPlayLikeCurlFoliateControllerTag,
@@ -1747,6 +1763,29 @@ internal class ReaderPlayLikeCurlFoliateController(
 			}
 		}
 		return ReaderPageCurlDispatchResult.Accepted
+	}
+
+	/** Drops queued swipes that went stale while the queue was stalled; always returns true. */
+	private fun dropStaleDeferredSwipes(): Boolean {
+		val now = android.os.SystemClock.uptimeMillis()
+		while (true) {
+			val head = queuedDeferredSwipes.firstOrNull() ?: break
+			if (!readerDeferredSwipeStale(head.releasedAtMillis, lastDeferredSwipeReplayMillis, now)) break
+			queuedDeferredSwipes.removeFirst()
+			Logger.i(
+				ReaderPlayLikeCurlFoliateControllerTag,
+				"PlayLikeCurl deferred swipe dropped stale gesture=${head.gestureId} waitedMs=${now - head.releasedAtMillis}"
+			)
+			check(
+				publishGestureTerminal(
+					head.gestureId,
+					ReaderPageGestureTerminalOutcome.RejectedPreparing,
+					ReaderPageGestureTerminalDetail.TouchRejected(MotionEvent.ACTION_DOWN)
+				)
+			) { "Stale deferred swipe terminal was not published" }
+			hideSurfaceAfterGesture(head.gestureId)
+		}
+		return true
 	}
 
 	private fun rejectDeferredSwipe(deferred: DeferredSwipe) {
@@ -1781,7 +1820,9 @@ internal class ReaderPlayLikeCurlFoliateController(
 		// queued swipe must replay once the deck is ready again.
 		val hardBlocked = !enabled || !attached || failedLivePresentationGeneration != null
 		if (!hardBlocked && (isTurnStillSettling() || !isAvailable)) return
-		val deferred = queuedDeferredSwipes.removeFirst()
+		dropStaleDeferredSwipes()
+		val deferred = queuedDeferredSwipes.removeFirstOrNull() ?: return
+		lastDeferredSwipeReplayMillis = android.os.SystemClock.uptimeMillis()
 		val pageChange = checkNotNull(deferred.pageChange)
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
@@ -2262,6 +2303,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		trackingDeferredSwipe?.takeIf { it.gestureId != gestureId }?.let(::rejectDeferredSwipe)
 		val metadata = relocationMetadata(gestureId)
 		// Swipes made while a turn is still settling keep their order behind it.
+		dropStaleDeferredSwipes()
 		if (
 			metadata != null &&
 			queuedDeferredSwipes.size < ReaderDeferredSwipeQueueLimit &&

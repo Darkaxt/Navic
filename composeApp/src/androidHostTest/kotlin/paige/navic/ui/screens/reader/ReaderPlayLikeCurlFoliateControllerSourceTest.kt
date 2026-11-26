@@ -2068,6 +2068,15 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 	}
 
 	@Test
+	fun deferredSwipeGoesStaleOnlyWhenTheQueueStalls() {
+		// A burst that keeps replaying stays alive; a swipe stuck behind slow preparation expires (#81).
+		assertFalse(readerDeferredSwipeStale(releasedAtMillis = 1_000, lastProgressMillis = 0, nowMillis = 2_100))
+		assertTrue(readerDeferredSwipeStale(releasedAtMillis = 1_000, lastProgressMillis = 0, nowMillis = 2_300))
+		assertFalse(readerDeferredSwipeStale(releasedAtMillis = 1_000, lastProgressMillis = 2_000, nowMillis = 3_000))
+		assertTrue(readerDeferredSwipeStale(releasedAtMillis = 1_000, lastProgressMillis = 2_000, nowMillis = 3_300))
+	}
+
+	@Test
 	fun swipeDuringInFlightRelocationIsDeferredAndAlwaysReachesATerminal() {
 		val source = controllerFile.readText()
 		val touch = source
@@ -2120,7 +2129,16 @@ class ReaderPlayLikeCurlFoliateControllerSourceTest {
 			.substringBefore("fun onEngineWebViewReplaced() {")
 		assertContains(windowCurrent, "deferredDecodedRefillCenterOrdinal?.takeIf { it == currentOrdinal }")
 		assertContains(windowCurrent, "refillDecodedWorkingSet(center, \"prepared-window-current\")")
-		assertContains(replay, "queuedDeferredSwipes.removeFirst()")
+		assertContains(replay, "val deferred = queuedDeferredSwipes.removeFirstOrNull() ?: return")
+		// Swipes that went stale while the queue stalled are dropped before the replay (#81).
+		assertContains(replay, "dropStaleDeferredSwipes()\n\t\tval deferred")
+		assertContains(replay, "lastDeferredSwipeReplayMillis = android.os.SystemClock.uptimeMillis()")
+		assertContains(deferral.substringBefore("trackingDeferredSwipe = DeferredSwipe("), "dropStaleDeferredSwipes()")
+		assertContains(touch.substringBefore("if (\n\t\t\tmetadata != null &&"), "dropStaleDeferredSwipes()")
+		assertContains(source, "deferred.releasedAtMillis = android.os.SystemClock.uptimeMillis()\n\t\t\t\tqueuedDeferredSwipes.addLast(deferred)")
+		val drop = requiredFoliateSourceSlice(source, "private fun dropStaleDeferredSwipes(): Boolean {", "private fun rejectDeferredSwipe(")
+		assertContains(drop, "ReaderPageGestureTerminalOutcome.RejectedPreparing")
+		assertContains(drop, "hideSurfaceAfterGesture(head.gestureId)")
 		val policy = source
 			.substringAfter("fun setPageOperationPolicy(")
 			.substringBefore("fun setWhispersyncOverlay(")
