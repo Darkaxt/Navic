@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "e8b4ef376a89b9834831a5699fc037c2275adc1a",
+  "commit": "24cca2a8809c875b8e5448a59339950d714ae874",
   "apiVersion": 3,
-  "sourceManifestSha256": "79d3ad6d7717289ffe0be73bfdb8c4dfd8a7b0660cb37a220329c5a282796c57",
+  "sourceManifestSha256": "ba05a196f337cf1f867e40b3cdbeb3b9a2738fd64dd2b5973a0fcbcd735e07b8",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -128,11 +128,6 @@
     },
     {
       "mode": "100644",
-      "blob": "3648f6213e514b0f4eb2775bd23639645e60f942",
-      "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
-    },
-    {
-      "mode": "100644",
       "blob": "3853f1de3657e7580dbf940f68ca326aa3d9fd6a",
       "path": "karackencurllib/src/test/java/karacken/curl/RenderFailureTest.java"
     },
@@ -158,6 +153,11 @@
     },
     {
       "mode": "100644",
+      "blob": "4282aaec4ebc28986da14e4bab5bcde028f62cf9",
+      "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
+    },
+    {
+      "mode": "100644",
       "blob": "47b99dc63429c9346c92f31615a7e6b8bf1dbff9",
       "path": "karackencurllib/src/main/java/karacken/curl/PageOverlayReplacementStore.java"
     },
@@ -165,11 +165,6 @@
       "mode": "100644",
       "blob": "47d0cd21d0457ba4ab25abe8d4145ed05a736f51",
       "path": "karackencurllib/src/main/java/karacken/curl/PageGeometry.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "50e3983aea370597622f086f3639272e2474f43e",
-      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlGeometry.java"
     },
     {
       "mode": "100644",
@@ -185,11 +180,6 @@
       "mode": "100644",
       "blob": "5544bc724c25b80eba0652af6a3ad21f64d6c351",
       "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceOwnershipRequestRegistryTest.java"
-    },
-    {
-      "mode": "100644",
-      "blob": "55702e366c5a5e06c626619f5bb2afcafac7d851",
-      "path": "karackencurllib/src/test/java/karacken/curl/LandscapeSpreadModelTest.java"
     },
     {
       "mode": "100644",
@@ -278,11 +268,6 @@
     },
     {
       "mode": "100644",
-      "blob": "93e7311b932bfd5af5378b156a4136f5c95d6281",
-      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadTransition.java"
-    },
-    {
-      "mode": "100644",
       "blob": "955a35b11f7ac77cdef22d6525ca008eba6ad146",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceSnapshotCallbacks.java"
     },
@@ -295,6 +280,11 @@
       "mode": "100644",
       "blob": "9a7faf02283f4854bfe0954acf31d59ed1648fcd",
       "path": "karackencurllib/src/test/java/karacken/curl/PageSurfaceSnapshotCallbacksTest.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "9b8b4aabbc023e64e5047a3437b9eb68f261d233",
+      "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
     },
     {
       "mode": "100644",
@@ -323,8 +313,13 @@
     },
     {
       "mode": "100644",
-      "blob": "ad8d9e0f35eba15fc4558e13c81726c9481a59ca",
-      "path": "karackencurllib/src/test/java/karacken/curl/Gles2RendererSourceTest.java"
+      "blob": "a9d639a505b895cfd1b66a9151a3a98c20165528",
+      "path": "karackencurllib/src/main/java/karacken/curl/PlayLikeCurlGeometry.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "af239a2bd9031f6c66a14360e8644ba045c9d097",
+      "path": "karackencurllib/src/main/java/karacken/curl/LandscapeSpreadTransition.java"
     },
     {
       "mode": "100644",
@@ -360,6 +355,11 @@
       "mode": "100644",
       "blob": "ce67acc342a2230f9a9dc46eaeee5c8677ae19a0",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceOwnershipSnapshotCoordinator.java"
+    },
+    {
+      "mode": "100644",
+      "blob": "d3f925f08272d34bafc2d2161f10bd449bb72cc9",
+      "path": "karackencurllib/src/test/java/karacken/curl/LandscapeSpreadModelTest.java"
     },
     {
       "mode": "100644",

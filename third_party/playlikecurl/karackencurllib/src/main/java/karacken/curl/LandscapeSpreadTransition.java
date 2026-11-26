@@ -69,15 +69,15 @@ final class LandscapeSpreadTransition {
 
     /**
      * Hinge angle of the turning leaf (0 flat, pi/2 upright at the spine). Its outer edge follows
-     * the gesture linearly from the outer edge (progress 0) to the spine (progress 0.5).
+     * the gesture linearly from the outer edge (progress 0) to the spine (progress 0.5), flex included.
      */
     float getTurningHingeAngle() {
-        return (float) Math.acos(clamp(1f - 2f * progress));
+        return PlayLikeCurlGeometry.hingeAngleForEdge(1f - 2f * progress);
     }
 
     /** Hinge angle of the incoming leaf: upright at progress 0.5, flat on its half at 1. */
     float getIncomingHingeAngle() {
-        return (float) Math.acos(clamp(2f * progress - 1f));
+        return PlayLikeCurlGeometry.hingeAngleForEdge(2f * progress - 1f);
     }
 
     boolean isTurningCurrentLeafVisible() {

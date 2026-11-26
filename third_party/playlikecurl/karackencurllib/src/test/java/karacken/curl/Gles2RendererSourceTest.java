@@ -106,6 +106,10 @@ public class Gles2RendererSourceTest {
         assertTrue(textures.contains(
                 "GLES20.glUniform1f(reverseMaterialMixUniform, reverseMaterialMix)"));
         assertTrue(source.contains("mix(frontColor, uReversePaperColor, uReverseMaterialMix)"));
+        // Hinged spread leaves shade along their flex; every other page keeps uHingeShade at 0.
+        assertTrue(source.contains("frontColor.rgb *= 1.0 - uHingeShade * hingeSin * hingeSin"));
+        assertTrue(page.contains(
+                "mesh.hinged ? PlayLikeCurlGeometry.HINGE_SHADE : 0f"));
         int clip = page.indexOf("GLES20.glEnable(GLES20.GL_SCISSOR_TEST)");
         int draw = page.indexOf("GLES20.glDrawElements(");
         int unclip = page.indexOf("GLES20.glDisable(GLES20.GL_SCISSOR_TEST)");

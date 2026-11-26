@@ -14,9 +14,9 @@ $expectedReleaseArtifactUrl =
 	"https://github.com/Darkaxt/PlayLikeCurl/releases/download/1.2.1/karackencurllib-release.aar"
 $expectedReleaseArtifactDigest =
 	"sha256:4c356f44443b5a1abcd70851f062d38f136dcdcc67d72eb3a699a12126584bcd"
-$expectedCandidateCommit = "e8b4ef376a89b9834831a5699fc037c2275adc1a"
+$expectedCandidateCommit = "24cca2a8809c875b8e5448a59339950d714ae874"
 $expectedCandidateManifestSha256 =
-	"79d3ad6d7717289ffe0be73bfdb8c4dfd8a7b0660cb37a220329c5a282796c57"
+	"ba05a196f337cf1f867e40b3cdbeb3b9a2738fd64dd2b5973a0fcbcd735e07b8"
 $expectedCandidateLicenseBlob = "8aa26455d23acf904be3ed9dfb3a3efe3e49245a"
 
 $repositoryRootPath = (Resolve-Path -LiteralPath $RepositoryRoot).Path

@@ -56,14 +56,20 @@ final class PlayLikeCurlGeometry {
     }
 
     /** Lift of a hinged spread leaf toward the camera, in page widths, when it stands upright. */
-    static final float HINGE_LIFT = 0.2f;
-    /** How much the paper near the spine lags the pulled edge while a hinged leaf turns. */
-    static final float HINGE_BEND = 0.35f;
+    static final float HINGE_LIFT = 0.25f;
+    /**
+     * Paper flex of a turning leaf: the half toward the pulled edge curls further than the half at
+     * the spine, most strongly mid-turn, and the sheet straightens again when flat or upright.
+     */
+    static final float HINGE_FLEX = 0.8f;
+    /** Darkening of the leaf where it faces away from the reader, so its bend reads as paper. */
+    static final float HINGE_SHADE = 0.22f;
+    private static final float HALF_PI = (float) (Math.PI / 2);
 
     /**
-     * Spread leaf hinged at the spine (x = 0 in the unmirrored right-half frame). The whole face
-     * rotates by {@code angle} (0 flat, pi/2 upright), so its content is foreshortened toward the
-     * spine instead of sliding into it; the paper bends slightly near the spine.
+     * Spread leaf hinged at the spine (x = 0 in the unmirrored right-half frame). The sheet rises
+     * about the spine by {@code angle} (0 flat, pi/2 upright) and flexes like paper, so its content
+     * is compressed progressively toward the curled edge instead of sliding into the spine.
      */
     static void updateHinged(PageGeometry page, float angle) {
         int grid = PlayLikeCurlModel.GRID;
@@ -82,20 +88,61 @@ final class PlayLikeCurlGeometry {
         }
     }
 
+    /** Flex amplitude of a hinged leaf at this hinge angle; the shader uses the same profile. */
+    static float hingeFlex(float angle) {
+        return HINGE_FLEX * (float) Math.sin(2f * clampHinge(angle));
+    }
+
+    /**
+     * Slope of the sheet at {@code s} (0 spine, 1 outer edge): the hinge angle plus a quadratic
+     * flex with zero mean, clamped so the paper never folds back over itself.
+     */
+    static float hingeLocalAngle(float angle, float s) {
+        float clamped = clampHinge(angle);
+        float local = clamped + hingeFlex(clamped) * (s * s - 1f / 3f);
+        return Math.max(0f, Math.min(HALF_PI, local));
+    }
+
     /** Unprojected x and depth of every column of a hinged leaf. */
     static void hingedColumns(float angle, float[] x, float[] z) {
         int grid = PlayLikeCurlModel.GRID;
-        float clamped = Math.max(0f, Math.min((float) (Math.PI / 2), angle));
-        float bend = HINGE_BEND * (float) Math.sin(2f * clamped);
         float step = 1f / grid;
         x[0] = 0f;
         z[0] = PlayLikeCurlModel.FRONT_DEPTH;
         for (int column = 1; column <= grid; column++) {
-            float s = (column - 0.5f) * step;
-            float local = clamped * (1f - bend * (1f - s));
+            float local = hingeLocalAngle(angle, (column - 0.5f) * step);
             x[column] = x[column - 1] + step * (float) Math.cos(local);
             z[column] = z[column - 1] + step * (float) Math.sin(local) * HINGE_LIFT;
         }
+    }
+
+    /** Unprojected x of a hinged leaf's outer edge (1 flat, 0 upright). */
+    static float hingedEdgeX(float angle) {
+        int grid = PlayLikeCurlModel.GRID;
+        float[] x = new float[grid + 1];
+        float[] z = new float[grid + 1];
+        hingedColumns(angle, x, z);
+        return x[grid];
+    }
+
+    /** Hinge angle whose flexed outer edge lies at {@code edgeX}, so the edge follows the finger. */
+    static float hingeAngleForEdge(float edgeX) {
+        float target = Math.max(0f, Math.min(1f, edgeX));
+        float low = 0f;
+        float high = HALF_PI;
+        for (int iteration = 0; iteration < 24; iteration++) {
+            float middle = (low + high) / 2f;
+            if (hingedEdgeX(middle) > target) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        return (low + high) / 2f;
+    }
+
+    private static float clampHinge(float angle) {
+        return Math.max(0f, Math.min(HALF_PI, angle));
     }
 
     /** Projected x (0..1 is the leaf's own half, 0 the spine) of a hinged leaf's outer edge. */

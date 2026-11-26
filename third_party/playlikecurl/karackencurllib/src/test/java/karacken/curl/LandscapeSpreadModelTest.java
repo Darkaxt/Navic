@@ -217,8 +217,26 @@ public class LandscapeSpreadModelTest {
         assertEquals(0f, model.getTransition().getIncomingHingeAngle(), 0.001f);
         model.dragTo(175f, 100f);
         LandscapeSpreadTransition quarter = model.getTransition();
-        // The outer edge follows the gesture: halfway to the spine at a quarter of the turn.
-        assertEquals(0.5f, (float) Math.cos(quarter.getTurningHingeAngle()), 0.001f);
+        // The flexed outer edge follows the gesture: halfway to the spine at a quarter of the turn.
+        assertEquals(0.5f, flatEdge(quarter.getTurningHingeAngle()), 0.001f);
+    }
+
+    @Test
+    public void turningLeafFlexesLikePaperSoItsTextCompressesTowardTheCurledEdge() {
+        int grid = PlayLikeCurlModel.GRID;
+        float[] x = new float[grid + 1];
+        float[] z = new float[grid + 1];
+        PlayLikeCurlGeometry.hingedColumns((float) (Math.PI / 4), x, z);
+        float spineColumn = x[1] - x[0];
+        float edgeColumn = x[grid] - x[grid - 1];
+        // A rigid slate would compress every column equally; paper bends more toward the edge.
+        assertTrue(spineColumn > edgeColumn * 2f);
+        for (int column = 2; column <= grid; column++) {
+            assertTrue(x[column] - x[column - 1] <= x[column - 1] - x[column - 2] + TOLERANCE);
+        }
+        // Flat and upright leaves are straight.
+        assertEquals(0f, PlayLikeCurlGeometry.hingeFlex(0f), TOLERANCE);
+        assertEquals(0f, PlayLikeCurlGeometry.hingeFlex((float) (Math.PI / 2)), 0.001f);
     }
 
     @Test

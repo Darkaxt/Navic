@@ -60,6 +60,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "uniform vec4 uFillerColor;\n"
                     + "uniform vec4 uReversePaperColor;\n"
                     + "uniform float uReverseMaterialMix;\n"
+                    + "uniform float uHingeAngle;\n"
+                    + "uniform float uHingeFlex;\n"
+                    + "uniform float uHingeShade;\n"
+                    + "uniform float uHingeMirrored;\n"
                     + "varying vec2 vTextureCoordinate;\n"
                     + "void main() {\n"
                     + "  vec4 frontColor;\n"
@@ -75,6 +79,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "    }\n"
                     + "    frontColor = mix(base, overlay + base * (1.0 - overlay.a), uHasOverlay);\n"
                     + "  }\n"
+                    + "  float hingeS = mix(vTextureCoordinate.x, 1.0 - vTextureCoordinate.x, uHingeMirrored);\n"
+                    + "  float hingeSlope = clamp(uHingeAngle + uHingeFlex * (hingeS * hingeS - 0.33333), 0.0, 1.5708);\n"
+                    + "  float hingeSin = sin(hingeSlope);\n"
+                    + "  frontColor.rgb *= 1.0 - uHingeShade * hingeSin * hingeSin;\n"
                     + "  gl_FragColor = mix(frontColor, uReversePaperColor, uReverseMaterialMix);\n"
                     + "}\n";
 
@@ -166,6 +174,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int fillerColorUniform;
     private int reversePaperColorUniform;
     private int reverseMaterialMixUniform;
+    private int hingeAngleUniform;
+    private int hingeFlexUniform;
+    private int hingeShadeUniform;
+    private int hingeMirroredUniform;
     private int shadowProgram;
     private int shadowPositionAttribute;
     private int shadowGradientAttribute;
@@ -678,10 +690,18 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     GLES20.glGetUniformLocation(program, "uReversePaperColor");
             reverseMaterialMixUniform =
                     GLES20.glGetUniformLocation(program, "uReverseMaterialMix");
+            hingeAngleUniform = GLES20.glGetUniformLocation(program, "uHingeAngle");
+            hingeFlexUniform = GLES20.glGetUniformLocation(program, "uHingeFlex");
+            hingeShadeUniform = GLES20.glGetUniformLocation(program, "uHingeShade");
+            hingeMirroredUniform = GLES20.glGetUniformLocation(program, "uHingeMirrored");
             if (isFillerUniform < 0
                     || fillerColorUniform < 0
                     || reversePaperColorUniform < 0
-                    || reverseMaterialMixUniform < 0) {
+                    || reverseMaterialMixUniform < 0
+                    || hingeAngleUniform < 0
+                    || hingeFlexUniform < 0
+                    || hingeShadeUniform < 0
+                    || hingeMirroredUniform < 0) {
                 throw new IllegalStateException("Page material shader uniforms are unavailable");
             }
             shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
@@ -1606,6 +1626,12 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     clip.getWidthPx(),
                     clip.getHeightPx());
             GLES20.glUniformMatrix4fv(matrixUniform, 1, false, mvpMatrix, 0);
+            // Hinged leaves shade with the same flex profile as their geometry; other pages don't.
+            GLES20.glUniform1f(hingeAngleUniform, mesh.hinged ? mesh.hingeAngle : 0f);
+            GLES20.glUniform1f(hingeFlexUniform,
+                    mesh.hinged ? PlayLikeCurlGeometry.hingeFlex(mesh.hingeAngle) : 0f);
+            GLES20.glUniform1f(hingeShadeUniform, mesh.hinged ? PlayLikeCurlGeometry.HINGE_SHADE : 0f);
+            GLES20.glUniform1f(hingeMirroredUniform, mesh.horizontallyMirrored ? 1f : 0f);
             drawPageTextures(resource, baseTexture, overlayTexture, reverseMaterialMix);
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.positionBufferId);
             GLES20.glEnableVertexAttribArray(positionAttribute);
