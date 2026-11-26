@@ -61,6 +61,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -264,6 +265,12 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		serviceScope.launch {
 			connectivityManager.isCellular.collect { prefetcher.upgradeCachedTranscodes() }
 		}
+		// A new or recovered connection retries the songs that could not be cached ahead (or were skipped).
+		serviceScope.launch {
+			combine(connectivityManager.isOnline, connectivityManager.isCellular, navidromeAvailabilityManager.state) { online, cellular, availability ->
+				Triple(online, cellular, availability is NavidromeAvailability.Unavailable)
+			}.distinctUntilChanged().collect { (online, _, unavailable) -> if (online && !unavailable) prefetcher.retry() }
+		}
 		val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
 		val silenceMeter = PlaybackSilenceMeter()
@@ -342,6 +349,7 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 		player.addListener(object : Player.Listener {
 			override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
 				deferredTranscodeSeek.cancel()
+				if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && skipUnreadyStreams(player, prefetcher)) return
 				releaseStreamPins()
 				transcodeWarmer.warmUpcoming(player)
 				prefetcher.prefetchNext(player)
@@ -408,6 +416,37 @@ class PlaybackService : MediaSessionService(), KoinComponent {
 				registerMediaNotificationActionListener(session, player)
 				updateMediaNotificationActions(session, player)
 			}
+	}
+
+	/**
+	 * When playback moves on by itself into a stream the connection cannot deliver in time, jumps to the
+	 * next song that can play, before the unready one is heard; skipped songs are cached later.
+	 * Returns true when it seeked (the seek's own transition then does the usual work).
+	 */
+	private fun skipUnreadyStreams(player: ExoPlayer, prefetcher: NavidromeStreamPrefetcher): Boolean {
+		val timeline = player.currentTimeline
+		if (timeline.isEmpty) return false
+		val start = player.currentMediaItemIndex
+		val repeat = if (player.repeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_OFF else player.repeatMode
+		val skipped = mutableListOf<MediaItem>()
+		var index = start
+		while (true) {
+			val item = player.getMediaItemAt(index)
+			val uri = item.localConfiguration?.uri ?: return false
+			val durationMs = item.mediaMetadata.durationMs ?: C.TIME_UNSET
+			if (!prefetcher.isUnready(uri, durationMs)) break
+			skipped += item
+			index = timeline.getNextWindowIndex(index, repeat, player.shuffleModeEnabled)
+			// Nothing ready anywhere: keep the song; the stream's own buffering/recovery applies.
+			if (index == C.INDEX_UNSET || index == start || skipped.size >= player.mediaItemCount) return false
+		}
+		if (skipped.isEmpty()) return false
+		skipped.forEach { item -> item.localConfiguration?.uri?.let(prefetcher::defer) }
+		Logger.i(PlaybackDiagnosticsLogTag, playbackDiagnosticMessage(
+			"stream-skip-unready", "songIds" to skipped.joinToString(",") { it.mediaId }, "targetIndex" to index))
+		playbackLedger?.overrideNextEndReason("skipped-unready")
+		player.seekTo(index, 0L)
+		return true
 	}
 
 	override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

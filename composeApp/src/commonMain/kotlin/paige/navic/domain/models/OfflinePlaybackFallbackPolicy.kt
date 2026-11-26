@@ -1,10 +1,16 @@
 package paige.navic.domain.models
 
+/**
+ * An outage report must not interrupt a song that is playing fine: a local or fully cached file, or a
+ * stream the player is actively playing (an outage declared by background work such as a timed-out
+ * download says nothing about this stream; if it really fails, its own player error starts recovery).
+ */
 fun shouldKeepLocalPlaybackDuringOutage(
 	currentUsesLocalFile: Boolean,
 	hasPlayerError: Boolean,
-	isIdleOrEnded: Boolean
-): Boolean = currentUsesLocalFile && !hasPlayerError && !isIdleOrEnded
+	isIdleOrEnded: Boolean,
+	currentIsPlayingOrCached: Boolean = false
+): Boolean = (currentUsesLocalFile || currentIsPlayingOrCached) && !hasPlayerError && !isIdleOrEnded
 
 fun playbackRecoveryPositionMs(
 	playerPositionMs: Long,

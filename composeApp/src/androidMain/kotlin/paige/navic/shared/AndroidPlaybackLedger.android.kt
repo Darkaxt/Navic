@@ -179,6 +179,12 @@ internal class AndroidPlaybackLedger(
 ) : Player.Listener {
 	private val streamDetails = ConcurrentHashMap<String, String>()
 	private var pendingEnd: Pair<String, Long>? = null
+	private var endReasonOverride: String? = null
+
+	/** The next transition ends the current song for this reason (e.g. a skip the app made itself). */
+	fun overrideNextEndReason(reason: String) {
+		endReasonOverride = reason
+	}
 
 	fun start() {
 		player.addListener(this)
@@ -211,7 +217,8 @@ internal class AndroidPlaybackLedger(
 		val (endReason, position) = pendingEnd
 			?: ((if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) "queue-changed" else "internal") to null)
 		pendingEnd = null
-		finish(endReason, position)
+		finish(endReasonOverride ?: endReason, position)
+		endReasonOverride = null
 		mediaItem?.let(::begin)
 	}
 

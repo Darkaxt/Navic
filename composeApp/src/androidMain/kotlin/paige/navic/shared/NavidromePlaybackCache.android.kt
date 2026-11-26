@@ -99,6 +99,16 @@ internal object NavidromePlaybackCache {
 		}
 	}
 
+	/**
+	 * True when the song behind this stream request plays completely from the cache (its original, or
+	 * this exact variant, is fully stored). False before the playback service has opened the cache.
+	 */
+	fun isStreamFullyCached(streamUri: Uri?): Boolean {
+		val current = cache ?: return false
+		val key = streamUri?.let(NavidromeStreamCacheKey::of) ?: return false
+		return current.isFullyCached(key.original().value) || current.isFullyCached(key.value)
+	}
+
 	/** Bytes currently stored on disk. */
 	fun sizeBytes(context: Context): Long = get(context).cacheSpace
 

@@ -15,6 +15,13 @@ class PlaybackOutageRecoveryPolicyTest {
 	}
 
 	@Test
+	fun aStreamThatIsPlayingOrFullyCachedSurvivesAnOutageReport() {
+		assertTrue(shouldKeepLocalPlaybackDuringOutage(false, false, false, currentIsPlayingOrCached = true))
+		assertFalse(shouldKeepLocalPlaybackDuringOutage(false, true, false, currentIsPlayingOrCached = true))
+		assertFalse(shouldKeepLocalPlaybackDuringOutage(false, false, true, currentIsPlayingOrCached = true))
+	}
+
+	@Test
 	fun zeroPlayerPositionDoesNotReuseThePreviousTracksProgress() {
 		assertEquals(0L, playbackRecoveryPositionMs(0L, true, 242_000L))
 		assertEquals(51_000L, playbackRecoveryPositionMs(51_000L, false, 242_000L))

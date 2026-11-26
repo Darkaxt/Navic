@@ -95,8 +95,11 @@ abstract class MediaPlayerViewModel(
 	protected fun isAvailable(songId: String): Boolean {
 		val isOnline = connectivityManager.isOnline.value
 		val isDownloaded = downloadManager.getDownloadedFilePath(songId) != null
-		return isOnline || isDownloaded
+		return isOnline || isDownloaded || isCachedForPlayback(songId)
 	}
+
+	/** True when the platform can play the song completely from its streaming cache, without the server. */
+	protected open fun isCachedForPlayback(songId: String): Boolean = false
 
 	init {
 		viewModelScope.launch {

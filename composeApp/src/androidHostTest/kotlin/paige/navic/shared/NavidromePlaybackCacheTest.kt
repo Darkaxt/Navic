@@ -146,6 +146,79 @@ class NavidromePlaybackCacheTest {
 		assertEquals(listOf("opus-192->original:true"), opens)
 	}
 
+	/** Serves 4 KiB transcodes in 512-byte reads, calling [onRead] before each read; can be set to fail. */
+	private class SlowServer(var failing: Boolean = false, val onRead: (readIndex: Int) -> Unit = {}) : DataSource.Factory {
+		override fun createDataSource(): DataSource = object : DataSource {
+			private var pos = 0
+			private var reads = 0
+			private var uri: Uri? = null
+			override fun open(dataSpec: DataSpec): Long {
+				if (failing) throw java.io.IOException("timeout")
+				uri = dataSpec.uri
+				pos = dataSpec.position.toInt()
+				return 4096L - pos
+			}
+			override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+				onRead(reads++)
+				if (pos >= 4096) return C.RESULT_END_OF_INPUT
+				val n = minOf(length, 512, 4096 - pos)
+				pos += n
+				return n
+			}
+			override fun getUri(): Uri? = uri
+			override fun close() = Unit
+			override fun addTransferListener(transferListener: TransferListener) = Unit
+		}
+	}
+
+	@Test
+	fun aStreamDownloadingSlowerThanItPlaysIsUnreadyBeforeItStarts() {
+		var now = 0L
+		val results = mutableMapOf<String, Boolean>()
+		lateinit var prefetcher: NavidromeStreamPrefetcher
+		val uri = transcoded("slow")
+		val server = SlowServer { readIndex ->
+			if (readIndex == 1) {
+				now = 10_000L
+				results["tooEarlyToJudge"] = prefetcher.isUnready(uri, 60_000L)
+			}
+			if (readIndex == 2) {
+				// 1 KiB of 4 KiB arrived in 20 s.
+				now = 20_000L
+				results["shortSong"] = prefetcher.isUnready(uri, 60_000L)
+				results["longSong"] = prefetcher.isUnready(uri, 100_000L)
+				results["unknownLength"] = prefetcher.isUnready(uri, C.TIME_UNSET)
+			}
+		}
+		prefetcher = NavidromeStreamPrefetcher(cache, server, { false }, { null }, { false },
+			executor = Executor(Runnable::run), clock = { now })
+
+		prefetcher.prefetch(uri)
+
+		assertEquals(false, results["tooEarlyToJudge"])
+		assertEquals(true, results["shortSong"], "1 KiB + 20 s rate x 60 s cannot reach 4 KiB in time")
+		assertEquals(false, results["longSong"], "over 100 s the rest arrives before playback reaches it")
+		assertEquals(false, results["unknownLength"])
+		assertFalse(prefetcher.isUnready(uri, 60_000L), "fully cached afterwards")
+		assertFalse(prefetcher.isUnready(transcoded("never-prefetched"), 60_000L), "no evidence, no skip")
+	}
+
+	@Test
+	fun aFailedPrefetchIsUnreadyUntilARetryCachesIt() {
+		val server = SlowServer(failing = true)
+		val prefetcher = NavidromeStreamPrefetcher(cache, server, { false }, { null }, { false },
+			executor = Executor(Runnable::run))
+		val uri = transcoded("flaky")
+
+		prefetcher.defer(uri)
+		assertTrue(prefetcher.isUnready(uri, 60_000L))
+
+		server.failing = false
+		prefetcher.retry()
+		assertFalse(prefetcher.isUnready(uri, 60_000L))
+		assertTrue(cache.isFullyCached(NavidromeStreamCacheKey.of(uri)!!.value))
+	}
+
 	@Test
 	fun prefetchUsesStreamingQualityOnMeteredNetworksAndSkipsDownloadsAndCachedSongs() {
 		val fake = FakeServer()
@@ -215,6 +288,8 @@ class NavidromePlaybackCacheTest {
 		val player = File("src/androidMain/kotlin/paige/navic/shared/MediaPlayer.android.kt").readText()
 		assertTrue(player.contains("DefaultDataSource.Factory(this, cachedStreamDataSourceFactory)"))
 		assertTrue(player.contains("prefetcher.prefetchNext(player)"))
+		assertTrue(player.contains("skipUnreadyStreams(player, prefetcher)"))
+		assertTrue(player.contains("prefetcher.retry()"))
 		assertTrue(player.contains("prefetcher.upgradeCachedTranscodes()"))
 		assertTrue(player.contains("isInUse = cachedStreamDataSourceFactory::isInUse"))
 		assertEquals(2, Regex("""\n\s*releaseStreamPins\(\)""").findAll(player).count(), "pins released on transitions and queue changes")

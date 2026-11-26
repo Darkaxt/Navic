@@ -50,7 +50,9 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 	private val notifyFailedDownload: () -> Unit,
 	private val notifySongNotFound: () -> Unit,
 	private val markRecoveryPending: () -> Unit,
-	private val clearRecoveryUi: () -> Unit
+	private val clearRecoveryUi: () -> Unit,
+	/** Song plays completely from the streaming cache, so it needs no server. */
+	private val isCachedForPlayback: (String) -> Boolean = { false }
 ) {
 	private var refreshedRemoteSourceKey: RemoteSourceRefreshKey? = null
 	private var staleSongProbeKey: RemoteSourceRefreshKey? = null
@@ -94,7 +96,9 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		if (shouldKeepLocalPlaybackDuringOutage(
 			currentUsesLocalFile = player.currentMediaItem?.localConfiguration?.uri?.scheme == "file",
 			hasPlayerError = error != null || player.playerError != null,
-			isIdleOrEnded = player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED
+			isIdleOrEnded = player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED,
+			currentIsPlayingOrCached = (player.playbackState == Player.STATE_READY && player.playWhenReady) ||
+				isCachedForPlayback(song.id)
 		)) return
 		if (pendingServiceOutage && pending?.songId == song.id && pending?.queueIndex == currentIndex) return
 		if (pending != null) clear("service-outage-replaces-recovery")
@@ -102,7 +106,9 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 		val recovery = pendingRecovery(player, state, song, currentIndex, reason)
 		val availableSongIds = state.queue
 			.mapNotNull { queuedSong ->
-				queuedSong.id.takeIf { downloadManager.getDownloadedFilePath(queuedSong.id) != null }
+				queuedSong.id.takeIf {
+					downloadManager.getDownloadedFilePath(queuedSong.id) != null || isCachedForPlayback(queuedSong.id)
+				}
 			}
 			.toSet()
 		val resolution = resolveOfflinePlaybackFallback(
@@ -154,7 +160,8 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 
 			is OfflinePlaybackFallbackResolution.PlayUpcoming -> {
 				val targetSong = state.queue.getOrNull(resolution.targetIndex) ?: return
-				val localPath = downloadManager.getDownloadedFilePath(targetSong.id) ?: return
+				val localPath = downloadManager.getDownloadedFilePath(targetSong.id)
+				if (localPath == null && !isCachedForPlayback(targetSong.id)) return
 				diagnostics.onPlaybackRecoveryDecision(
 					event = "offline-cached-upcoming",
 					song = song,
@@ -164,7 +171,18 @@ internal class AndroidStablePlaybackRecoveryCoordinator(
 					deferredCount = 0,
 					fallbackAvailable = true
 				)
-				playUpcomingFromLocalFile(player, resolution.targetIndex, localPath, recovery.shouldResume)
+				if (localPath != null) {
+					playUpcomingFromLocalFile(player, resolution.targetIndex, localPath, recovery.shouldResume)
+				} else {
+					// Fully cached stream: its own item already plays from the cache.
+					player.seekTo(resolution.targetIndex, 0L)
+					player.prepare()
+					if (recovery.shouldResume) {
+						claimMusicPlayback()
+						player.play()
+					}
+					clear("offline-stream-cache-fallback")
+				}
 			}
 		}
 	}

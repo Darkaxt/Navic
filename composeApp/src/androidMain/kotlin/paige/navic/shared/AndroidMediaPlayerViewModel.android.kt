@@ -175,11 +175,10 @@ class AndroidMediaPlayerViewModel(
 		notifyFailedDownload = playbackErrorNotifier::notifyFailedDownload,
 		notifySongNotFound = playbackErrorNotifier::notifySongNotFound,
 		markRecoveryPending = ::markPlaybackRecoveryPending,
-		clearRecoveryUi = ::clearPlaybackRecoveryUi
+		clearRecoveryUi = ::clearPlaybackRecoveryUi, isCachedForPlayback = ::isCachedForPlayback
 	)
 
-	private fun replaceQueuedSong(index: Int, replacement: DomainSong) =
-		_uiState.update { state -> state.withQueueSongReplacement(index, replacement) }
+	private fun replaceQueuedSong(index: Int, replacement: DomainSong) = _uiState.update { state -> state.withQueueSongReplacement(index, replacement) }
 
 	private val downloadedMediaRecovery: AndroidDownloadedMediaRecovery =
 		DefaultAndroidDownloadedMediaRecovery(
@@ -379,6 +378,7 @@ class AndroidMediaPlayerViewModel(
 		playbackClaim = null
 	}
 
+	override fun isCachedForPlayback(songId: String) = NavidromePlaybackCache.isStreamFullyCached(getStreamUrl(songId))
 	private fun getStreamUrl(id: String): Uri =
 		playbackStreamUri(id, sessionManager, preferenceManager, connectivityManager.isCellular.value)
 
