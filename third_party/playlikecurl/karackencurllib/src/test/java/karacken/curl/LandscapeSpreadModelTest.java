@@ -182,5 +182,63 @@ public class LandscapeSpreadModelTest {
         }
     }
 
+    @Test
+    public void hingedLeafStaysPinnedAtTheSpineAndFoldsTowardIt() {
+        int grid = PlayLikeCurlModel.GRID;
+        float previousEdge = Float.POSITIVE_INFINITY;
+        for (int step = 0; step <= 20; step++) {
+            float angle = (float) (Math.PI / 2) * step / 20f;
+            float[] x = new float[grid + 1];
+            float[] z = new float[grid + 1];
+            PlayLikeCurlGeometry.hingedColumns(angle, x, z);
+            // The spine edge never moves and no column crosses into the other half.
+            assertEquals(0f, x[0], TOLERANCE);
+            for (int column = 1; column <= grid; column++) {
+                assertTrue(x[column] >= x[column - 1] - TOLERANCE);
+            }
+            // The face is compressed toward the spine as the leaf rises, never slid past it.
+            assertTrue(x[grid] <= previousEdge + TOLERANCE);
+            previousEdge = x[grid];
+        }
+        assertEquals(1f, flatEdge(0f), 0.001f);
+        assertEquals(0f, flatEdge((float) (Math.PI / 2)), 0.001f);
+    }
+
+    @Test
+    public void hingeAnglesRiseToUprightAtTheSpineAndLayTheIncomingLeafFlat() {
+        LandscapeSpreadModel model = new LandscapeSpreadModel(4, 0);
+        model.beginGesture(200f);
+        model.dragTo(150f, 100f);
+        LandscapeSpreadTransition half = model.getTransition();
+        assertEquals(0.5f, half.getProgress(), TOLERANCE);
+        assertEquals((float) (Math.PI / 2), half.getTurningHingeAngle(), 0.001f);
+        assertEquals((float) (Math.PI / 2), half.getIncomingHingeAngle(), 0.001f);
+        model.dragTo(100f, 100f);
+        assertEquals(0f, model.getTransition().getIncomingHingeAngle(), 0.001f);
+        model.dragTo(175f, 100f);
+        LandscapeSpreadTransition quarter = model.getTransition();
+        // The outer edge follows the gesture: halfway to the spine at a quarter of the turn.
+        assertEquals(0.5f, (float) Math.cos(quarter.getTurningHingeAngle()), 0.001f);
+    }
+
+    @Test
+    public void hingedShadowFallsOutsideTheLeafEdgeOnItsOwnHalf() {
+        FoldShadowModel.State flat = FoldShadowModel.resolveHinged(0f, false);
+        assertEquals(0f, flat.getOpacity(), TOLERANCE);
+        FoldShadowModel.State rising = FoldShadowModel.resolveHinged(0.8f, false);
+        assertTrue(rising.getOpacity() > 0f);
+        assertTrue(rising.getEndX() > rising.getStartX());
+        FoldShadowModel.State mirrored = FoldShadowModel.resolveHinged(0.8f, true);
+        assertEquals(1f - rising.getStartX(), mirrored.getEndX(), 0.001f);
+    }
+
+    private static float flatEdge(float angle) {
+        int grid = PlayLikeCurlModel.GRID;
+        float[] x = new float[grid + 1];
+        float[] z = new float[grid + 1];
+        PlayLikeCurlGeometry.hingedColumns(angle, x, z);
+        return x[grid];
+    }
+
     private static final float TOLERANCE = 0.0001f;
 }

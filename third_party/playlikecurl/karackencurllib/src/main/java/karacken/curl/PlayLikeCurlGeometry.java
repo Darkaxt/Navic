@@ -55,6 +55,58 @@ final class PlayLikeCurlGeometry {
         }
     }
 
+    /** Lift of a hinged spread leaf toward the camera, in page widths, when it stands upright. */
+    static final float HINGE_LIFT = 0.2f;
+    /** How much the paper near the spine lags the pulled edge while a hinged leaf turns. */
+    static final float HINGE_BEND = 0.35f;
+
+    /**
+     * Spread leaf hinged at the spine (x = 0 in the unmirrored right-half frame). The whole face
+     * rotates by {@code angle} (0 flat, pi/2 upright), so its content is foreshortened toward the
+     * spine instead of sliding into it; the paper bends slightly near the spine.
+     */
+    static void updateHinged(PageGeometry page, float angle) {
+        int grid = PlayLikeCurlModel.GRID;
+        float heightCorrection = (page.getBitmapRatio() - 1f) / 2f;
+        float[] x = new float[grid + 1];
+        float[] z = new float[grid + 1];
+        hingedColumns(angle, x, z);
+        for (int row = 0; row <= grid; row++) {
+            for (int column = 0; column <= grid; column++) {
+                int offset = 3 * (row * (grid + 1) + column);
+                page.getPositions()[offset] = x[column];
+                page.getPositions()[offset + 1] =
+                        row / (float) grid * page.getBitmapRatio() - heightCorrection;
+                page.getPositions()[offset + 2] = z[column];
+            }
+        }
+    }
+
+    /** Unprojected x and depth of every column of a hinged leaf. */
+    static void hingedColumns(float angle, float[] x, float[] z) {
+        int grid = PlayLikeCurlModel.GRID;
+        float clamped = Math.max(0f, Math.min((float) (Math.PI / 2), angle));
+        float bend = HINGE_BEND * (float) Math.sin(2f * clamped);
+        float step = 1f / grid;
+        x[0] = 0f;
+        z[0] = PlayLikeCurlModel.FRONT_DEPTH;
+        for (int column = 1; column <= grid; column++) {
+            float s = (column - 0.5f) * step;
+            float local = clamped * (1f - bend * (1f - s));
+            x[column] = x[column - 1] + step * (float) Math.cos(local);
+            z[column] = z[column - 1] + step * (float) Math.sin(local) * HINGE_LIFT;
+        }
+    }
+
+    /** Projected x (0..1 is the leaf's own half, 0 the spine) of a hinged leaf's outer edge. */
+    static float projectedHingedEdgeX(float angle, float targetDepth) {
+        int grid = PlayLikeCurlModel.GRID;
+        float[] x = new float[grid + 1];
+        float[] z = new float[grid + 1];
+        hingedColumns(angle, x, z);
+        return projectXOntoDepthPlane(x[grid], z[grid], targetDepth);
+    }
+
     static float projectionAspect(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("Viewport dimensions must be positive");

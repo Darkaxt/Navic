@@ -24,6 +24,17 @@ final class FoldShadowModel {
                 : new State(edge, edge + WIDTH, edge, opacity, true);
     }
 
+    /** Shadow a hinged spread leaf casts on the page beneath, just outside its outer edge. */
+    static State resolveHinged(float angle, boolean mirrored) {
+        float clamped = Math.max(0f, Math.min((float) (Math.PI / 2), angle));
+        float opacity = MAX_OPACITY * (float) Math.sin(clamped);
+        float edge = PlayLikeCurlGeometry.projectedHingedEdgeX(clamped, SHADOW_DEPTH);
+        if (mirrored) edge = 1f - edge;
+        return mirrored
+                ? new State(edge - WIDTH, edge, edge, opacity, false)
+                : new State(edge, edge + WIDTH, edge, opacity, true);
+    }
+
     private static float progress(PageRole role, float curlPosition) {
         if (role == PageRole.RIGHT) return 0f;
         float range = PlayLikeCurlModel.GRID - PlayLikeCurlModel.RIGHT_ENDPOINT_POSITION;

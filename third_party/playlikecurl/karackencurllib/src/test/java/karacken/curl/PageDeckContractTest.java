@@ -591,10 +591,12 @@ public class PageDeckContractTest {
         assertTrue(landscape.contains("spreadCurrentRightResource"));
         assertTrue(landscape.contains("destinationLeft"));
         assertTrue(landscape.contains("destinationRight"));
-        assertTrue(landscape.contains("mirroredLeftMesh"));
-        assertTrue(landscape.contains("mirroredFrontMesh"));
-        assertTrue(landscape.contains("frontMesh"));
-        assertTrue(landscape.contains("leftMesh"));
+        // Spread leaves are hinged at the spine on both halves; the sliding curl meshes are
+        // portrait-only, so a turning page folds toward the spine instead of sliding into it.
+        assertTrue(landscape.contains("hingedMesh"));
+        assertTrue(landscape.contains("mirroredHingedMesh"));
+        assertFalse(landscape.contains("frontMesh"));
+        assertFalse(landscape.contains("leftMesh"));
         assertTrue(landscape.contains("&& rendered"));
     }
 

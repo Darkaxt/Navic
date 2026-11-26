@@ -107,6 +107,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private final GpuMesh mirroredFrontMesh = new GpuMesh(PageRole.FRONT, true);
     private final GpuMesh rightMesh = new GpuMesh(PageRole.RIGHT);
     private final GpuMesh mirroredRightMesh = new GpuMesh(PageRole.RIGHT, true);
+    /** Spread leaves hinged at the spine: a turning page folds up instead of sliding into it. */
+    private final GpuMesh hingedMesh = new GpuMesh(PageRole.FRONT, false, true);
+    private final GpuMesh mirroredHingedMesh = new GpuMesh(PageRole.FRONT, true, true);
     private final Map<String, GpuTexture> textureCache = new LinkedHashMap<>();
     private final PageOverlayReplacementStore<String, DynamicPageOverlayTexture>
             dynamicPageOverlays = new PageOverlayReplacementStore<>(
@@ -563,6 +566,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         failure.capture(mirroredFrontMesh::dispose);
         failure.capture(rightMesh::dispose);
         failure.capture(mirroredRightMesh::dispose);
+        failure.capture(hingedMesh::dispose);
+        failure.capture(mirroredHingedMesh::dispose);
 
         int retainedProgram = program;
         program = 0;
@@ -706,6 +711,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             mirroredFrontMesh.initializeGl();
             rightMesh.initializeGl();
             mirroredRightMesh.initializeGl();
+            hingedMesh.initializeGl();
+            mirroredHingedMesh.initializeGl();
             for (GpuTexture texture : textureCache.values()) {
                 texture.resetGl();
             }
@@ -1173,6 +1180,14 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         boolean physicalRight = turnsPhysicalRightLeaf(readingDirection, pageChange);
         turningState.setCurlPosition(transition.getTurningCurlPosition());
         incomingState.setCurlPosition(transition.getIncomingCurlPosition());
+        // The turning leaf and the incoming leaf always lie on opposite halves, so one hinged
+        // mesh per orientation serves both.
+        hingedMesh.hingeAngle = physicalRight
+                ? transition.getTurningHingeAngle()
+                : transition.getIncomingHingeAngle();
+        mirroredHingedMesh.hingeAngle = physicalRight
+                ? transition.getIncomingHingeAngle()
+                : transition.getTurningHingeAngle();
 
         if (physicalRight) {
             rendered = drawFlatLeaf(spreadCurrentLeftResource, leftFallback) && rendered;
@@ -1181,7 +1196,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 rendered = drawLeaf(
                         spreadCurrentRightResource,
                         rightFallback,
-                        frontMesh,
+                        hingedMesh,
                         turningState,
                         true) && rendered;
             }
@@ -1189,7 +1204,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 rendered = drawLeaf(
                         destinationLeft,
                         leftFallback,
-                        mirroredLeftMesh,
+                        mirroredHingedMesh,
                         incomingState,
                         true) && rendered;
             }
@@ -1200,7 +1215,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 rendered = drawLeaf(
                         spreadCurrentLeftResource,
                         leftFallback,
-                        mirroredFrontMesh,
+                        mirroredHingedMesh,
                         turningState,
                         true) && rendered;
             }
@@ -1208,7 +1223,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 rendered = drawLeaf(
                         destinationRight,
                         rightFallback,
-                        leftMesh,
+                        hingedMesh,
                         incomingState,
                         true) && rendered;
             }
@@ -1459,7 +1474,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 resource,
                 state,
                 true,
-                PageReverseMaterialMix.fromCurlPosition(state.getCurlPosition()),
+                mesh.hinged ? 0f : PageReverseMaterialMix.fromCurlPosition(state.getCurlPosition()),
                 orientation,
                 displayWidth,
                 displayHeight);
@@ -1479,8 +1494,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         if (!resource.isFiller() && texture == null) {
             return;
         }
-        FoldShadowModel.State shadow = FoldShadowModel.resolve(
-                mesh.role, state.getCurlPosition(), mesh.horizontallyMirrored);
+        FoldShadowModel.State shadow = mesh.hinged
+                ? FoldShadowModel.resolveHinged(mesh.hingeAngle, mesh.horizontallyMirrored)
+                : FoldShadowModel.resolve(
+                        mesh.role, state.getCurlPosition(), mesh.horizontallyMirrored);
         if (shadow.getOpacity() <= 0.001f) {
             return;
         }
@@ -1563,7 +1580,11 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             return false;
         }
         mesh.ensureGeometry(displayWidth, displayHeight, orientation);
-        PlayLikeCurlGeometry.update(mesh.geometry, state.getCurlPosition(), active);
+        if (mesh.hinged) {
+            PlayLikeCurlGeometry.updateHinged(mesh.geometry, mesh.hingeAngle);
+        } else {
+            PlayLikeCurlGeometry.update(mesh.geometry, state.getCurlPosition(), active);
+        }
         mesh.uploadPositions();
 
         PageMaterial material = resource.getMaterial();
@@ -1907,6 +1928,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private final class GpuMesh {
         private final PageRole role;
         private final boolean horizontallyMirrored;
+        private final boolean hinged;
+        private float hingeAngle;
         private final FloatBuffer positionBuffer;
         private final FloatBuffer textureBuffer;
         private final ShortBuffer indexBuffer;
@@ -1924,8 +1947,13 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
 
         GpuMesh(PageRole role, boolean horizontallyMirrored) {
+            this(role, horizontallyMirrored, false);
+        }
+
+        GpuMesh(PageRole role, boolean horizontallyMirrored, boolean hinged) {
             this.role = role;
             this.horizontallyMirrored = horizontallyMirrored;
+            this.hinged = hinged;
             geometry = PlayLikeCurlGeometry.createPage(role, 1, 1, PageOrientation.PORTRAIT);
             if (horizontallyMirrored) {
                 mirrorTextureCoordinates(geometry.getTextureCoordinates());
