@@ -1566,6 +1566,7 @@ window.NavicReaderBridge = {
   // living-plate overlay. The image box is the contained image itself (readerIllustrationCss).
   livingPlateRects: () => {
     const plates = []
+    let pending = false
     try {
       const renderer = runtime.view?.renderer
       const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
@@ -1582,7 +1583,11 @@ window.NavicReaderBridge = {
           const sceneId = image.parentElement?.getAttribute('data-navic-illustration')
           const loopSha256 = image.dataset.navicLivingLoop || ''
           const advancedLoopSha256 = image.dataset.navicLivingAdvanced || ''
-          if (!sceneId || !(loopSha256 || advancedLoopSha256) || !image.complete) continue
+          if (!sceneId || !(loopSha256 || advancedLoopSha256)) continue
+          if (!image.complete) {
+            pending = true
+            continue
+          }
           const rect = image.getBoundingClientRect()
           const left = frameRect.left + rect.left * scaleX
           const top = frameRect.top + rect.top * scaleY
@@ -1606,7 +1611,7 @@ window.NavicReaderBridge = {
     } catch {
       plates.length = 0
     }
-    return JSON.stringify({ dpr: window.devicePixelRatio || 1, plates })
+    return JSON.stringify({ dpr: window.devicePixelRatio || 1, plates, pending })
   },
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,

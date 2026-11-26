@@ -735,6 +735,7 @@ private class KomikkuReaderNativeFrameRoot(context: Context) : FrameLayout(conte
 		shellCoverView.isClickable = layers.shellCover
 		pagePreparationShieldView.visibility =
 			if (layers.preparationShield) VISIBLE else GONE
+		viewerContainer.setLivingPlatesCovered(layers.shellCover || layers.preparationShield)
 		val trace =
 			"shell=${layers.shellCover} preparationShield=${layers.preparationShield} " +
 				"preparationRequested=$pagePreparationCoverVisible"
@@ -1219,6 +1220,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private val livingPlateOverlay = ReaderLivingPlateOverlay(context)
 	private val livingPlateStorage = AndroidReaderIllustrationStorage(context)
 	private var livingPlatesEnabled = false
+	private var livingPlatesCovered = false
 	private var livingAdvancedEnabled = false
 	private var livingPlateProbeAttempts = 0
 	private val livingPlateProbe = Runnable { probeLivingPlates() }
@@ -1988,6 +1990,16 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		livingPlateOverlay.clear()
 	}
 
+	/**
+	 * The startup cover and the preparation panel hide the page without moving it, so lifting
+	 * them is when a book opened onto a plate starts its living plate.
+	 */
+	fun setLivingPlatesCovered(covered: Boolean) {
+		if (livingPlatesCovered == covered) return
+		livingPlatesCovered = covered
+		if (covered) stopLivingPlates() else scheduleLivingPlateProbe()
+	}
+
 	/** A page settles: probe for plates once the curl surface and any raster shield are gone. */
 	private fun scheduleLivingPlateProbe() {
 		stopLivingPlates()
@@ -1997,7 +2009,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	}
 
 	private fun probeLivingPlates() {
-		if (!livingPlatesEnabled || !isAttachedToWindow || windowVisibility != VISIBLE || shellCoverVisible) return
+		if (!livingPlatesEnabled || livingPlatesCovered || !isAttachedToWindow || windowVisibility != VISIBLE || shellCoverVisible) return
 		val curlVisible = playLikeCurlController.surfaceView.alpha != 0f
 		if (curlVisible || playLikeCurlController.ownsInlineRasterShieldPresentation) {
 			if (++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
@@ -2013,9 +2025,18 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			"(window.NavicReaderBridge && NavicReaderBridge.livingPlateRects) ? NavicReaderBridge.livingPlateRects() : ''"
 		) { raw ->
 			if (!livingPlatesEnabled || probedPage != pageTurnVisualPageIndex || !webView.isAttachedToWindow) return@evaluateJavascript
+			// A plate on screen still decoding: look again rather than leave it static.
+			if (livingPlateProbePending(raw) && ++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
+				postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
+			}
 			livingPlateOverlay.show(livingPlateTargets(webView, raw))
 		}
 	}
+
+	private fun livingPlateProbePending(raw: String?): Boolean = runCatching {
+		val json = org.json.JSONTokener(raw ?: return false).nextValue() as? String ?: return false
+		json.isNotBlank() && org.json.JSONObject(json).optBoolean("pending", false)
+	}.getOrDefault(false)
 
 	private fun livingPlateTargets(webView: WebView, raw: String?): List<ReaderLivingPlateTarget> = runCatching {
 		val json = org.json.JSONTokener(raw ?: return emptyList()).nextValue() as? String ?: return emptyList()
