@@ -514,6 +514,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueR
 			coverAspectRatio = 2f / 3f,
 			coverContentScale = ContentScale.Fit,
 			fallbackKind = "Book",
+			asBook = true,
+			bookPages = null,
 			id = item.key,
 			tab = "bindery-continue-reading"
 		)
@@ -673,6 +675,8 @@ private fun BinderyHubCard(
 					onAction = {}
 				),
 				fallbackKind = "Book",
+				asBook = true,
+				bookPages = card.pageCount,
 				id = card.id,
 				tab = "bindery-hub"
 			)

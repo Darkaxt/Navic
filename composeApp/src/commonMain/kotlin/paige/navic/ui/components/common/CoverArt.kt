@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -228,7 +229,8 @@ fun CoverArt(
 	normalization: CoverArtNormalization = CoverArtNormalization.None,
 	contentScale: ContentScale = ContentScale.Crop,
 	edgeCompression: CoverArtEdgeCompression = CoverArtEdgeCompression.None,
-	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null
+	onImageSizeResolved: ((width: Int, height: Int) -> Unit)? = null,
+	onImageBitmapResolved: ((ImageBitmap) -> Unit)? = null
 ) {
 	val preferenceManager = koinInject<PreferenceManager>()
 	val shape = shape ?: preferenceManager.coverArtShape.shape
@@ -361,6 +363,11 @@ fun CoverArt(
 				onImageSizeResolved?.invoke(image.width, image.height)
 				val compressedImageBitmap = remember(image) {
 					image.toImageBitmap()
+				}
+				if (onImageBitmapResolved != null) {
+					LaunchedEffect(compressedImageBitmap) {
+						compressedImageBitmap?.let(onImageBitmapResolved)
+					}
 				}
 				if (edgeCompression == CoverArtEdgeCompression.Soft && colorFilter == null && compressedImageBitmap != null) {
 					SoftEdgeCompressedCoverArtImage(

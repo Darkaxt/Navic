@@ -281,6 +281,8 @@ data class BinderyPublication(
 	val description: String? = null,
 	val subjects: List<String> = emptyList(),
 	val durationSeconds: Double? = null,
+	/** Printed page count, when Bindery reports one (OPDS `numberOfPages`). */
+	val pageCount: Int? = null,
 	val availability: BinderyAvailability? = null,
 	val properties: Map<String, String> = emptyMap(),
 	val propertyValues: BinderyPropertyBag = BinderyPropertyBag(),

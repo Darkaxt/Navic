@@ -270,6 +270,8 @@ private fun BinderySearchResultItem(
 					onAction = onAction
 				),
 				fallbackKind = "Book",
+				asBook = true,
+				bookPages = card.pageCount,
 				id = card.id,
 				tab = "bindery-search"
 			)

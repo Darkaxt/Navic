@@ -588,6 +588,8 @@ private fun BinderyPublicationGridItem(
 			onAction = onAction
 		),
 		fallbackKind = "Book",
+		asBook = true,
+		bookPages = publication.pageCount,
 		id = publication.id ?: publication.title,
 		tab = "bindery-detail"
 	)

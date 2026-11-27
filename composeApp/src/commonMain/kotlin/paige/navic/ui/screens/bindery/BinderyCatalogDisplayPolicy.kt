@@ -220,7 +220,8 @@ sealed interface BinderyCatalogCard {
 		val availability: BinderyAvailability? = null,
 		val links: List<BinderyLink> = emptyList(),
 		val readingOrder: List<BinderyReadingOrderItem> = emptyList(),
-		val hasActionableWhispersync: Boolean = false
+		val hasActionableWhispersync: Boolean = false,
+		val pageCount: Int? = null
 	) : BinderyCatalogCard
 
 	data class Link(
@@ -284,7 +285,8 @@ fun binderyCatalogCards(
 				availability = publication.availability,
 				links = publication.links,
 				readingOrder = publication.readingOrder,
-				hasActionableWhispersync = publication.hasActionableWhispersync()
+				hasActionableWhispersync = publication.hasActionableWhispersync(),
+				pageCount = publication.pageCount
 			)
 		}
 	}

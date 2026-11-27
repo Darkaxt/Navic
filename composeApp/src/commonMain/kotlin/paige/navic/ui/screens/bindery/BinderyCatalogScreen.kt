@@ -303,6 +303,8 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyCatalogIt
 						onAction = onAction
 					),
 					fallbackKind = "Book",
+					asBook = true,
+					bookPages = card.pageCount,
 					id = card.id,
 					tab = "bindery"
 				)

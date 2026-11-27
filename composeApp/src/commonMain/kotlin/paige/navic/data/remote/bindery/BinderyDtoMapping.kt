@@ -50,6 +50,8 @@ internal data class BinderyMetadataDto(
 	val description: String? = null,
 	val subject: List<String>? = null,
 	val duration: Double? = null,
+	/** OPDS 2 page count, when Bindery knows it. */
+	val numberOfPages: Double? = null,
 	val properties: Map<String, JsonElement>? = null
 )
 
@@ -100,6 +102,7 @@ private fun BinderyPublicationDto.toPublication(): BinderyPublication {
 		description = safeMetadata.description?.trim()?.takeIf { it.isNotEmpty() },
 		subjects = safeMetadata.subject.orEmpty().mapNotNull { it.trim().takeIf(String::isNotEmpty) },
 		durationSeconds = safeMetadata.duration?.takeIf { it > 0.0 },
+		pageCount = safeMetadata.numberOfPages?.takeIf { it >= 1.0 }?.toInt(),
 		availability = decodedProperties.toAvailability(),
 		properties = decodedProperties.toStringProperties(),
 		propertyValues = decodedProperties.toPropertyBag(),
