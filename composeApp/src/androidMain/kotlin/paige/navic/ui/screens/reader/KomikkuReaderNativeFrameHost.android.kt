@@ -1917,11 +1917,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 		addView(
-			livingPlateOverlay,
+			playLikeCurlController.inlineRasterShieldView,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
+		// Above the raster shield: a plate coming back is up while the shield still stands in for
+		// the arriving page, which draws it grey. Below the curl, which carries its own recording.
 		addView(
-			playLikeCurlController.inlineRasterShieldView,
+			livingPlateOverlay,
 			LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 		)
 		addView(

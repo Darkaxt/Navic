@@ -40,6 +40,16 @@ class ReaderLivingPlateRestoreSourceTest {
 	}
 
 	@Test
+	fun rememberedPlatesStandAboveTheRasterShieldAndBelowTheCurl() {
+		val layers = host.substringAfter("descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS")
+			.substringBefore("fun hasValidatedRasterPresentation()")
+		val shield = layers.indexOf("playLikeCurlController.inlineRasterShieldView,")
+		val plates = layers.indexOf("livingPlateOverlay,")
+		val curl = layers.indexOf("playLikeCurlController.surfaceView,")
+		kotlin.test.assertTrue(shield in 0 until plates && plates < curl, "shield=$shield plates=$plates curl=$curl")
+	}
+
+	@Test
 	fun curlRecordingsAreKeyedByLogicalPage() {
 		val record = controller.substringAfter("private fun recordLivingPlatesForTurn() {").substringBefore("\n\t}\n")
 		assertContains(record, "stills[readerPlayLikeCurlLogicalPageId(pages.profile, ordinal)] = it")
