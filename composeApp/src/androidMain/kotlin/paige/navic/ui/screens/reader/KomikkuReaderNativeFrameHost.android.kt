@@ -1982,7 +1982,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (livingPlatesEnabled == enabled && livingAdvancedEnabled == advanced) return
 		livingPlatesEnabled = enabled
 		livingAdvancedEnabled = advanced
-		if (enabled) scheduleLivingPlateProbe() else stopLivingPlates()
+		if (enabled) {
+			scheduleLivingPlateProbe()
+		} else {
+			stopLivingPlates()
+			playLikeCurlController.setLivingPlateStills(null)
+		}
 	}
 
 	private fun stopLivingPlates() {
@@ -2030,6 +2035,8 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
 			}
 			livingPlateOverlay.show(livingPlateTargets(webView, raw))
+			// A turn away keeps the plate coloured: the curl draws its colour still on this page.
+			playLikeCurlController.setLivingPlateStills(livingPlateOverlay::renderColourStills)
 		}
 	}
 

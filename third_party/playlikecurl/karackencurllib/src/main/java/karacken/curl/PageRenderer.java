@@ -53,6 +53,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "uniform sampler2D uTexture;\n"
                     + "uniform sampler2D uOverlayTexture;\n"
                     + "uniform float uHasOverlay;\n"
+                    + "uniform sampler2D uPlateTexture;\n"
+                    + "uniform float uHasPlate;\n"
                     + "uniform float uOverlayFlow;\n"
                     + "uniform vec4 uOverlayFlowColor;\n"
                     + "uniform float uOverlayFlowHead;\n"
@@ -71,6 +73,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     + "    frontColor = uFillerColor;\n"
                     + "  } else {\n"
                     + "    vec4 base = texture2D(uTexture, vTextureCoordinate);\n"
+                    + "    vec4 plate = texture2D(uPlateTexture, vTextureCoordinate);\n"
+                    + "    base = mix(base, plate + base * (1.0 - plate.a), uHasPlate);\n"
                     + "    vec4 overlay = texture2D(uOverlayTexture, vTextureCoordinate);\n"
                     + "    if (uOverlayFlow > 0.5) {\n"
                     + "      float order = overlay.r / max(overlay.a, 0.001);\n"
@@ -161,6 +165,10 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int textureUniform;
     private int overlayTextureUniform;
     private int hasOverlayUniform;
+    private int plateTextureUniform = -1;
+    private int hasPlateUniform = -1;
+    // GL thread: colour stills of living plates on the active deck's current page(s).
+    private final Map<String, PlateTexture> pagePlates = new LinkedHashMap<>();
     private int overlayFlowUniform;
     private int overlayFlowColorUniform;
     private int overlayFlowHeadUniform;
@@ -563,6 +571,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         clearActiveDeck();
         DisposalFailure failure = new DisposalFailure();
         failure.capture(dynamicPageOverlays::clear);
+        failure.capture(this::clearPagePlates);
         glReady = false;
 
         List<GpuTexture> textures =
@@ -667,6 +676,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         appliedPageOverlayEpoch = dynamicPageOverlayEpoch.get();
         glReady = false;
         dynamicPageOverlays.clear();
+        pagePlates.clear();
         orphanedTextureIds.clear();
         deckUploadPending = false;
         try {
@@ -679,6 +689,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             overlayTextureUniform =
                     GLES20.glGetUniformLocation(program, "uOverlayTexture");
             hasOverlayUniform = GLES20.glGetUniformLocation(program, "uHasOverlay");
+            plateTextureUniform = GLES20.glGetUniformLocation(program, "uPlateTexture");
+            hasPlateUniform = GLES20.glGetUniformLocation(program, "uHasPlate");
             overlayFlowUniform = GLES20.glGetUniformLocation(program, "uOverlayFlow");
             overlayFlowColorUniform =
                     GLES20.glGetUniformLocation(program, "uOverlayFlowColor");
@@ -785,6 +797,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             GLES20.glUseProgram(program);
             GLES20.glUniform1i(textureUniform, 0);
             GLES20.glUniform1i(overlayTextureUniform, 1);
+            if (plateTextureUniform >= 0) {
+                GLES20.glUniform1i(plateTextureUniform, 2);
+            }
 
             if (landscapeSpreadModel != null) {
                 return drawLandscapeSpread();
@@ -818,6 +833,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private void applyActiveDeck(PageDeck<Bitmap> deck) {
         dynamicPageOverlays.clear();
+        clearPagePlates();
         if (deck instanceof PortraitPageDeck) {
             PortraitPageDeck<Bitmap> portrait = (PortraitPageDeck<Bitmap>) deck;
             portraitLeftResource = portrait.getPrevious();
@@ -844,6 +860,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private void clearActiveDeck() {
         dynamicPageOverlays.clear();
+        clearPagePlates();
         portraitModel = null;
         landscapeSpreadModel = null;
         clearPortraitResources();
@@ -1573,6 +1590,9 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         GLES20.glUseProgram(program);
         GLES20.glUniform1i(textureUniform, 0);
         GLES20.glUniform1i(overlayTextureUniform, 1);
+        if (plateTextureUniform >= 0) {
+            GLES20.glUniform1i(plateTextureUniform, 2);
+        }
     }
 
     private void preloadSpreadWindow() {
@@ -1593,6 +1613,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
         GpuTexture baseTexture = texture(resource);
         GpuTexture overlayTexture = overlayTexture(resource);
+        GpuTexture plateTexture = plateTexture(resource);
         if (!resource.isFiller() && baseTexture == null) {
             return false;
         }
@@ -1632,7 +1653,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                     mesh.hinged ? PlayLikeCurlGeometry.hingeFlex(mesh.hingeAngle) : 0f);
             GLES20.glUniform1f(hingeShadeUniform, mesh.hinged ? PlayLikeCurlGeometry.HINGE_SHADE : 0f);
             GLES20.glUniform1f(hingeMirroredUniform, mesh.horizontallyMirrored ? 1f : 0f);
-            drawPageTextures(resource, baseTexture, overlayTexture, reverseMaterialMix);
+            drawPageTextures(resource, baseTexture, overlayTexture, plateTexture, reverseMaterialMix);
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mesh.positionBufferId);
             GLES20.glEnableVertexAttribArray(positionAttribute);
             GLES20.glVertexAttribPointer(positionAttribute, 3, GLES20.GL_FLOAT, false, 0, 0);
@@ -1659,6 +1680,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageImage<Bitmap> resource,
             GpuTexture baseTexture,
             GpuTexture overlayTexture,
+            GpuTexture plateTexture,
             float reverseMaterialMix) {
         int reverseColor = resource.getMaterial().getReversePaperColorArgb();
         GLES20.glUniform4f(
@@ -1677,6 +1699,13 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 GLES20.GL_TEXTURE_2D,
                 overlayTexture == null ? 0 : overlayTexture.textureId);
         GLES20.glUniform1f(hasOverlayUniform, overlayTexture == null ? 0f : 1f);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2);
+        GLES20.glBindTexture(
+                GLES20.GL_TEXTURE_2D,
+                plateTexture == null ? 0 : plateTexture.textureId);
+        if (hasPlateUniform >= 0) {
+            GLES20.glUniform1f(hasPlateUniform, plateTexture == null ? 0f : 1f);
+        }
         applyOverlayFlow(overlayTexture);
         if (resource.isFiller()) {
             int color = resource.getFillerColorArgb();
@@ -1743,6 +1772,60 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         return texture != null && texture.uploaded ? texture : null;
     }
 
+    /**
+     * GL thread: replaces the colour stills of living plates drawn over the current page(s) of the
+     * deck {@code generationId}, keyed by page ordinal. Stills may be smaller than the page; they are
+     * sampled through the same coordinates. They are dropped whenever another deck becomes active,
+     * so only the page being left carries one through a turn. The bitmaps are recycled here.
+     */
+    void replacePagePlates(long generationId, Map<Integer, Bitmap> plates) {
+        try {
+            if (disposed
+                    || activeDeck == null
+                    || activeDeck.getGenerationId() != generationId
+                    || !glReady
+                    || !glContextCurrent()) {
+                return;
+            }
+            clearPagePlates();
+            for (Map.Entry<Integer, Bitmap> entry : plates.entrySet()) {
+                PageImage<Bitmap> page = currentPage(entry.getKey());
+                Bitmap bitmap = entry.getValue();
+                if (page == null || page.isFiller() || bitmap == null || bitmap.isRecycled()) {
+                    continue;
+                }
+                PlateTexture texture = new PlateTexture(page);
+                try {
+                    texture.upload(bitmap);
+                    pagePlates.put(page.identityKey(), texture);
+                } catch (RuntimeException failure) {
+                    texture.deleteGl();
+                }
+            }
+        } finally {
+            for (Bitmap bitmap : plates.values()) {
+                if (bitmap != null && !bitmap.isRecycled()) {
+                    bitmap.recycle();
+                }
+            }
+        }
+    }
+
+    private void clearPagePlates() {
+        for (PlateTexture texture : pagePlates.values()) {
+            texture.deleteGl();
+        }
+        pagePlates.clear();
+    }
+
+    private GpuTexture plateTexture(PageImage<Bitmap> page) {
+        if (page == null || page.isFiller() || pagePlates.isEmpty()) {
+            return null;
+        }
+        PlateTexture texture = pagePlates.get(page.identityKey());
+        return texture != null && texture.uploaded ? texture : null;
+    }
+
     private GpuTexture overlayTexture(PageImage<Bitmap> page) {
         if (page == null || page.isFiller()) {
             return null;
@@ -1803,6 +1886,43 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             Throwable cause) {
         events.onRenderFailure(
                 new RenderFailure(generationId, recoverable, reason, message, cause));
+    }
+
+    /** A living plate's colour still for one current page, uploaded once and never re-read. */
+    private final class PlateTexture extends GpuTexture {
+        PlateTexture(PageImage<Bitmap> page) {
+            super(page, false);
+        }
+
+        void upload(Bitmap bitmap) {
+            int[] ids = new int[1];
+            GLES20.glGenTextures(1, ids, 0);
+            textureId = ids[0];
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(
+                    GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
+            int error = GLES20.glGetError();
+            if (error != GLES20.GL_NO_ERROR) {
+                deleteGl();
+                throw new IllegalStateException(
+                        "Plate texture upload failed with GLES error " + error);
+            }
+            uploaded = true;
+        }
+
+        @Override
+        void ensureUploaded() {
+            if (!uploaded) {
+                throw new IllegalStateException("Plate textures are uploaded on replacement");
+            }
+        }
     }
 
     private final class DynamicPageOverlayTexture extends GpuTexture {

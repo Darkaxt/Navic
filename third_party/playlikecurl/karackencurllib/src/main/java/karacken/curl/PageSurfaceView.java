@@ -19,8 +19,10 @@ import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -581,6 +583,27 @@ public class PageSurfaceView extends GLSurfaceView {
         }
         requestRender();
         return PageOverlayUpdateResult.ACCEPTED;
+    }
+
+    /**
+     * Replaces the colour stills of living plates drawn over the current page(s) of deck
+     * {@code generationId}, keyed by page ordinal; an empty map removes them. Bitmap ownership
+     * passes to the renderer. The renderer drops the stills when another deck becomes active, so
+     * a turn carries the leaving page's still while arriving pages keep their own rasters.
+     */
+    public void replacePagePlates(long generationId, Map<Integer, Bitmap> plates) {
+        requireMainThread();
+        Map<Integer, Bitmap> owned = new LinkedHashMap<>(plates);
+        if (disposed) {
+            for (Bitmap bitmap : owned.values()) {
+                if (bitmap != null && !bitmap.isRecycled()) {
+                    bitmap.recycle();
+                }
+            }
+            return;
+        }
+        queueEvent(() -> renderer.replacePagePlates(generationId, owned));
+        requestRender();
     }
 
     /**

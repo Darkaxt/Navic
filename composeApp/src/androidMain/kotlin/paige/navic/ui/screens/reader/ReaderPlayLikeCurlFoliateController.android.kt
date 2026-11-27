@@ -1182,6 +1182,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 					publishPreparedActiveDeck()
 					requestInitialLivePresentationAuthority(generationId)
 					publishLatestWhispersyncOverlayIfIdle()
+					publishLivingPlateStills()
 				} else if (
 					generationId == pendingDeckGenerationId &&
 					role == ReaderDeckSubmissionRole.Pending
@@ -5125,6 +5126,65 @@ internal class ReaderPlayLikeCurlFoliateController(
 				}
 			}
 		}
+	}
+
+	/** Draws the colour stills of the living plates in a window region; see [ReaderLivingPlateOverlay]. */
+	private var livingPlateStills: ((android.graphics.Rect, Int, Int) -> Bitmap?)? = null
+
+	/**
+	 * The living plates now coloured on screen are drawn in colour onto the current page(s) of the
+	 * curl, so a turn leaves a plate coloured instead of snapping to the raster's grey. Arriving
+	 * pages keep their grey rasters and colour in again; the renderer drops the stills with the
+	 * deck. Null removes them (living plates turned off).
+	 */
+	fun setLivingPlateStills(renderer: ((android.graphics.Rect, Int, Int) -> Bitmap?)?) {
+		livingPlateStills = renderer
+		if (renderer == null) {
+			val generationId = activeDeckGenerationId ?: return
+			if (!destroyed) surfaceView.replacePagePlates(generationId, emptyMap())
+			return
+		}
+		publishLivingPlateStills()
+	}
+
+	private fun publishLivingPlateStills() {
+		val renderer = livingPlateStills ?: return
+		if (destroyed || !enabled || !attached) return
+		// The stills already on the turning page stay; a deck change drops them.
+		if (activeGestureId != null || surfaceView.isSettlementRunning) return
+		val generationId = activeDeckGenerationId ?: return
+		val pages = activePages ?: return
+		val ordinals = when (pages.profile.orientation) {
+			ReaderPlayLikeCurlOrientation.Portrait -> listOf(currentOrdinal)
+			ReaderPlayLikeCurlOrientation.Landscape -> readerPlayLikeCurlVisualSpreadWindow(
+				currentOrdinal = currentOrdinal,
+				pageCount = pages.profile.pageCount,
+				readerDirection = pages.profile.readerDirection
+			).current.let { listOf(it.physicalLeftOrdinal, it.physicalRightOrdinal).distinct() }
+		}
+		val location = IntArray(2).also(host::getLocationInWindow)
+		val stills = LinkedHashMap<Int, Bitmap>()
+		for (ordinal in ordinals) {
+			val image = pages.deck.value(ordinal) ?: continue
+			val rect = runCatching { image.layout.displayRectInHost(image.leaf) }.getOrNull() ?: continue
+			val region = android.graphics.Rect(
+				rect.leftPx + location[0],
+				rect.topPx + location[1],
+				rect.rightPx + location[0],
+				rect.bottomPx + location[1]
+			)
+			// Half the raster's resolution: the still is sampled through the page's coordinates.
+			val width = (image.bitmap.width / 2).coerceAtLeast(1)
+			val height = (image.bitmap.height / 2).coerceAtLeast(1)
+			renderer(region, width, height)?.let { stills[ordinal] = it }
+		}
+		// Nothing to draw (the overlay was just cleared by a turn): keep what the page carries.
+		if (stills.isEmpty()) return
+		surfaceView.replacePagePlates(generationId, stills)
+		Logger.i(
+			ReaderPlayLikeCurlFoliateControllerTag,
+			"living-plate stills published generation=$generationId pages=${stills.keys.joinToString(",")}"
+		)
 	}
 
 	private fun publishLatestWhispersyncOverlayIfIdle() {

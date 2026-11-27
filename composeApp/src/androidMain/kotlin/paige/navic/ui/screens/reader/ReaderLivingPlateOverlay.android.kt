@@ -107,6 +107,39 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 		Logger.i(LivingPlateTag, "living-plates show scenes=${targets.joinToString(",") { it.sceneId + if (it.advanced) "+advanced" else "" }}")
 	}
 
+	/**
+	 * The colour stills of the plates shown that fall in [regionInWindow], with their soft edges,
+	 * scaled into a new transparent [width]x[height] bitmap; null when none does. The curl draws
+	 * them on the page being left, so a turn keeps the plate coloured.
+	 */
+	fun renderColourStills(regionInWindow: Rect, width: Int, height: Int): Bitmap? {
+		if (visibility != VISIBLE || childCount == 0 || regionInWindow.isEmpty || width <= 0 || height <= 0) return null
+		val origin = IntArray(2).also(::getLocationInWindow)
+		val scaleX = width / regionInWindow.width().toFloat()
+		val scaleY = height / regionInWindow.height().toFloat()
+		var still: Bitmap? = null
+		var canvas: Canvas? = null
+		var drawn = false
+		for (index in 0 until childCount) {
+			val plate = getChildAt(index) as? LivingPlateView ?: continue
+			val bounds = Rect(plate.target.bounds).apply { offset(origin[0], origin[1]) }
+			if (!Rect.intersects(bounds, regionInWindow)) continue
+			val target = canvas ?: Canvas(
+				Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { still = it }
+			).also { canvas = it }
+			val save = target.save()
+			target.scale(scaleX, scaleY)
+			target.translate((bounds.left - regionInWindow.left).toFloat(), (bounds.top - regionInWindow.top).toFloat())
+			drawn = plate.drawColourStill(target) || drawn
+			target.restoreToCount(save)
+		}
+		if (!drawn) {
+			still?.recycle()
+			return null
+		}
+		return still
+	}
+
 	/** Stops and removes every plate immediately (page turn, curl, pause, detach). */
 	fun clear() {
 		shownKey = null
@@ -124,7 +157,7 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 
 private class LivingPlateView(
 	context: Context,
-	private val target: ReaderLivingPlateTarget,
+	val target: ReaderLivingPlateTarget,
 	private val tuning: LivingPlateInkTuning
 ) : FrameLayout(context), TextureView.SurfaceTextureListener {
 	private val textureView = TextureView(context).also { it.alpha = 0f }
@@ -264,6 +297,23 @@ private class LivingPlateView(
 		canvas.restoreToCount(save)
 	}
 
+	/** The plate in full colour with its soft edges, at its own size; false before it decodes. */
+	fun drawColourStill(canvas: Canvas): Boolean {
+		val image = revealView.colourImage ?: return false
+		val w = target.bounds.width().toFloat()
+		val h = target.bounds.height().toFloat()
+		if (w <= 0f || h <= 0f) return false
+		val save = canvas.saveLayer(0f, 0f, w, h, null)
+		canvas.drawBitmap(image, null, RectF(0f, 0f, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
+		val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
+		mask.shader = edgeGradient(0f, 0f, w, 0f)
+		canvas.drawRect(0f, 0f, w, h, mask)
+		mask.shader = edgeGradient(0f, 0f, 0f, h)
+		canvas.drawRect(0f, 0f, w, h, mask)
+		canvas.restoreToCount(save)
+		return true
+	}
+
 	private fun edgeGradient(x0: Float, y0: Float, x1: Float, y1: Float): Shader =
 		LinearGradient(
 			x0, y0, x1, y1,
@@ -302,6 +352,7 @@ private class LivingPlateView(
  */
 private class RevealView(context: Context) : View(context) {
 	private var colour: Bitmap? = null
+	val colourImage: Bitmap? get() = colour?.takeUnless(Bitmap::isRecycled)
 	private var inkValues: FloatArray? = null
 	private var inkEdge = 0.025f
 	private var mask: Bitmap? = null
