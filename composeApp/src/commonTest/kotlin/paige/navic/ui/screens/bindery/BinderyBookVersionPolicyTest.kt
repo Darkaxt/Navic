@@ -1370,6 +1370,30 @@ class BinderyBookVersionPolicyTest {
 	}
 
 	@Test
+	fun ebookVersionRowsCarryTheirFileCover() {
+		val manifest = BinderyManifest(id = "urn:bindery:book:3733", title = "Tom Bombadil")
+		fun epub(name: String, properties: Map<String, String>) = BinderyBookResource(
+			href = "/opds/books/3733/resources/$name",
+			title = name,
+			type = "application/epub+zip",
+			kind = "ebook",
+			properties = properties
+		)
+		val resources = BinderyResourceCatalog(
+			title = "Resources",
+			resources = listOf(
+				epub("833", mapOf("format" to "epub", "bookFileId" to "833", "coverHref" to "/api/v1/book/3733/file/cover?bookFileId=833&v=6443cdaa5e1b")),
+				epub("837", mapOf("format" to "epub", "bookFileId" to "837"))
+			)
+		)
+
+		val rows = binderyBookVersionRows(manifest, resources).associateBy { it.ebookBookFileId }
+
+		assertEquals("/api/v1/book/3733/file/cover?bookFileId=833&v=6443cdaa5e1b", rows["833"]?.coverHref)
+		assertEquals(null, rows["837"]?.coverHref)
+	}
+
+	@Test
 	fun ebookVersionRowsCarryBinderyFullscreenCoverRenditionToReaderRoutes() {
 		val manifest = BinderyManifest(
 			id = "urn:bindery:book:3816",

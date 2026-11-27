@@ -92,7 +92,9 @@ data class BinderyBookVersionRow(
 	val fullscreenCoverVariants: List<BinderyFullscreenCoverVariant> = emptyList(),
 	val syncMatches: List<BinderyWhispersyncMatch> = emptyList(),
 	/** Normalized edition language (e.g. "eng"), when Bindery reports one. */
-	val language: String? = null
+	val language: String? = null,
+	/** This file's own cover (content-versioned); null when it has none worth showing. */
+	val coverHref: String? = null
 )
 
 data class BinderyFullscreenCoverVariant(
@@ -657,7 +659,8 @@ private fun BinderyBookResource.toEbookVersionRow(
 		finding = bookFileId()?.let(findingByBookFileId::get),
 		ebookBookFileId = bookFileId(),
 		fullscreenCoverHref = propertyValues.expandedCoverObjectHref(),
-		language = properties.firstNonBlankValue("language")?.normalizedBinderyAvailabilityLanguage()
+		language = properties.firstNonBlankValue("language")?.normalizedBinderyAvailabilityLanguage(),
+		coverHref = properties.firstNonBlankValue("coverHref", "coverUrl")
 	)
 }
 

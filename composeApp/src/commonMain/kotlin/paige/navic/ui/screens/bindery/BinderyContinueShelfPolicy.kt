@@ -227,7 +227,8 @@ fun binderyContinueReadingItems(
 					row.title.trim().takeIf { it.isNotEmpty() && it != manifest.title },
 					progress.progressPercentLabel()
 				).joinToString(separator = " / ").takeIf { it.isNotBlank() },
-				imageHref = manifest.firstImageHref(),
+				// The edition being read shows its own cover; the book's cover when it has none.
+				imageHref = row.coverHref ?: manifest.firstImageHref(),
 				updatedAtMs = progress.updatedAtSortValue(index),
 				row = row,
 				ebookDestination = destination,
