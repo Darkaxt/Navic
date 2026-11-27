@@ -73,6 +73,29 @@ class ReaderIllustrationsTest {
 	}
 
 	@Test
+	fun documentFiguresKeepTheirReplacedBlockRange() {
+		val figure = { id: String, start: Int, end: String -> placement(id, shaB, position = ReaderIllustrationPositionFigureReplacesBlocks, ebookStart = start).dropLast(1) + end + "}" }
+		val index = decodeReaderIllustrationIndex(
+			indexJson(
+				figure("note", 2588, ""","endBlock":2667,"ebookEnd":2684"""),
+				figure("no-end", 2588, ""),
+				figure("backwards", 2588, ""","endBlock":2500,"ebookEnd":2684"""),
+				figure("empty", 2588, ""","endBlock":2667,"ebookEnd":2667""")
+			),
+			expectedBookId = 7,
+			expectedEbookBookFileId = 11
+		)
+
+		assertEquals(listOf("note"), index.placements.map { it.sceneId })
+		assertEquals(3, index.rejectedPlacementCount)
+		val note = index.placements.single()
+		assertEquals(ReaderIllustrationPositionFigureReplacesBlocks, note.position)
+		assertEquals(2588, note.ebookStart)
+		assertEquals(2667, note.endBlock)
+		assertEquals(2684, note.ebookEnd)
+	}
+
+	@Test
 	fun indexRejectsUnknownSchemaAndOtherFiles() {
 		assertFailsWith<IllegalArgumentException> {
 			decodeReaderIllustrationIndex(

@@ -61,8 +61,9 @@ class ReaderLivingPlateRestoreSourceTest {
 	fun livePageCheckMasksLivingPlates() {
 		// A returning page's curl recording is coloured where its raster draws the plate grey.
 		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
-		assertContains(runtime, "...readerLivingPlateCaptureMaskRects(),")
-		assertContains(runtime, "JSON.parse(window.NavicReaderBridge.livingPlateRects())")
+		val bridge = readerAssetRoot().resolve("navic-reader-illustration-bridge.js").readText()
+		assertContains(runtime, "...readerIllustrationCaptureMaskRects(runtime),")
+		assertContains(bridge, "JSON.parse(readerLivingPlateRectsJson(runtime))")
 	}
 
 	@Test

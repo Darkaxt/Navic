@@ -13,6 +13,11 @@ const val ReaderIllustrationIndexSchema = "bindery.illustrations.index.v1"
 const val ReaderIllustrationPositionPlateBeforeChapter = "plate-before-chapter"
 /** A full-page plate before the block (paragraph, heading) containing `ebookStart`, mid-chapter. */
 const val ReaderIllustrationPositionPlateBeforeBlock = "plate-before-block"
+/**
+ * A small drawing of an in-story document (note, letter, sign) shown instead of the blocks from the
+ * one holding `ebookStart` to the one holding `endBlock` (Darkaxt/Navic#82). Tapping it shows the text.
+ */
+const val ReaderIllustrationPositionFigureReplacesBlocks = "figure-replaces-blocks"
 
 private const val ReaderIllustrationIndexTag = "ReaderIllustrationIndex"
 private const val ReaderIllustrationExtractor = "bindery-epub-text"
@@ -47,9 +52,13 @@ data class ReaderIllustrationIndexPlacement(
 	val sceneId: String,
 	val spineIndex: Int,
 	val ebookHref: String,
-	/** [ReaderIllustrationPositionPlateBeforeChapter] or [ReaderIllustrationPositionPlateBeforeBlock]. */
+	/** [ReaderIllustrationPositionPlateBeforeChapter], [ReaderIllustrationPositionPlateBeforeBlock] or [ReaderIllustrationPositionFigureReplacesBlocks]. */
 	val position: String,
 	val ebookStart: Int,
+	/** For [ReaderIllustrationPositionFigureReplacesBlocks]: the first letter of the last replaced block. */
+	val endBlock: Int? = null,
+	/** For [ReaderIllustrationPositionFigureReplacesBlocks]: just after the last replaced letter. */
+	val ebookEnd: Int? = null,
 	val width: Int,
 	val height: Int,
 	val imageHref: String?,
@@ -131,8 +140,9 @@ fun decodeBinderyIllustrationReadiness(json: String, expectedBookId: Long): Bind
 /**
  * Decodes and validates bindery.illustrations.index.v1. Unknown schema, another book or file, or an
  * unsupported coordinate basis fail the whole index. A placement that is neither `plate-before-chapter`
- * at `ebookStart` 0 nor `plate-before-block` at a non-negative `ebookStart`, or that has invalid
- * fields, is logged and skipped so it is never misplaced.
+ * at `ebookStart` 0, `plate-before-block` at a non-negative `ebookStart`, nor `figure-replaces-blocks`
+ * with `ebookStart <= endBlock < ebookEnd`, or that has invalid fields, is logged and skipped so it is
+ * never misplaced.
  * [expectedEbookBookFileId] null accepts the index's own file (used for local fixtures).
  */
 fun decodeReaderIllustrationIndex(
@@ -189,8 +199,14 @@ private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement
 	when (position) {
 		ReaderIllustrationPositionPlateBeforeChapter -> if (ebookStart != 0L) return null
 		ReaderIllustrationPositionPlateBeforeBlock -> if (ebookStart !in 0L..Int.MAX_VALUE.toLong()) return null
+		ReaderIllustrationPositionFigureReplacesBlocks -> {
+			val endBlock = long("endBlock") ?: return null
+			val ebookEnd = long("ebookEnd") ?: return null
+			if (ebookStart < 0L || endBlock < ebookStart || ebookEnd <= endBlock || ebookEnd > Int.MAX_VALUE.toLong()) return null
+		}
 		else -> return null
 	}
+	val figure = position == ReaderIllustrationPositionFigureReplacesBlocks
 	val sha256 = string("sha256")?.takeIf(String::isReaderIllustrationSha256) ?: return null
 	val spineIndex = long("spineIndex")?.takeIf { it in 0L..Int.MAX_VALUE.toLong() } ?: return null
 	val width = long("width")?.takeIf { it in 1L..Int.MAX_VALUE.toLong() } ?: return null
@@ -201,6 +217,8 @@ private fun JsonObject.decodePlacementOrNull(): ReaderIllustrationIndexPlacement
 		ebookHref = string("ebookHref")?.takeIf { it.isNotBlank() } ?: return null,
 		position = position,
 		ebookStart = ebookStart.toInt(),
+		endBlock = if (figure) long("endBlock")?.toInt() else null,
+		ebookEnd = if (figure) long("ebookEnd")?.toInt() else null,
 		width = width.toInt(),
 		height = height.toInt(),
 		imageHref = string("imageHref"),

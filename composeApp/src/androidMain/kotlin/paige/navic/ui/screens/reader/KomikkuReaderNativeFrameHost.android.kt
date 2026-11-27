@@ -1229,6 +1229,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			size > LivingPlatePageMemoryLimit
 	}
 	private val livingPlateProbe = Runnable { probeLivingPlates() }
+	/** #82: the document figures on the settled page, in this view's pixels, for the tap that shows their text. */
+	private var documentFigureTargets: List<Pair<String, android.graphics.Rect>> = emptyList()
+	private var documentFigureRevealed = false
 	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 	private val readablePageDragSlopPx = ViewConfiguration.get(context).scaledPagingTouchSlop.toFloat()
@@ -2041,13 +2044,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	/** A page settles: probe for plates once the curl surface and any raster shield are gone. */
 	private fun scheduleLivingPlateProbe() {
 		stopLivingPlates()
-		if (!livingPlatesEnabled) return
+		closeDocumentFigures()
 		livingPlateProbeAttempts = 0
 		postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
 	}
 
 	private fun probeLivingPlates() {
-		if (!livingPlatesEnabled || livingPlatesCovered || !isAttachedToWindow || windowVisibility != VISIBLE || shellCoverVisible) return
+		if (livingPlatesCovered || !isAttachedToWindow || windowVisibility != VISIBLE || shellCoverVisible) return
 		val curlVisible = playLikeCurlController.surfaceView.alpha != 0f
 		if (curlVisible || playLikeCurlController.ownsInlineRasterShieldPresentation) {
 			if (++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
@@ -2062,7 +2065,9 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		webView.evaluateJavascript(
 			"(window.NavicReaderBridge && NavicReaderBridge.livingPlateRects) ? NavicReaderBridge.livingPlateRects() : ''"
 		) { raw ->
-			if (!livingPlatesEnabled || probedPage != pageTurnVisualPageIndex || !webView.isAttachedToWindow) return@evaluateJavascript
+			if (probedPage != pageTurnVisualPageIndex || !webView.isAttachedToWindow) return@evaluateJavascript
+			documentFigureTargets = parseDocumentFigureTargets(webView, raw)
+			if (!livingPlatesEnabled) return@evaluateJavascript
 			// A plate on screen still decoding: look again rather than leave it static.
 			if (livingPlateProbePending(raw) && ++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
 				postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
@@ -2073,6 +2078,58 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			// A turn away carries the plate on: its touch records the plate as drawn onto this page.
 			playLikeCurlController.setLivingPlateStills(livingPlateOverlay::renderCurrentPlates)
 		}
+	}
+
+	private fun parseDocumentFigureTargets(webView: WebView, raw: String?): List<Pair<String, android.graphics.Rect>> = runCatching {
+		val json = org.json.JSONTokener(raw ?: return emptyList()).nextValue() as? String ?: return emptyList()
+		if (json.isBlank()) return emptyList()
+		val root = org.json.JSONObject(json)
+		val figures = root.optJSONArray("figures") ?: return emptyList()
+		val dpr = root.optDouble("dpr", 1.0).toFloat().takeIf { it > 0f } ?: 1f
+		val webLocation = IntArray(2).also(webView::getLocationInWindow)
+		val ownLocation = IntArray(2).also(this::getLocationInWindow)
+		val offsetX = webLocation[0] - ownLocation[0]
+		val offsetY = webLocation[1] - ownLocation[1]
+		(0 until figures.length()).mapNotNull { index ->
+			val figure = figures.optJSONObject(index) ?: return@mapNotNull null
+			val sceneId = figure.optString("sceneId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+			val left = offsetX + (figure.optDouble("left") * dpr).roundToInt()
+			val top = offsetY + (figure.optDouble("top") * dpr).roundToInt()
+			sceneId to android.graphics.Rect(
+				left,
+				top,
+				left + (figure.optDouble("width") * dpr).roundToInt(),
+				top + (figure.optDouble("height") * dpr).roundToInt()
+			)
+		}
+	}.getOrDefault(emptyList())
+
+	/** #82: a tap on a document figure shows the text it replaces, or brings the figure back, instead of turning. */
+	private fun toggleDocumentFigureAt(x: Float, y: Float): Boolean {
+		if (shellCoverVisible || chromeOverlayVisible) return false
+		val sceneId = documentFigureTargets
+			.firstOrNull { (_, bounds) -> bounds.contains(x.roundToInt(), y.roundToInt()) }
+			?.first ?: return false
+		val webView = viewerContentContainer.findDescendantWebView() ?: return false
+		documentFigureRevealed = true
+		webView.evaluateJavascript(
+			"(window.NavicReaderBridge && NavicReaderBridge.toggleDocumentFigure) ? " +
+				"NavicReaderBridge.toggleDocumentFigure(${org.json.JSONObject.quote(sceneId)}) : false",
+			null
+		)
+		Logger.i(KomikkuReaderNativeFrameHostTag, "Reader document figure toggled scene=$sceneId")
+		return true
+	}
+
+	/** Any page movement brings document figures back, so the live page matches its rasters again. */
+	private fun closeDocumentFigures() {
+		documentFigureTargets = emptyList()
+		if (!documentFigureRevealed) return
+		documentFigureRevealed = false
+		viewerContentContainer.findDescendantWebView()?.evaluateJavascript(
+			"(window.NavicReaderBridge && NavicReaderBridge.closeDocumentFigures) ? NavicReaderBridge.closeDocumentFigures() : 0",
+			null
+		)
 	}
 
 	private fun livingPlateProbePending(raw: String?): Boolean = runCatching {
@@ -2847,6 +2904,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun onLegacySingleTapConfirmed(event: MotionEvent): Boolean {
 		if (width <= 0 || height <= 0) return false
+		if (toggleDocumentFigureAt(event.x, event.y)) return true
 		val point = KomikkuPoint(
 			x = (event.x / width.toFloat()).coerceIn(0f, 1f),
 			y = (event.y / height.toFloat()).coerceIn(0f, 1f)
@@ -2884,6 +2942,13 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 				ReaderPageGestureTerminalOutcome.CancelledByUser
 			)
 			return false
+		}
+		if (toggleDocumentFigureAt(tap.x, tap.y)) {
+			completeHostDelayedTap(
+				tap.gestureId,
+				ReaderPageGestureTerminalOutcome.CompletedTapAction
+			)
+			return true
 		}
 		val point = KomikkuPoint(
 			x = (tap.x / width.toFloat()).coerceIn(0f, 1f),

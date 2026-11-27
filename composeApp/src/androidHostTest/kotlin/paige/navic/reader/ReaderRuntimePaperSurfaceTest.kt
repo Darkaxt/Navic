@@ -596,7 +596,7 @@ class ReaderRuntimePaperSurfaceTest {
 		assertContains(paragraphSpacing, "const spacing = readerParagraphSpacingEm(settings)")
 		assertContains(paragraphSpacing, "doc?.querySelectorAll?.('p,[data-navic-paragraph-block=\"true\"]')")
 		assertContains(paragraphSpacing, "const blocks = Array.from")
-		assertContains(paragraphSpacing, "'display': 'block'")
+		assertContains(paragraphSpacing, "'display': element.hasAttribute('data-navic-figure-hidden') ? 'none' : 'block',")
 		assertContains(paragraphSpacing, "'margin-block-end': spacing")
 		assertContains(paragraphSpacing, "'margin-block-start': '0'")
 		assertContains(paragraphSpacing, "'padding-block-end': '0'")

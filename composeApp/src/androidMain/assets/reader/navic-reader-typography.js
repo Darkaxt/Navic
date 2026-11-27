@@ -384,7 +384,9 @@ export const applyReaderParagraphSpacing = (doc, settings) => {
   const blocks = Array.from(doc?.querySelectorAll?.('p,[data-navic-paragraph-block="true"]') || [])
   for (const element of blocks) {
     setStylesImportant(element, {
-      'display': 'block',
+      // #82: a block a document figure replaces stays hidden; this inline !important would
+      // otherwise outrank the stylesheet rule that hides it.
+      'display': element.hasAttribute('data-navic-figure-hidden') ? 'none' : 'block',
       'margin-block-start': '0',
       'margin-block-end': spacing,
       'margin-top': '0',

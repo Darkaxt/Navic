@@ -162,6 +162,7 @@ internal fun readerIllustrationSet(
 				ebookHref = placement.ebookHref,
 				position = placement.position,
 				ebookStart = placement.ebookStart,
+				endBlock = placement.endBlock,
 				width = placement.width,
 				height = placement.height,
 				imageUrl = storage.imageUrl(placement.sha256),

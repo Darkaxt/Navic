@@ -12,6 +12,8 @@ data class ReaderIllustrationPlacement(
 	val ebookHref: String,
 	val position: String,
 	val ebookStart: Int,
+	/** Document figures (#82): the first letter of the last block the figure replaces. */
+	val endBlock: Int? = null,
 	val width: Int,
 	val height: Int,
 	/** WebView URL of the local image, e.g. https://appassets.androidplatform.net/reader-cache/... */

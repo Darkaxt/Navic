@@ -153,6 +153,12 @@ import {
   tocLabel
 } from './navic-reader-helpers.js'
 import { NavicReaderPageTurnMethods } from './navic-reader-page-turns.js'
+import {
+  readerCloseDocumentFigures,
+  readerIllustrationCaptureMaskRects,
+  readerLivingPlateRectsJson,
+  readerToggleDocumentFigure,
+} from './navic-reader-illustration-bridge.js'
 import { NavicReaderAlternateLayoutMethods } from './navic-reader-alternate-layout.js'
 import { NavicReaderPageTurnPreviewMethods } from './navic-reader-page-turn-preview.js'
 import { NavicReaderContentInteractionMethods } from './navic-reader-content-interactions.js'
@@ -1520,15 +1526,6 @@ Object.assign(NavicReaderRuntime.prototype,
 const runtime = new NavicReaderRuntime()
 const acknowledgedCommandIds = new Set()
 
-const readerLivingPlateCaptureMaskRects = () => {
-  try {
-    const { plates } = JSON.parse(window.NavicReaderBridge.livingPlateRects())
-    return (plates || []).map(({ left, top, width, height }) => ({ left, top, width, height }))
-  } catch {
-    return []
-  }
-}
-
 window.NavicReaderBridge = {
   dispatch: command => {
     const commandId = typeof command?.commandId === 'string' ? command.commandId.trim() : ''
@@ -1573,55 +1570,11 @@ window.NavicReaderBridge = {
   },
   // #77: the illustration plates fully inside the WebView viewport, in CSS px, for the native
   // living-plate overlay. The image box is the contained image itself (readerIllustrationCss).
-  livingPlateRects: () => {
-    const plates = []
-    let pending = false
-    try {
-      const renderer = runtime.view?.renderer
-      const contents = typeof renderer?.getContents === 'function' ? (renderer.getContents() || []) : []
-      const viewportWidth = window.innerWidth
-      const viewportHeight = window.innerHeight
-      for (const content of contents) {
-        const doc = content?.doc
-        const frame = doc?.defaultView?.frameElement
-        if (!doc?.body || !frame?.isConnected) continue
-        const frameRect = frame.getBoundingClientRect()
-        const scaleX = frame.offsetWidth > 0 ? frameRect.width / frame.offsetWidth : 1
-        const scaleY = frame.offsetHeight > 0 ? frameRect.height / frame.offsetHeight : 1
-        for (const image of doc.body.querySelectorAll('img[data-navic-illustration-image]')) {
-          const sceneId = image.parentElement?.getAttribute('data-navic-illustration')
-          const loopSha256 = image.dataset.navicLivingLoop || ''
-          const advancedLoopSha256 = image.dataset.navicLivingAdvanced || ''
-          if (!sceneId || !(loopSha256 || advancedLoopSha256)) continue
-          if (!image.complete) {
-            pending = true
-            continue
-          }
-          const rect = image.getBoundingClientRect()
-          const left = frameRect.left + rect.left * scaleX
-          const top = frameRect.top + rect.top * scaleY
-          const width = rect.width * scaleX
-          const height = rect.height * scaleY
-          if (width < 2 || height < 2) continue
-          if (left < -1 || top < -1 || left + width > viewportWidth + 1 || top + height > viewportHeight + 1) continue
-          plates.push({
-            sceneId,
-            sha256: image.dataset.navicSha256 || '',
-            loopSha256,
-            revealSha256: image.dataset.navicLivingReveal || '',
-            advancedLoopSha256,
-            left,
-            top,
-            width,
-            height,
-          })
-        }
-      }
-    } catch {
-      plates.length = 0
-    }
-    return JSON.stringify({ dpr: window.devicePixelRatio || 1, plates, pending })
-  },
+  livingPlateRects: () => readerLivingPlateRectsJson(runtime),
+  // #82: a tap on a document figure shows the text it replaces; another tap restores it.
+  toggleDocumentFigure: sceneId => readerToggleDocumentFigure(runtime, sceneId),
+  // A page turn brings every document figure back, so the page matches its rasters.
+  closeDocumentFigures: () => readerCloseDocumentFigures(runtime),
   nativePageTurnSettledToken: () => runtime.nativePageTurnSettledToken,
   nativePageTurnSettledState: () => runtime.nativePageTurnSettledState,
   nativePageTurnPendingState: () => runtime.activeExactPageTurnSettlement(),
@@ -1687,12 +1640,10 @@ window.NavicReaderBridge = {
   restorePageTurnLiveComposition: (token, foregroundMutationGeneration) =>
     runtime.restorePageTurnLiveComposition(token, foregroundMutationGeneration),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
-  // The live page-turn check compares the page with its stored raster. Masked: the playing
-  // WordSync highlight, and living plates (#77), whose curl recording carries them in colour
-  // where the page raster draws them grey.
+  // The live page-turn check compares the page with its raster: mask the WordSync highlight and illustrations.
   pageTurnCaptureMaskRects: () => [
     ...readerMediaOverlayPaintedViewportRects(),
-    ...readerLivingPlateCaptureMaskRects(),
+    ...readerIllustrationCaptureMaskRects(runtime),
   ],
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,

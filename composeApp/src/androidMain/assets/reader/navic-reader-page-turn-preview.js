@@ -516,7 +516,7 @@ function pageTurnRasterDescriptor(pageIndex) {
       .map(placement => placement.sceneId)
       .join(','),  // Mirrors readerLivingPlateGreyKey (navic-reader-render-profile.js).
     // Mirrors ReaderContentRenderRevision (navic-reader-render-profile.js).
-    contentRenderRevision: 7,
+    contentRenderRevision: 10,
   }
   return Object.freeze({
     publicationUrl: String(this.publicationUrl || ''),

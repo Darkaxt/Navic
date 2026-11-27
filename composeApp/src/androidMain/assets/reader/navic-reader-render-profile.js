@@ -30,7 +30,7 @@ import {
 
 // Bump when the content render changes pixels for the same settings, so cached rasters retire.
 // Mirrored in pageTurnRasterDescriptor (navic-reader-page-turn-preview.js).
-export const ReaderContentRenderRevision = 7
+export const ReaderContentRenderRevision = 10
 const originalPublicationDirections = new WeakMap()
 const RasterDecorationSelectors = Object.freeze([
   '[data-navic-surface-paper-texture-layer="true"]',
@@ -205,6 +205,15 @@ const positiveInteger = value => Number.isSafeInteger(value) && value > 0
 
 const ReaderIllustrationPositionChapter = 'plate-before-chapter'
 const ReaderIllustrationPositionBlock = 'plate-before-block'
+// Document figures (#82): a small drawing of an in-story note, letter or sign, in place of the
+// blocks that print it. The blocks stay in the DOM (hidden), so WordSync and search offsets hold;
+// a tap overlays their text inside the figure's own box, so the page never reflows.
+const ReaderIllustrationPositionFigure = 'figure-replaces-blocks'
+export const ReaderDocumentFigureAttribute = 'data-navic-document-figure'
+export const ReaderDocumentFigureImageAttribute = 'data-navic-document-figure-image'
+export const ReaderDocumentFigureHiddenAttribute = 'data-navic-figure-hidden'
+export const ReaderDocumentFigureRevealedAttribute = 'data-navic-figure-revealed'
+export const ReaderDocumentFigureTextAttribute = 'data-navic-figure-text'
 export const ReaderIllustrationBlockAttribute = 'data-navic-illustration-block'
 export const ReaderIllustrationSpacerAttribute = 'data-navic-illustration-spacer'
 
@@ -213,6 +222,10 @@ const readerIllustrationPlacementKind = placement => {
   if (position === ReaderIllustrationPositionChapter) return placement.ebookStart === 0 ? position : null
   if (position === ReaderIllustrationPositionBlock) {
     return Number.isSafeInteger(placement.ebookStart) && placement.ebookStart >= 0 ? position : null
+  }
+  if (position === ReaderIllustrationPositionFigure) {
+    return Number.isSafeInteger(placement.ebookStart) && placement.ebookStart >= 0 &&
+      Number.isSafeInteger(placement.endBlock) && placement.endBlock >= placement.ebookStart ? position : null
   }
   return null
 }
@@ -240,7 +253,20 @@ const readerIllustrationPlateHeight = settings => {
   return height > 0 ? `${height}px` : '100vh'
 }
 
+const readerDocumentFigureMatches = (figure, placement) => {
+  const image = figure?.firstElementChild
+  return figure.localName === 'figure' &&
+    figure.getAttribute(ReaderIllustrationAttribute) === placement.sceneId &&
+    figure.hasAttribute(ReaderDocumentFigureAttribute) &&
+    figure.childNodes.length === 1 &&
+    image?.hasAttribute?.(ReaderDocumentFigureImageAttribute) === true &&
+    image.getAttribute('src') === placement.imageUrl
+}
+
 const readerIllustrationPlateMatches = (figure, placement, height) => {
+  if (readerIllustrationPlacementKind(placement) === ReaderIllustrationPositionFigure) {
+    return readerDocumentFigureMatches(figure, placement)
+  }
   const image = figure?.firstElementChild
   return figure.localName === 'figure' &&
     figure.getAttribute(ReaderIllustrationAttribute) === placement.sceneId &&
@@ -305,6 +331,92 @@ const createReaderIllustrationSpacer = (doc, placement, height) => {
   return spacer
 }
 
+// The blocks a document figure replaces: from the block holding ebookStart to the one holding
+// endBlock, lifted to siblings of one parent with only whitespace between them. Anything else
+// (an offset off a word start, a plate in between, stray text) places nothing.
+const readerDocumentFigureBlocks = (doc, placement) => {
+  const first = readerIllustrationAnchorBlock(doc, placement)
+  const last = readerIllustrationAnchorBlock(doc, { ebookStart: placement.endBlock })
+  const body = doc.body
+  if (!first || !last) return null
+  let start = first
+  while (start.parentNode && start.parentNode !== body && !start.parentNode.contains(last)) start = start.parentNode
+  const parent = start.parentNode
+  if (!parent?.contains(last)) return null
+  let end = last
+  while (end.parentNode && end.parentNode !== parent) end = end.parentNode
+  if (end.parentNode !== parent) return null
+  const blocks = []
+  for (let node = start; node; node = node.nextSibling) {
+    if (node.nodeType === 1) {
+      if (node.hasAttribute(ReaderIllustrationAttribute) || node.hasAttribute(ReaderDocumentFigureHiddenAttribute)) return null
+      blocks.push(node)
+    } else if ((node.nodeType === 3 || node.nodeType === 4) && node.textContent.trim() !== '') {
+      return null
+    }
+    if (node === end) return blocks
+  }
+  return null
+}
+
+const createReaderDocumentFigure = (doc, placement) => {
+  const figure = doc.createElement('figure')
+  figure.setAttribute(ReaderIllustrationAttribute, placement.sceneId)
+  figure.setAttribute(ReaderDocumentFigureAttribute, '')
+  figure.setAttribute('aria-hidden', 'true')
+  const image = doc.createElement('img')
+  image.setAttribute(ReaderDocumentFigureImageAttribute, '')
+  image.setAttribute('src', placement.imageUrl)
+  image.setAttribute('width', String(placement.width))
+  image.setAttribute('height', String(placement.height))
+  image.setAttribute('alt', '')
+  image.setAttribute('decoding', 'sync')
+  figure.append(image)
+  return figure
+}
+
+const readerDocumentFigureBySceneId = (doc, sceneId) =>
+  Array.from(doc?.body?.querySelectorAll?.(`figure[${ReaderDocumentFigureAttribute}]`) || [])
+    .find(figure => figure.getAttribute(ReaderIllustrationAttribute) === sceneId) || null
+
+const closeReaderDocumentFigure = figure => {
+  for (const text of Array.from(figure.querySelectorAll(`[${ReaderDocumentFigureTextAttribute}]`))) text.remove()
+  figure.removeAttribute(ReaderDocumentFigureRevealedAttribute)
+}
+
+// A tap on a document figure shows the text it replaces over the figure (copies, so the hidden
+// originals keep their offsets); another tap brings the figure back. Returns whether it changed.
+export const toggleReaderDocumentFigure = (doc, sceneId) => {
+  const figure = readerDocumentFigureBySceneId(doc, sceneId)
+  if (!figure) return false
+  if (figure.hasAttribute(ReaderDocumentFigureRevealedAttribute)) {
+    closeReaderDocumentFigure(figure)
+    return true
+  }
+  const text = doc.createElement('div')
+  text.setAttribute(ReaderDocumentFigureTextAttribute, '')
+  for (let node = figure.nextSibling; node; node = node.nextSibling) {
+    if (node.nodeType !== 1) continue
+    if (!node.hasAttribute(ReaderDocumentFigureHiddenAttribute)) break
+    const copy = node.cloneNode(true)
+    copy.removeAttribute(ReaderDocumentFigureHiddenAttribute)
+    copy.style.removeProperty('display')
+    copy.removeAttribute('id')
+    for (const element of copy.querySelectorAll('[id]')) element.removeAttribute('id')
+    text.append(copy)
+  }
+  if (!text.childNodes.length) return false
+  figure.append(text)
+  figure.setAttribute(ReaderDocumentFigureRevealedAttribute, '')
+  return true
+}
+
+export const closeReaderDocumentFigures = doc => {
+  const revealed = Array.from(doc?.body?.querySelectorAll?.(`figure[${ReaderDocumentFigureRevealedAttribute}]`) || [])
+  for (const figure of revealed) closeReaderDocumentFigure(figure)
+  return revealed.length
+}
+
 // Plates are mapped once against the publication's own text; a re-theme keeps matching plates in
 // place instead of re-mapping (later typography normalisation may restructure paragraphs). A
 // mid-chapter offset that does not land on the start of a word places nothing.
@@ -329,6 +441,9 @@ export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = 
     return figures[0] || null
   }
   for (const element of existing) element.remove()
+  for (const hidden of Array.from(body.querySelectorAll(`[${ReaderDocumentFigureHiddenAttribute}]`))) {
+    hidden.removeAttribute(ReaderDocumentFigureHiddenAttribute)
+  }
   delete body.dataset.navicIllustrationsMapped
   if (!placements.length) return null
   const inserted = []
@@ -336,6 +451,15 @@ export const applyReaderIllustrationPlate = (doc, settings = {}, sectionIndex = 
     if (readerIllustrationPlacementKind(placement) === ReaderIllustrationPositionChapter) {
       const figure = createReaderIllustrationPlate(doc, placement, height, false)
       body.insertBefore(figure, body.firstChild)
+      inserted.push(figure)
+      continue
+    }
+    if (readerIllustrationPlacementKind(placement) === ReaderIllustrationPositionFigure) {
+      const blocks = readerDocumentFigureBlocks(doc, placement)
+      if (!blocks?.length) continue
+      const figure = createReaderDocumentFigure(doc, placement)
+      blocks[0].parentNode.insertBefore(figure, blocks[0])
+      for (const block of blocks) block.setAttribute(ReaderDocumentFigureHiddenAttribute, '')
       inserted.push(figure)
       continue
     }
@@ -434,6 +558,50 @@ export const readerIllustrationCss = () => `
     -webkit-column-break-before: always !important;
   }
   html body [${ReaderIllustrationSpacerAttribute}] {
+    display: none !important;
+  }
+  html body figure${ReaderIllustrationSelector}[${ReaderDocumentFigureAttribute}] {
+    position: relative !important;
+    display: block !important;
+    height: auto !important;
+    margin: 0.8em 0 !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+    -webkit-column-break-after: auto !important;
+  }
+  html body figure${ReaderIllustrationSelector}[${ReaderDocumentFigureAttribute}] > img[${ReaderDocumentFigureImageAttribute}] {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    background: transparent !important;
+    -webkit-mask-image: ${ReaderIllustrationEdgeMask};
+    -webkit-mask-composite: source-in;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-image: ${ReaderIllustrationEdgeMask};
+    mask-composite: intersect;
+    mask-repeat: no-repeat;
+    mask-size: 100% 100%;
+  }
+  html body figure${ReaderIllustrationSelector}[${ReaderDocumentFigureRevealedAttribute}] > img[${ReaderDocumentFigureImageAttribute}] {
+    visibility: hidden !important;
+  }
+  html body figure${ReaderIllustrationSelector}[${ReaderDocumentFigureAttribute}] > [${ReaderDocumentFigureTextAttribute}] {
+    position: absolute !important;
+    inset: 0 !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  html body [${ReaderDocumentFigureHiddenAttribute}] {
     display: none !important;
   }
   html body [${ReaderIllustrationSpacerAttribute}="on"] {

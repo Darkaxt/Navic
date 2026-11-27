@@ -194,12 +194,12 @@ class ReaderIllustrationPlateSourceTest {
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		assertContains(preview, "illustrationsDigest: readerIllustrationsDigest(settings),")
-		assertContains(preview, "contentRenderRevision: 7,")
+		assertContains(preview, "contentRenderRevision: 10,")
 		// Living plates are drawn grey on the page; which ones is part of both raster fingerprints.
 		assertContains(planned, "livingPlateGrey: readerLivingPlateGreyKey(settings),")
 		assertContains(preview, "livingPlateGrey: readerIllustrationPlacements(settings)")
 		assertContains(renderProfile, "[${'$'}{ReaderLivingPlateGreyAttribute}] {\n    filter: grayscale(1) !important;")
-		assertContains(renderProfile, "export const ReaderContentRenderRevision = 7")
+		assertContains(renderProfile, "export const ReaderContentRenderRevision = 10")
 	}
 
 	@Test
@@ -239,5 +239,25 @@ class ReaderIllustrationPlateSourceTest {
 					"${file.name} must pass the section index to the content render profile."
 				)
 			}
+	}
+
+	@Test
+	fun documentFiguresReplaceTheirBlocksWithoutReflowingOnTap() {
+		val apply = renderProfile.substringAfter("export const applyReaderIllustrationPlate").substringBefore("// Mirrored by pageTurnRasterDescriptor")
+		// The replaced blocks stay in the DOM (WordSync offsets hold) and are only hidden.
+		assertContains(apply, "for (const block of blocks) block.setAttribute(ReaderDocumentFigureHiddenAttribute, '')")
+		assertContains(apply, "hidden.removeAttribute(ReaderDocumentFigureHiddenAttribute)")
+		assertContains(renderProfile, "  html body [${'$'}{ReaderDocumentFigureHiddenAttribute}] {")
+		// The paragraph-spacing pass writes display inline with !important, which no stylesheet rule outranks.
+		assertContains(root.resolve("navic-reader-typography.js").readText(), "'display': element.hasAttribute('data-navic-figure-hidden') ? 'none' : 'block',")
+		assertContains(renderProfile, "copy.style.removeProperty('display')")
+		// A tap overlays copies of the text inside the figure's own box: the figure keeps its size.
+		val toggle = renderProfile.substringAfter("export const toggleReaderDocumentFigure").substringBefore("export const closeReaderDocumentFigures")
+		assertContains(toggle, "const copy = node.cloneNode(true)")
+		assertContains(renderProfile, "[${'$'}{ReaderDocumentFigureRevealedAttribute}] > img[${'$'}{ReaderDocumentFigureImageAttribute}] {")
+		val bridge = root.resolve("navic-reader.js").readText() + root.resolve("navic-reader-illustration-bridge.js").readText()
+		assertContains(bridge, "toggleDocumentFigure: sceneId => readerToggleDocumentFigure(runtime, sceneId)")
+		assertContains(bridge, "closeDocumentFigures: () => readerCloseDocumentFigures(runtime)")
+		assertContains(bridge, "const revealed = (figures || []).filter(figure => figure.revealed)")
 	}
 }

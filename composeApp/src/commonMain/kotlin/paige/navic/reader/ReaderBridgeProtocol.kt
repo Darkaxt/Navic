@@ -1653,6 +1653,7 @@ private fun ReaderIllustrationSet.toIllustrationsJsonObject(): JsonObject =
 							put("ebookHref", placement.ebookHref)
 							put("position", placement.position)
 							put("ebookStart", placement.ebookStart)
+							placement.endBlock?.let { put("endBlock", it) }
 							put("width", placement.width)
 							put("height", placement.height)
 							put("imageUrl", placement.imageUrl)
