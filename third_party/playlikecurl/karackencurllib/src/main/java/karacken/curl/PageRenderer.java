@@ -168,6 +168,8 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     private int plateTextureUniform = -1;
     private int hasPlateUniform = -1;
     // GL thread: colour stills of living plates on the active deck's current page(s).
+    /** Pages whose living plate recording is kept for turning back to them. */
+    static final int MAX_PAGE_PLATES = 8;
     private final Map<String, PlateTexture> pagePlates = new LinkedHashMap<>();
     private int overlayFlowUniform;
     private int overlayFlowColorUniform;
@@ -833,7 +835,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private void applyActiveDeck(PageDeck<Bitmap> deck) {
         dynamicPageOverlays.clear();
-        clearPagePlates();
         if (deck instanceof PortraitPageDeck) {
             PortraitPageDeck<Bitmap> portrait = (PortraitPageDeck<Bitmap>) deck;
             portraitLeftResource = portrait.getPrevious();
@@ -860,7 +861,6 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
 
     private void clearActiveDeck() {
         dynamicPageOverlays.clear();
-        clearPagePlates();
         portraitModel = null;
         landscapeSpreadModel = null;
         clearPortraitResources();
@@ -1613,7 +1613,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
         GpuTexture baseTexture = texture(resource);
         GpuTexture overlayTexture = overlayTexture(resource);
-        GpuTexture plateTexture = plateTexture(resource);
+        PlateTexture plateTexture = plateTexture(resource);
         if (!resource.isFiller() && baseTexture == null) {
             return false;
         }
@@ -1680,7 +1680,7 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
             PageImage<Bitmap> resource,
             GpuTexture baseTexture,
             GpuTexture overlayTexture,
-            GpuTexture plateTexture,
+            PlateTexture plateTexture,
             float reverseMaterialMix) {
         int reverseColor = resource.getMaterial().getReversePaperColorArgb();
         GLES20.glUniform4f(
@@ -1773,34 +1773,39 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
     }
 
     /**
-     * GL thread: replaces the colour stills of living plates drawn over the current page(s) of the
-     * deck {@code generationId}, keyed by page ordinal. Stills may be smaller than the page; they are
-     * sampled through the same coordinates. They are dropped whenever another deck becomes active,
-     * so only the page being left carries one through a turn. The bitmaps are recycled here.
+     * GL thread: stores the living plates recorded for pages, keyed by logical page id, so a page
+     * carries its plate as it was left whenever a later deck shows it again (turning back). A newer
+     * recording of a page replaces the older one; the least recently recorded pages beyond
+     * {@link #MAX_PAGE_PLATES} are dropped. Recordings may be smaller than the page; they are
+     * sampled through the same coordinates. The bitmaps are recycled here.
      */
-    void replacePagePlates(long generationId, Map<Integer, Bitmap> plates) {
+    void putPagePlates(Map<String, Bitmap> plates) {
         try {
-            if (disposed
-                    || activeDeck == null
-                    || activeDeck.getGenerationId() != generationId
-                    || !glReady
-                    || !glContextCurrent()) {
+            if (disposed || !glReady || !glContextCurrent()) {
                 return;
             }
-            clearPagePlates();
-            for (Map.Entry<Integer, Bitmap> entry : plates.entrySet()) {
-                PageImage<Bitmap> page = currentPage(entry.getKey());
+            for (Map.Entry<String, Bitmap> entry : plates.entrySet()) {
                 Bitmap bitmap = entry.getValue();
-                if (page == null || page.isFiller() || bitmap == null || bitmap.isRecycled()) {
+                if (entry.getKey() == null || bitmap == null || bitmap.isRecycled()) {
                     continue;
                 }
-                PlateTexture texture = new PlateTexture(page);
+                PlateTexture texture = new PlateTexture();
                 try {
                     texture.upload(bitmap);
-                    pagePlates.put(page.identityKey(), texture);
                 } catch (RuntimeException failure) {
                     texture.deleteGl();
+                    continue;
                 }
+                PlateTexture previous = pagePlates.remove(entry.getKey());
+                if (previous != null) {
+                    previous.deleteGl();
+                }
+                pagePlates.put(entry.getKey(), texture);
+            }
+            Iterator<PlateTexture> oldest = pagePlates.values().iterator();
+            while (pagePlates.size() > MAX_PAGE_PLATES && oldest.hasNext()) {
+                oldest.next().deleteGl();
+                oldest.remove();
             }
         } finally {
             for (Bitmap bitmap : plates.values()) {
@@ -1811,19 +1816,20 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
         }
     }
 
-    private void clearPagePlates() {
+    /** GL thread: forgets every recorded plate (living plates off, layout replaced, disposal). */
+    void clearPagePlates() {
         for (PlateTexture texture : pagePlates.values()) {
             texture.deleteGl();
         }
         pagePlates.clear();
     }
 
-    private GpuTexture plateTexture(PageImage<Bitmap> page) {
+    private PlateTexture plateTexture(PageImage<Bitmap> page) {
         if (page == null || page.isFiller() || pagePlates.isEmpty()) {
             return null;
         }
-        PlateTexture texture = pagePlates.get(page.identityKey());
-        return texture != null && texture.uploaded ? texture : null;
+        PlateTexture texture = pagePlates.get(page.getLogicalPageId());
+        return texture != null && texture.textureId != 0 ? texture : null;
     }
 
     private GpuTexture overlayTexture(PageImage<Bitmap> page) {
@@ -1888,11 +1894,12 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 new RenderFailure(generationId, recoverable, reason, message, cause));
     }
 
-    /** A living plate's colour still for one current page, uploaded once and never re-read. */
-    private final class PlateTexture extends GpuTexture {
-        PlateTexture(PageImage<Bitmap> page) {
-            super(page, false);
-        }
+    /**
+     * A living plate recorded for one page, uploaded once and never re-read. It holds no page, so
+     * a stored recording never keeps an old deck's raster alive.
+     */
+    private final class PlateTexture {
+        int textureId;
 
         void upload(Bitmap bitmap) {
             int[] ids = new int[1];
@@ -1914,14 +1921,19 @@ public final class PageRenderer implements GLSurfaceView.Renderer {
                 throw new IllegalStateException(
                         "Plate texture upload failed with GLES error " + error);
             }
-            uploaded = true;
         }
 
-        @Override
-        void ensureUploaded() {
-            if (!uploaded) {
-                throw new IllegalStateException("Plate textures are uploaded on replacement");
+        void deleteGl() {
+            if (textureId != 0) {
+                if (glContextCurrent()) {
+                    int[] ids = {textureId};
+                    GLES20.glDeleteTextures(1, ids, 0);
+                } else {
+                    noteContextlessGlOperation("delete");
+                    orphanedTextureIds.add(textureId);
+                }
             }
+            textureId = 0;
         }
     }
 

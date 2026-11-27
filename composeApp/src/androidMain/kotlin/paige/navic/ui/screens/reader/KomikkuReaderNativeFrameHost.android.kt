@@ -1223,6 +1223,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 	private var livingPlatesCovered = false
 	private var livingAdvancedEnabled = false
 	private var livingPlateProbeAttempts = 0
+	/** The plates last found on recent pages, so coming back puts them up before the curl lifts. */
+	private val livingPlatePages = object : LinkedHashMap<Int, List<ReaderLivingPlateTarget>>(16, 0.75f, true) {
+		override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, List<ReaderLivingPlateTarget>>?): Boolean =
+			size > LivingPlatePageMemoryLimit
+	}
 	private val livingPlateProbe = Runnable { probeLivingPlates() }
 	private val whispersyncCueMapView = ReaderWhispersyncCueMapNativeView(context)
 	private val touchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -1445,7 +1450,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			onPageTurnBoundary(direction)
 		},
 		onTurnPhase = { phase ->
-			scheduleLivingPlateProbe()
+			// A turn that falls back resumes the halted plates; one that leaves starts over.
+			val resumed = phase == ReaderPageCurlTurnPhase.Abandoned && livingPlatesEnabled &&
+				livingPlateOverlay.resumeHeld()
+			if (!resumed) scheduleLivingPlateProbe()
 			onPageCurlTurnPhase(phase)
 		},
 		onRasterProfileEpochChanged = ::onRasterProfileEpochChanged,
@@ -1767,6 +1775,12 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 	private fun onRasterProfileEpochChanged(epoch: Long?) {
 		clearDestinationDeckPrewarm()
+		if (epoch != rasterProfileEpoch) {
+			// Another layout: where plates sit on pages and the curl's recordings belong to the old
+			// one. The plates' own states stay (they are keyed by image and size).
+			livingPlatePages.clear()
+			playLikeCurlController.forgetLivingPlateRecordings()
+		}
 		rasterProfileEpoch = epoch
 		val activeReadiness = readerPageActivePaginationReadiness(
 			profileAvailable = epoch != null,
@@ -1985,9 +1999,26 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 		if (enabled) {
 			scheduleLivingPlateProbe()
 		} else {
-			stopLivingPlates()
+			forgetLivingPlates()
 			playLikeCurlController.setLivingPlateStills(null)
 		}
+	}
+
+	/** Living plates off or the layout replaced: every plate colours in from grey again. */
+	private fun forgetLivingPlates() {
+		removeCallbacks(livingPlateProbe)
+		livingPlatePages.clear()
+		livingPlateOverlay.forget()
+	}
+
+	/**
+	 * Coming back to a page with plates: they continue under the curl as they were left, so the
+	 * page never shows them grey when it lifts. The probe that follows confirms or replaces them.
+	 */
+	private fun showRememberedLivingPlates(pageIndex: Int?) {
+		if (!livingPlatesEnabled || livingPlatesCovered || pageIndex == null) return
+		val targets = livingPlatePages[pageIndex] ?: return
+		livingPlateOverlay.show(targets)
 	}
 
 	private fun stopLivingPlates() {
@@ -2034,9 +2065,11 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			if (livingPlateProbePending(raw) && ++livingPlateProbeAttempts < LivingPlateProbeAttemptLimit) {
 				postDelayed(livingPlateProbe, LivingPlateSettleDelayMillis)
 			}
-			livingPlateOverlay.show(livingPlateTargets(webView, raw))
-			// A turn away keeps the plate coloured: the curl draws its colour still on this page.
-			playLikeCurlController.setLivingPlateStills(livingPlateOverlay::renderColourStills)
+			val targets = livingPlateTargets(webView, raw)
+			probedPage?.let { page -> if (targets.isEmpty()) livingPlatePages.remove(page) else livingPlatePages[page] = targets }
+			livingPlateOverlay.show(targets)
+			// A turn away carries the plate on: its touch records the plate as drawn onto this page.
+			playLikeCurlController.setLivingPlateStills(livingPlateOverlay::renderCurrentPlates)
 		}
 	}
 
@@ -2324,7 +2357,10 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 			)
 		}
 		val visualLocationBecameKnown = pageTurnVisualPageIndex == null && normalized != null
-		if (pageTurnVisualPageIndex != normalized || sessionChanged) scheduleLivingPlateProbe()
+		if (pageTurnVisualPageIndex != normalized || sessionChanged) {
+			scheduleLivingPlateProbe()
+			if (sessionChanged) livingPlatePages.clear() else showRememberedLivingPlates(normalized)
+		}
 		pageTurnFoliateSessionId = currentFoliateSessionId
 		playLikeCurlController.setFoliateSessionId(currentFoliateSessionId)
 		val origin = if (sessionChanged) {
@@ -3822,6 +3858,7 @@ private class KomikkuReaderNativeViewerContainer(context: Context) :
 
 private const val LivingPlateSettleDelayMillis = 600L
 private const val LivingPlateProbeAttemptLimit = 8
+private const val LivingPlatePageMemoryLimit = 8
 
 private fun View.findDescendantWebView(): WebView? {
 	if (this is WebView) return this

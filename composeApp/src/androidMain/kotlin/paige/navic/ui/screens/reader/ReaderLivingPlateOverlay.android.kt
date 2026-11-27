@@ -17,6 +17,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
+import android.os.Build
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -33,6 +34,10 @@ private const val LivingPlateTag = "ReaderLivingPlates"
 // plate itself) and crossfades in.
 private const val LivingPlateAdvancedDissolveMillis = 900L
 private const val LivingPlateEdgeFadeFraction = 0.07f
+/** A plate coming back to its loop frame meets it with this quick crossfade. */
+private const val LivingPlateRestoreFadeMillis = 150L
+/** Plates whose state is remembered for turning back to them (the curl keeps as many pages). */
+private const val LivingPlateMemoryLimit = 8
 /** The ink mask is computed at half the plate's resolution and scaled up. */
 private const val LivingPlateInkMaskScale = 2
 private val livingPlateInkExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -69,11 +74,19 @@ internal data class ReaderLivingPlateTarget(
  * Living plates (Darkaxt/Navic#77): a native layer drawn over the settled WebView page, below the
  * curl surface and the raster shield, so page captures and the curl never see it. Each plate first
  * shows greyscale, gains its colour as ink spreading from its centre, then crossfades into its muted
- * seamless loop. The page draws the plate grey, so every arrival colours it in again.
+ * seamless loop. Leaving the page halts the plate and remembers it; coming back continues from
+ * there (the ink where it had spread, the loop at its frame), so it never goes back to grey.
  * Edges fade like the CSS plate mask (7% on every side).
  */
 internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context) {
 	private var shownKey: String? = null
+	private val memories = object : LinkedHashMap<String, LivingPlateMemory>(16, 0.75f, true) {
+		override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, LivingPlateMemory>?): Boolean {
+			val drop = size > LivingPlateMemoryLimit
+			if (drop) eldest?.value?.frame?.recycle()
+			return drop
+		}
+	}
 
 	init {
 		isClickable = false
@@ -91,28 +104,41 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 			clear()
 			return
 		}
-		if (key == shownKey && visibility == VISIBLE) return
+		if (key == shownKey && visibility == VISIBLE) {
+			resumeHeld()
+			return
+		}
 		clear()
 		shownKey = key
 		val tuning = livingPlateInkTuning()
+		val restored = ArrayList<String>()
 		for (target in targets) {
-			// Every arrival colours the grey page plate in again before the loop.
-			val plate = LivingPlateView(context, target, tuning)
+			// A plate seen before continues where it was left; a new one colours in from grey.
+			val memory = memories.remove(memoryKey(target))?.let { memory ->
+				if (memory.tuning == tuning) memory else null.also { memory.frame?.recycle() }
+			}
+			if (memory != null) restored += target.sceneId
+			val plate = LivingPlateView(context, target, tuning, memory)
 			addView(plate, LayoutParams(target.bounds.width(), target.bounds.height()).apply {
 				leftMargin = target.bounds.left
 				topMargin = target.bounds.top
 			})
 		}
 		visibility = VISIBLE
-		Logger.i(LivingPlateTag, "living-plates show scenes=${targets.joinToString(",") { it.sceneId + if (it.advanced) "+advanced" else "" }}")
+		Logger.i(
+			LivingPlateTag,
+			"living-plates show scenes=${targets.joinToString(",") { it.sceneId + if (it.advanced) "+advanced" else "" }} " +
+				"restored=${restored.joinToString(",")}"
+		)
 	}
 
 	/**
-	 * The colour stills of the plates shown that fall in [regionInWindow], with their soft edges,
-	 * scaled into a new transparent [width]x[height] bitmap; null when none does. The curl draws
-	 * them on the page being left, so a turn keeps the plate coloured.
+	 * Halts the plates shown that fall in [regionInWindow] and records them exactly as drawn (loop
+	 * frame, ink half spread, soft edges) into a new transparent [width]x[height] bitmap; null when
+	 * none does. The curl draws the recording on the page being left, so a turn carries the plate
+	 * on; a turn that falls back resumes the halted plates from the same state ([resumeHeld]).
 	 */
-	fun renderColourStills(regionInWindow: Rect, width: Int, height: Int): Bitmap? {
+	fun renderCurrentPlates(regionInWindow: Rect, width: Int, height: Int): Bitmap? {
 		if (visibility != VISIBLE || childCount == 0 || regionInWindow.isEmpty || width <= 0 || height <= 0) return null
 		val origin = IntArray(2).also(::getLocationInWindow)
 		val scaleX = width / regionInWindow.width().toFloat()
@@ -130,7 +156,8 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 			val save = target.save()
 			target.scale(scaleX, scaleY)
 			target.translate((bounds.left - regionInWindow.left).toFloat(), (bounds.top - regionInWindow.top).toFloat())
-			drawn = plate.drawColourStill(target) || drawn
+			plate.pause()
+			drawn = plate.drawCurrent(target) || drawn
 			target.restoreToCount(save)
 		}
 		if (!drawn) {
@@ -140,14 +167,35 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 		return still
 	}
 
-	/** Stops and removes every plate immediately (page turn, curl, pause, detach). */
+	/** A turn fell back onto this page: halted plates continue where they stopped. False when none show. */
+	fun resumeHeld(): Boolean {
+		if (childCount == 0 || visibility != VISIBLE) return false
+		for (index in 0 until childCount) (getChildAt(index) as? LivingPlateView)?.resume()
+		return true
+	}
+
+	/** Stops and removes every plate immediately (page turn, curl, pause, detach), remembering each. */
 	fun clear() {
 		shownKey = null
 		if (childCount == 0 && visibility == GONE) return
-		for (index in 0 until childCount) (getChildAt(index) as? LivingPlateView)?.release()
+		for (index in 0 until childCount) {
+			val plate = getChildAt(index) as? LivingPlateView ?: continue
+			plate.memory()?.let { memories.put(memoryKey(plate.target), it)?.frame?.recycle() }
+			plate.release()
+		}
 		removeAllViews()
 		visibility = GONE
 	}
+
+	/** Living plates off or the layout replaced: every plate colours in from grey again. */
+	fun forget() {
+		clear()
+		for (memory in memories.values) memory.frame?.recycle()
+		memories.clear()
+	}
+
+	private fun memoryKey(target: ReaderLivingPlateTarget): String =
+		"${target.imagePath}@${target.bounds.width()}x${target.bounds.height()}:${target.loopPath}"
 
 	override fun onDetachedFromWindow() {
 		clear()
@@ -155,10 +203,24 @@ internal class ReaderLivingPlateOverlay(context: Context) : FrameLayout(context)
 	}
 }
 
+/** Where a plate stood when its page was left, so coming back continues from there. */
+private class LivingPlateMemory(
+	val revealMillis: Long,
+	val revealDone: Boolean,
+	val videoMillis: Int,
+	val ink: FloatArray?,
+	val inkWidth: Int,
+	val inkHeight: Int,
+	val tuning: LivingPlateInkTuning,
+	/** The loop frame on screen (half resolution), shown until the loop is back at it. */
+	val frame: Bitmap?
+)
+
 private class LivingPlateView(
 	context: Context,
 	val target: ReaderLivingPlateTarget,
-	private val tuning: LivingPlateInkTuning
+	private val tuning: LivingPlateInkTuning,
+	memory: LivingPlateMemory?
 ) : FrameLayout(context), TextureView.SurfaceTextureListener {
 	private val textureView = TextureView(context).also { it.alpha = 0f }
 	private val revealView = RevealView(context)
@@ -169,6 +231,10 @@ private class LivingPlateView(
 	private var videoPrepared = false
 	private var revealDone = false
 	private var released = false
+	private var paused = false
+	/** Coming back: the loop resumes at this position, and meets the remembered frame quickly. */
+	private var resumeVideoMillis = 0
+	private var restoredLoop = false
 	private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
 	private var edgeShaders: Pair<Shader, Shader>? = null
 
@@ -183,7 +249,7 @@ private class LivingPlateView(
 		// The ink is generated off the main thread; the plate stays grey until it is ready.
 		val mw = (target.bounds.width() / LivingPlateInkMaskScale).coerceAtLeast(1)
 		val mh = (target.bounds.height() / LivingPlateInkMaskScale).coerceAtLeast(1)
-		livingPlateInkExecutor.execute {
+		if (memory == null || !restore(memory, mw, mh)) livingPlateInkExecutor.execute {
 			val started = System.nanoTime()
 			val field = runCatching { livingPlateInkField(mw, mh, tuning) }
 				.onFailure { Logger.w(LivingPlateTag, "living-plate ink unavailable scene=${target.sceneId}", it) }
@@ -199,7 +265,55 @@ private class LivingPlateView(
 		}
 	}
 
-	private fun startReveal(millis: Long) {
+	/** Continues from [memory]; false (nothing changed) when it cannot, so the plate starts over. */
+	private fun restore(memory: LivingPlateMemory, mw: Int, mh: Int): Boolean {
+		val ink = memory.ink
+		if (revealView.colourImage == null || (ink != null && (memory.inkWidth != mw || memory.inkHeight != mh))) {
+			memory.frame?.recycle()
+			return false
+		}
+		ink?.let { revealView.setInk(it, mw, mh, tuning.edge) }
+		resumeVideoMillis = memory.videoMillis
+		if (memory.revealDone) {
+			revealView.still = memory.frame
+			revealView.progress = 1f
+			revealDone = true
+			restoredLoop = true
+		} else {
+			memory.frame?.recycle()
+			startReveal(tuning.colourMillis.toLong(), memory.revealMillis)
+		}
+		return true
+	}
+
+	/** Where this plate stands now, for coming back to it; null before its colouring begins. */
+	fun memory(): LivingPlateMemory? {
+		if (released || revealView.colourImage == null || (!revealDone && animator == null)) return null
+		val frame = if (revealDone && textureView.alpha > 0f && textureView.isAvailable) {
+			runCatching {
+				textureView.getBitmap(
+					(target.bounds.width() / 2).coerceAtLeast(1),
+					(target.bounds.height() / 2).coerceAtLeast(1)
+				)
+			}.getOrNull()
+		} else {
+			// Left again before the loop came back: the remembered frame is still the right one.
+			revealView.takeStill()
+		}
+		val videoMillis = if (videoPrepared) player?.runCatching { currentPosition }?.getOrNull() ?: 0 else resumeVideoMillis
+		return LivingPlateMemory(
+			revealMillis = animator?.currentPlayTime ?: 0L,
+			revealDone = revealDone,
+			videoMillis = videoMillis,
+			ink = revealView.ink,
+			inkWidth = revealView.inkWidth,
+			inkHeight = revealView.inkHeight,
+			tuning = tuning,
+			frame = frame
+		)
+	}
+
+	private fun startReveal(millis: Long, fromMillis: Long = 0L) {
 		animator = ValueAnimator.ofFloat(0f, 1f).apply {
 			duration = millis
 			interpolator = android.animation.TimeInterpolator { livingPlateInkPace(it, tuning.pace) }
@@ -212,7 +326,24 @@ private class LivingPlateView(
 				}
 			})
 			start()
+			if (fromMillis > 0L) currentPlayTime = fromMillis.coerceAtMost(millis)
+			if (paused) pause()
 		}
+	}
+
+	/** Halts the colouring and the loop where they are (a turn may still fall back). */
+	fun pause() {
+		if (released || paused) return
+		paused = true
+		animator?.pause()
+		player?.runCatching { if (isPlaying) pause() }
+	}
+
+	fun resume() {
+		if (released || !paused) return
+		paused = false
+		animator?.resume()
+		if (revealDone && videoPrepared) player?.runCatching { if (!isPlaying) start() }
 	}
 
 	override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
@@ -227,6 +358,22 @@ private class LivingPlateView(
 				// Prepared during the colouring, held at its first frame until the plate is coloured.
 				setOnPreparedListener {
 					if (released) return@setOnPreparedListener
+					val resumeAt = resumeVideoMillis
+					if (resumeAt > 0) {
+						// Coming back: the loop continues from the frame it was left at.
+						resumeVideoMillis = 0
+						setOnSeekCompleteListener {
+							if (released) return@setOnSeekCompleteListener
+							videoPrepared = true
+							startVideoIfReady()
+						}
+						if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+							seekTo(resumeAt.toLong(), MediaPlayer.SEEK_CLOSEST)
+						} else {
+							seekTo(resumeAt)
+						}
+						return@setOnPreparedListener
+					}
 					videoPrepared = true
 					startVideoIfReady()
 				}
@@ -250,15 +397,19 @@ private class LivingPlateView(
 
 	private fun startVideoIfReady() {
 		val prepared = player ?: return
-		if (released || !videoPrepared || !revealDone || prepared.isPlaying) return
+		if (released || paused || !videoPrepared || !revealDone || prepared.isPlaying) return
 		prepared.start()
 		// Some decoders report rendering start for the held first frame, before start().
 		crossfadeIfReady()
 	}
 
 	private fun crossfadeIfReady() {
-		if (released || !videoStarted || !revealDone) return
-		val fade = if (target.advanced) LivingPlateAdvancedDissolveMillis else tuning.loopFadeMillis.toLong()
+		if (released || !videoStarted || !videoPrepared || !revealDone) return
+		val fade = when {
+			restoredLoop -> LivingPlateRestoreFadeMillis
+			target.advanced -> LivingPlateAdvancedDissolveMillis
+			else -> tuning.loopFadeMillis.toLong()
+		}
 		textureView.animate().alpha(1f).setDuration(fade).start()
 		revealView.animate().alpha(0f).setDuration(fade).withEndAction {
 			revealView.visibility = INVISIBLE
@@ -297,14 +448,31 @@ private class LivingPlateView(
 		canvas.restoreToCount(save)
 	}
 
-	/** The plate in full colour with its soft edges, at its own size; false before it decodes. */
-	fun drawColourStill(canvas: Canvas): Boolean {
-		val image = revealView.colourImage ?: return false
+	/**
+	 * The plate as drawn now, with its soft edges, at its own size: the loop frame under the
+	 * colouring at their current fades. False before the plate decodes.
+	 */
+	fun drawCurrent(canvas: Canvas): Boolean {
+		if (revealView.colourImage == null) return false
 		val w = target.bounds.width().toFloat()
 		val h = target.bounds.height().toFloat()
 		if (w <= 0f || h <= 0f) return false
 		val save = canvas.saveLayer(0f, 0f, w, h, null)
-		canvas.drawBitmap(image, null, RectF(0f, 0f, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
+		val frameAlpha = textureView.alpha
+		if (frameAlpha > 0f && textureView.isAvailable) {
+			// Half resolution: the curl samples it at half the page raster's resolution anyway.
+			textureView.getBitmap((w / 2f).toInt().coerceAtLeast(1), (h / 2f).toInt().coerceAtLeast(1))?.let { frame ->
+				val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = (frameAlpha * 255f).toInt() }
+				canvas.drawBitmap(frame, null, RectF(0f, 0f, w, h), paint)
+				frame.recycle()
+			}
+		}
+		val colourAlpha = if (revealView.visibility == VISIBLE) revealView.alpha else 0f
+		if (colourAlpha > 0f) {
+			val layer = canvas.saveLayerAlpha(0f, 0f, w, h, (colourAlpha * 255f).toInt())
+			revealView.draw(canvas)
+			canvas.restoreToCount(layer)
+		}
 		val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
 		mask.shader = edgeGradient(0f, 0f, w, 0f)
 		canvas.drawRect(0f, 0f, w, h, mask)
@@ -326,6 +494,7 @@ private class LivingPlateView(
 		player?.runCatching {
 			setOnInfoListener(null)
 			setOnPreparedListener(null)
+			setOnSeekCompleteListener(null)
 			release()
 		}
 		player = null
@@ -354,6 +523,15 @@ private class RevealView(context: Context) : View(context) {
 	private var colour: Bitmap? = null
 	val colourImage: Bitmap? get() = colour?.takeUnless(Bitmap::isRecycled)
 	private var inkValues: FloatArray? = null
+	val ink: FloatArray? get() = inkValues
+	val inkWidth: Int get() = mask?.width ?: 0
+	val inkHeight: Int get() = mask?.height ?: 0
+	/** A remembered loop frame shown in place of the plate until the loop is back at it. */
+	var still: Bitmap? = null
+		set(value) {
+			field = value
+			invalidate()
+		}
 	private var inkEdge = 0.025f
 	private var mask: Bitmap? = null
 	private var maskPixels: IntArray? = null
@@ -400,9 +578,19 @@ private class RevealView(context: Context) : View(context) {
 		bitmap.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
 	}
 
+	fun takeStill(): Bitmap? {
+		val frame = still?.takeUnless(Bitmap::isRecycled)
+		still = null
+		return frame
+	}
+
 	override fun onDraw(canvas: Canvas) {
 		val image = colour ?: return
 		dst.set(0f, 0f, width.toFloat(), height.toFloat())
+		still?.takeUnless(Bitmap::isRecycled)?.let { frame ->
+			canvas.drawBitmap(frame, null, dst, bitmapPaint)
+			return
+		}
 		val inkMask = mask
 		if (progress >= 1f) {
 			canvas.drawBitmap(image, null, dst, bitmapPaint)
@@ -421,6 +609,8 @@ private class RevealView(context: Context) : View(context) {
 	}
 
 	fun recycle() {
+		still?.recycle()
+		still = null
 		colour?.recycle()
 		colour = null
 		mask?.recycle()

@@ -359,24 +359,30 @@ public class ProductionBitmapApiSourceTest {
     }
 
     @Test
-    public void livingPlateStillsColourOnlyTheCurrentDecksPages() throws IOException {
+    public void livingPlateRecordingsFollowTheirLogicalPagesAcrossDecks() throws IOException {
         String rendererSource = source("PageRenderer.java");
         String surfaceSource = source("PageSurfaceView.java");
-        String replace = methodBody(rendererSource, "void replacePagePlates(");
+        String put = methodBody(rendererSource, "void putPagePlates(");
 
         // The still composites over the base page before any WordSync overlay.
         int plate = rendererSource.indexOf("base = mix(base, plate + base * (1.0 - plate.a), uHasPlate)");
         int overlay = rendererSource.indexOf("vec4 overlay = texture2D(uOverlayTexture");
         assertTrue(plate >= 0 && overlay > plate);
-        // Bound to the active deck's current pages and dropped with every deck change.
-        assertTrue(replace.contains("activeDeck.getGenerationId() != generationId"));
-        assertTrue(replace.contains("currentPage(entry.getKey())"));
-        assertTrue(replace.contains("bitmap.recycle()"));
-        assertTrue(methodBody(rendererSource, "private void applyActiveDeck(").contains("clearPagePlates()"));
-        assertTrue(methodBody(rendererSource, "private void clearActiveDeck(").contains("clearPagePlates()"));
+        // Kept per logical page through deck changes (turning back), bounded, recycled.
+        assertTrue(put.contains("pagePlates.remove(entry.getKey())"));
+        assertTrue(put.contains("pagePlates.size() > MAX_PAGE_PLATES"));
+        assertTrue(put.contains("bitmap.recycle()"));
+        assertFalse(methodBody(rendererSource, "private void applyActiveDeck(").contains("clearPagePlates()"));
+        assertFalse(methodBody(rendererSource, "private void clearActiveDeck(").contains("clearPagePlates()"));
+        assertTrue(methodBody(rendererSource, "private PlateTexture plateTexture(")
+                .contains("pagePlates.get(page.getLogicalPageId())"));
         assertTrue(methodBody(rendererSource, "private boolean drawPage(").contains("plateTexture(resource)"));
-        assertTrue(methodBody(surfaceSource, "public void replacePagePlates(")
-                .contains("queueEvent(() -> renderer.replacePagePlates(generationId, owned))"));
+        // A recording holds no page: an old deck's raster is never kept alive by it.
+        assertFalse(rendererSource.contains("class PlateTexture extends GpuTexture"));
+        assertTrue(methodBody(surfaceSource, "public void putPagePlates(")
+                .contains("queueEvent(() -> renderer.putPagePlates(owned))"));
+        assertTrue(methodBody(surfaceSource, "public void clearPagePlates(")
+                .contains("queueEvent(renderer::clearPagePlates)"));
     }
 
     @Test

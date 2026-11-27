@@ -586,14 +586,13 @@ public class PageSurfaceView extends GLSurfaceView {
     }
 
     /**
-     * Replaces the colour stills of living plates drawn over the current page(s) of deck
-     * {@code generationId}, keyed by page ordinal; an empty map removes them. Bitmap ownership
-     * passes to the renderer. The renderer drops the stills when another deck becomes active, so
-     * a turn carries the leaving page's still while arriving pages keep their own rasters.
+     * Records living plates for pages, keyed by {@link PageImage#getLogicalPageId()}: each page
+     * carries its recording whenever it is drawn, in this deck or a later one (turning back), until
+     * a newer recording replaces it or it ages out. Bitmap ownership passes to the renderer.
      */
-    public void replacePagePlates(long generationId, Map<Integer, Bitmap> plates) {
+    public void putPagePlates(Map<String, Bitmap> plates) {
         requireMainThread();
-        Map<Integer, Bitmap> owned = new LinkedHashMap<>(plates);
+        Map<String, Bitmap> owned = new LinkedHashMap<>(plates);
         if (disposed) {
             for (Bitmap bitmap : owned.values()) {
                 if (bitmap != null && !bitmap.isRecycled()) {
@@ -602,7 +601,17 @@ public class PageSurfaceView extends GLSurfaceView {
             }
             return;
         }
-        queueEvent(() -> renderer.replacePagePlates(generationId, owned));
+        queueEvent(() -> renderer.putPagePlates(owned));
+        requestRender();
+    }
+
+    /** Forgets every recorded living plate (living plates off, layout replaced). */
+    public void clearPagePlates() {
+        requireMainThread();
+        if (disposed) {
+            return;
+        }
+        queueEvent(renderer::clearPagePlates);
         requestRender();
     }
 

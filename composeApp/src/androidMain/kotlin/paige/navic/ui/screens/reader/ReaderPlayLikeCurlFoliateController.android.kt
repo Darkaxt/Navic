@@ -707,6 +707,10 @@ internal const val ReaderPlayLikeCurlClosedBookPagePrefix = "closed-book:"
 // Escape hatch only: the shell cover normally replaces the closed book within a frame or two.
 internal const val ReaderClosedBookCoverHandoffTimeoutMillis = 1_500L
 
+/** A page's identity across decks: the same page of the same layout keeps it. */
+internal fun readerPlayLikeCurlLogicalPageId(profile: ReaderPlayLikeCurlRasterProfile, ordinal: Int): String =
+	"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal"
+
 internal fun readerPlayLikeCurlIsClosedBookPage(logicalPageId: String): Boolean =
 	logicalPageId.startsWith(ReaderPlayLikeCurlClosedBookPagePrefix)
 
@@ -1182,7 +1186,6 @@ internal class ReaderPlayLikeCurlFoliateController(
 					publishPreparedActiveDeck()
 					requestInitialLivePresentationAuthority(generationId)
 					publishLatestWhispersyncOverlayIfIdle()
-					publishLivingPlateStills()
 				} else if (
 					generationId == pendingDeckGenerationId &&
 					role == ReaderDeckSubmissionRole.Pending
@@ -2318,6 +2321,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			)
 			return ReaderPageCurlDispatchResult.Accepted
 		}
+		recordLivingPlatesForTurn()
 		activeGestureId = gestureId
 		if (!isAvailable || metadata == null) {
 			val detail = ReaderPageGestureTerminalDetail.TouchRejected(event.actionMasked)
@@ -2474,6 +2478,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 	): ReaderPageTurnStartResult {
 		releaseInitialLivePresentationAuthority()
 		restartBrowseIdleRelocationDispatch()
+		recordLivingPlatesForTurn()
 		activeGestureId = gestureId
 		val metadata = relocationMetadata(gestureId)
 		if (!isAvailable || metadata == null) {
@@ -5128,31 +5133,33 @@ internal class ReaderPlayLikeCurlFoliateController(
 		}
 	}
 
-	/** Draws the colour stills of the living plates in a window region; see [ReaderLivingPlateOverlay]. */
+	/** Records the living plates in a window region as drawn now; see [ReaderLivingPlateOverlay]. */
 	private var livingPlateStills: ((android.graphics.Rect, Int, Int) -> Bitmap?)? = null
 
 	/**
-	 * The living plates now coloured on screen are drawn in colour onto the current page(s) of the
-	 * curl, so a turn leaves a plate coloured instead of snapping to the raster's grey. Arriving
-	 * pages keep their grey rasters and colour in again; the renderer drops the stills with the
-	 * deck. Null removes them (living plates turned off).
+	 * Where living plates are on screen. The touch that starts a turn records them exactly as drawn
+	 * (loop frame, ink half spread) onto the current page(s) of the curl, so the leaving page carries
+	 * the plate on, frozen, instead of snapping to the raster's grey. The renderer keeps each page's
+	 * recording, so turning back to it shows the plate as it was left. Null forgets them all
+	 * (living plates turned off).
 	 */
 	fun setLivingPlateStills(renderer: ((android.graphics.Rect, Int, Int) -> Bitmap?)?) {
 		livingPlateStills = renderer
-		if (renderer == null) {
-			val generationId = activeDeckGenerationId ?: return
-			if (!destroyed) surfaceView.replacePagePlates(generationId, emptyMap())
-			return
-		}
-		publishLivingPlateStills()
+		if (renderer == null) forgetLivingPlateRecordings()
 	}
 
-	private fun publishLivingPlateStills() {
+	/** The layout changed or living plates went off: no page carries an old recording. */
+	fun forgetLivingPlateRecordings() {
+		if (!destroyed) surfaceView.clearPagePlates()
+	}
+
+	/** Main thread, before the turn is admitted: queued ahead of the curl's first frame. */
+	private fun recordLivingPlatesForTurn() {
 		val renderer = livingPlateStills ?: return
 		if (destroyed || !enabled || !attached) return
-		// The stills already on the turning page stay; a deck change drops them.
+		// A turn already on screen keeps its recording; the next page's arrives with its own touch.
 		if (activeGestureId != null || surfaceView.isSettlementRunning) return
-		val generationId = activeDeckGenerationId ?: return
+		val started = System.nanoTime()
 		val pages = activePages ?: return
 		val ordinals = when (pages.profile.orientation) {
 			ReaderPlayLikeCurlOrientation.Portrait -> listOf(currentOrdinal)
@@ -5163,7 +5170,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 			).current.let { listOf(it.physicalLeftOrdinal, it.physicalRightOrdinal).distinct() }
 		}
 		val location = IntArray(2).also(host::getLocationInWindow)
-		val stills = LinkedHashMap<Int, Bitmap>()
+		val stills = LinkedHashMap<String, Bitmap>()
 		for (ordinal in ordinals) {
 			val image = pages.deck.value(ordinal) ?: continue
 			val rect = runCatching { image.layout.displayRectInHost(image.leaf) }.getOrNull() ?: continue
@@ -5176,14 +5183,15 @@ internal class ReaderPlayLikeCurlFoliateController(
 			// Half the raster's resolution: the still is sampled through the page's coordinates.
 			val width = (image.bitmap.width / 2).coerceAtLeast(1)
 			val height = (image.bitmap.height / 2).coerceAtLeast(1)
-			renderer(region, width, height)?.let { stills[ordinal] = it }
+			renderer(region, width, height)?.let { stills[readerPlayLikeCurlLogicalPageId(pages.profile, ordinal)] = it }
 		}
-		// Nothing to draw (the overlay was just cleared by a turn): keep what the page carries.
+		// Nothing shown (still settling, or no plate): a page keeps the recording it already had.
 		if (stills.isEmpty()) return
-		surfaceView.replacePagePlates(generationId, stills)
+		surfaceView.putPagePlates(stills)
 		Logger.i(
 			ReaderPlayLikeCurlFoliateControllerTag,
-			"living-plate stills published generation=$generationId pages=${stills.keys.joinToString(",")}"
+			"living-plate recorded for turn ordinals=${ordinals.joinToString(",")} pages=${stills.size} " +
+				"took=${(System.nanoTime() - started) / 1_000}us"
 		)
 	}
 
@@ -5631,7 +5639,7 @@ internal class ReaderPlayLikeCurlFoliateController(
 		)
 		return PageImage(
 			generationId,
-			"${profile.sourceIdentity}:${profile.orientation.name.lowercase()}:$ordinal",
+			readerPlayLikeCurlLogicalPageId(profile, ordinal),
 			ordinal,
 			image.bitmap.width,
 			image.bitmap.height,
