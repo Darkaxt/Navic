@@ -436,6 +436,12 @@ data class BinderySourceReleaseMetadata(
 	val keywords: List<String> = emptyList()
 )
 
+/** A resource's current HTTP validator: its ETag (unquoted) and length, to revalidate a cached copy. */
+data class BinderyResourceValidator(
+	val etag: String?,
+	val contentLength: Long?
+)
+
 @Serializable
 data class BinderyLink(
 	val href: String,

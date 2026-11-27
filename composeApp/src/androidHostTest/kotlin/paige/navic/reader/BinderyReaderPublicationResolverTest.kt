@@ -22,6 +22,64 @@ import java.util.zip.ZipOutputStream
 @Config(manifest = Config.NONE, sdk = [35])
 class BinderyReaderPublicationResolverTest {
 	@Test
+	fun aBookRewrittenOnTheServerIsFetchedAgainWhileAnUnchangedOneIsKept() = runBlocking {
+		val cacheRoot = createTempDirectory("navic-reader-publication-etag").toFile()
+		val request = ReaderPublicationResourceRequest(
+			bookId = "etag-book",
+			title = "Etag Book",
+			resourceHref = "/opds/books/etag-book/resources/epub",
+			sourceUrl = "https://bindery.local/etag-book.epub",
+			kind = ReaderPublicationKind.Ebook,
+			mediaOverlayEnabled = false
+		)
+		var serverBytes = "OMNIBUS"
+		var serverEtag = "etag-1"
+		val fetches = AtomicInteger()
+		fun resolver(validatorAvailable: Boolean = true) = BinderyReaderPublicationResolver(
+			fetchResourceBytes = { fetches.incrementAndGet(); serverBytes.encodeToByteArray() },
+			cacheRoot = cacheRoot,
+			fetchResourceValidator = {
+				if (validatorAvailable) ReaderPublicationValidator(serverEtag, serverBytes.length.toLong()) else null
+			}
+		)
+
+		val first = resolver().resolve(request)
+		assertEquals(1, fetches.get())
+		assertEquals("etag-1", first.publicationFile.resolveSibling("publication.etag").readText())
+		val unchanged = resolver().resolve(request)
+		assertTrue(unchanged.fromCache)
+		assertEquals(1, fetches.get())
+
+		// Bindery split the omnibus in place: same href, new ETag.
+		serverBytes = "SPLIT-VOLUME-ONE"
+		serverEtag = "etag-2"
+		first.publicationFile.resolveSibling("cover.jpg").writeText("old cover")
+		val rewritten = resolver().resolve(request)
+		assertEquals(false, rewritten.fromCache)
+		assertEquals(2, fetches.get())
+		assertEquals("SPLIT-VOLUME-ONE", rewritten.publicationFile.readText())
+		assertEquals("etag-2", rewritten.publicationFile.resolveSibling("publication.etag").readText())
+		assertTrue(!rewritten.publicationFile.resolveSibling("cover.jpg").exists())
+		assertEquals(first.publicationUrl, rewritten.publicationUrl)
+
+		// Offline (no validator) the kept book still opens.
+		serverEtag = "etag-3"
+		assertTrue(resolver(validatorAvailable = false).resolve(request).fromCache)
+		assertEquals(2, fetches.get())
+	}
+
+	@Test
+	fun cachedCopiesWithoutARecordedEtagAreAdoptedOnlyWhenTheirLengthMatches() {
+		assertTrue(readerCachedPublicationIsCurrent(10, null, null))
+		assertTrue(readerCachedPublicationIsCurrent(10, null, ReaderPublicationValidator(null, 99)))
+		assertTrue(readerCachedPublicationIsCurrent(10, null, ReaderPublicationValidator("e", 10)))
+		assertTrue(!readerCachedPublicationIsCurrent(10, null, ReaderPublicationValidator("e", 11)))
+		assertTrue(readerCachedPublicationIsCurrent(10, null, ReaderPublicationValidator("e", null)))
+		assertTrue(readerCachedPublicationIsCurrent(10, "e", ReaderPublicationValidator("e", 11)))
+		assertTrue(!readerCachedPublicationIsCurrent(10, "e", ReaderPublicationValidator("f", 10)))
+	}
+
+	@Test
 	fun resolvedPublicationPersistsAcrossSessionsAndIsReusedWithoutFetching() = runBlocking {
 		val cacheRoot = createTempDirectory("navic-reader-publication-lease").toFile()
 		val resolved = BinderyReaderPublicationResolver(

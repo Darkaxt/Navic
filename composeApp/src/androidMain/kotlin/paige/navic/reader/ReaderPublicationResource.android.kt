@@ -13,10 +13,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 import paige.navic.domain.manager.ReaderPublicationPrefetch
@@ -27,6 +29,9 @@ import paige.navic.util.core.Logger
 internal const val ReaderPublicationCachePathPrefix = "/reader-cache/"
 private const val ReaderPublicationCachePublicationDirectory = "reader-publications"
 private const val ReaderPublicationFetchLogTag = "ReaderPublicationRuntime"
+/** The cached file's server ETag, beside it, so an in-place rewrite on the server is noticed. */
+private const val ReaderPublicationEtagFileName = "publication.etag"
+private const val ReaderPublicationRevalidationTimeoutMillis = 4_000L
 
 /** One writer per cached book, process-wide: a reader open during a background prefetch waits instead of double-writing. */
 private val ReaderPublicationResolveLocks = ConcurrentHashMap<String, Mutex>()
@@ -55,9 +60,31 @@ data class ReaderResolvedPublicationResource(
 	val requestHeaders: Map<String, String> = emptyMap()
 )
 
+/** A server resource's current validator (see BinderyResourceValidator). */
+data class ReaderPublicationValidator(
+	val etag: String?,
+	val contentLength: Long?
+)
+
+/**
+ * Whether a cached publication still matches the server. Unknown (offline, no ETag) keeps the cache.
+ * A copy cached before ETags were recorded is adopted when its length matches the server's.
+ */
+internal fun readerCachedPublicationIsCurrent(
+	localLength: Long,
+	storedEtag: String?,
+	validator: ReaderPublicationValidator?
+): Boolean {
+	val etag = validator?.etag?.takeIf { it.isNotBlank() } ?: return true
+	if (storedEtag != null) return storedEtag == etag
+	val length = validator.contentLength ?: return true
+	return length == localLength
+}
+
 class BinderyReaderPublicationResolver(
 	private val fetchResourceBytes: suspend (String) -> ByteArray,
-	private val cacheRoot: File
+	private val cacheRoot: File,
+	private val fetchResourceValidator: (suspend (String) -> ReaderPublicationValidator?)? = null
 ) {
 	suspend fun resolve(request: ReaderPublicationResourceRequest): ReaderResolvedPublicationResource {
 		val resourceHref = request.safeResourceHref()
@@ -77,7 +104,21 @@ class BinderyReaderPublicationResolver(
 			File(cacheRoot, "$ReaderPublicationCachePublicationDirectory/$cacheKey"),
 			"publication.$publicationExtension"
 		)
-		val resolved = if (publicationFile.isFile && publicationFile.length() > 0L) {
+		val cached = publicationFile.isFile && publicationFile.length() > 0L
+		val devSource = request.shouldFetchReaderDevSourceUrl(resourceHref)
+		val validator = if (devSource) null else currentValidator(resourceHref)
+		val etagFile = File(publicationFile.parentFile, ReaderPublicationEtagFileName)
+		val storedEtag = if (cached) etagFile.readStoredEtag() else null
+		val current = cached && readerCachedPublicationIsCurrent(publicationFile.length(), storedEtag, validator)
+		if (cached && !current) {
+			Logger.i(
+				ReaderPublicationFetchLogTag,
+				"Reader publication changed on the server cacheKey=$cacheKey stored=${storedEtag ?: "none"} " +
+					"server=${validator?.etag} localBytes=${publicationFile.length()} serverBytes=${validator?.contentLength}"
+			)
+		}
+		val resolved = if (current) {
+			validator?.etag?.takeIf { it.isNotBlank() && it != storedEtag }?.let(etagFile::writeStoredEtag)
 			request.resolvedPublicationResource(
 				publicationFile = publicationFile,
 				resourceHref = resourceHref,
@@ -86,12 +127,16 @@ class BinderyReaderPublicationResolver(
 				publicationExtension = publicationExtension
 			)
 		} else {
-			val bytes = if (request.shouldFetchReaderDevSourceUrl(resourceHref)) {
+			val bytes = if (devSource) {
 				request.fetchReaderDevSourceBytes()
 			} else {
 				fetchResourceBytes(resourceHref)
 			}
 			publicationFile.writeBytesAtomically(bytes)
+			// The shell cover is extracted from the book: a rewritten book may carry another one.
+			if (cached) publicationFile.parentFile?.deleteExtractedShellCovers()
+			val etag = validator?.etag?.takeIf { it.isNotBlank() }
+			if (etag != null) etagFile.writeStoredEtag(etag) else etagFile.delete()
 			request.resolvedPublicationResource(
 				publicationFile = publicationFile,
 				resourceHref = resourceHref,
@@ -104,6 +149,32 @@ class BinderyReaderPublicationResolver(
 			.withExternalShellCover(request.externalShellCoverHref, fetchResourceBytes)
 			.withShellCoverTint()
 	}
+
+	/** Never blocks an open for long, and never fails it: an unknown validator keeps the cached book. */
+	private suspend fun currentValidator(resourceHref: String): ReaderPublicationValidator? {
+		val fetch = fetchResourceValidator ?: return null
+		return try {
+			withTimeoutOrNull(ReaderPublicationRevalidationTimeoutMillis) { fetch(resourceHref) }
+		} catch (error: CancellationException) {
+			throw error
+		} catch (error: Exception) {
+			Logger.w(ReaderPublicationFetchLogTag, "Reader publication revalidation failed", error)
+			null
+		}
+	}
+}
+
+private fun File.readStoredEtag(): String? =
+	runCatching { takeIf(File::isFile)?.readText()?.trim()?.takeIf { it.isNotEmpty() } }.getOrNull()
+
+private fun File.writeStoredEtag(etag: String) {
+	runCatching { writeBytesAtomically(etag.encodeToByteArray()) }
+}
+
+private fun File.deleteExtractedShellCovers() {
+	listFiles().orEmpty()
+		.filter { file -> file.isFile && file.name.startsWith("cover.") }
+		.forEach(File::delete)
 }
 
 /** The single reader-to-request mapping shared by reader opens and background prefetch, so cache keys cannot drift. */
@@ -152,7 +223,12 @@ internal fun binderyReaderPublicationResolver(
 				)
 			}
 		},
-		cacheRoot = readerManagedStorageRoot(context)
+		cacheRoot = readerManagedStorageRoot(context),
+		fetchResourceValidator = { path ->
+			repository.getResourceValidator(path).getOrNull()?.let { validator ->
+				ReaderPublicationValidator(etag = validator.etag, contentLength = validator.contentLength)
+			}
+		}
 	)
 
 /** Background prefetch stores plain ebook publications; read-aloud runtimes are prepared by their own host. */

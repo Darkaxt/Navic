@@ -542,6 +542,12 @@ class BinderyRepository(
 		}
 	}
 
+	/** The resource's current ETag and length, so a cached book can be revalidated (Bindery rewrites files in place). */
+	suspend fun getResourceValidator(path: String): Result<BinderyResourceValidator?> =
+		withConfiguredClient { baseUrl, headers ->
+			apiClient.fetchResourceValidator(baseUrl, headers, path)
+		}
+
 	suspend fun getReadingProgress(
 		bookId: String,
 		alias: String? = null

@@ -7,6 +7,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -132,6 +133,13 @@ interface BinderyApiClient {
 		requestHeaders: Map<String, String>,
 		path: String
 	): ByteArray
+
+	/** HEAD of a resource, for revalidating a cached copy; null when the server gives no validator. */
+	suspend fun fetchResourceValidator(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): BinderyResourceValidator? = null
 
 	suspend fun fetchReadingProgress(
 		baseUrl: String,
@@ -471,6 +479,32 @@ internal class KtorBinderyApiClient(
 			throw BinderyApiException(response.status, binderyHttpErrorMessage("Bindery OPDS resource", response.status))
 		}
 		return response.body<ByteArray>()
+	}
+
+	override suspend fun fetchResourceValidator(
+		baseUrl: String,
+		requestHeaders: Map<String, String>,
+		path: String
+	): BinderyResourceValidator? {
+		val safePath = path.trim().takeIf { it.isNotEmpty() } ?: return null
+		val response = client.head(binderyEndpoint(baseUrl, safePath)) {
+			binderyScopedHeaders(baseUrl, requestHeaders)
+			accept(ContentType.Application.OctetStream)
+			timeout {
+				requestTimeoutMillis = 5_000
+				socketTimeoutMillis = 5_000
+			}
+		}
+		if (!response.status.isSuccess()) return null
+		val etag = response.headers["ETag"]
+			?.trim()
+			?.removePrefix("W/")
+			?.trim('"')
+			?.takeIf { it.isNotBlank() }
+		return BinderyResourceValidator(
+			etag = etag,
+			contentLength = response.headers["Content-Length"]?.trim()?.toLongOrNull()
+		)
 	}
 
 	override suspend fun fetchReadingProgress(
