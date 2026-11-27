@@ -92,7 +92,24 @@ internal suspend fun BinderyCatalog.withFollowingPages(
 	return merged
 }
 
-internal const val BinderyHubAudiobookPageLimit = 20
+internal const val BinderyHubAudiobookPageLimit = 60
+
+private fun BinderyHubState.audiobookCount(): Int =
+	rows.firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.Audiobooks }?.catalog?.publications?.size ?: 0
+
+/** The hub with its Audiobooks row extended by the following pages [fetch] provides. */
+internal suspend fun BinderyHubState.withAllAudiobookPages(
+	fetch: suspend (String) -> BinderyCatalog?
+): BinderyHubState =
+	copy(
+		rows = rows.map { hubRow ->
+			if (hubRow.row.kind == BinderyHubRowKind.Audiobooks) {
+				hubRow.copy(catalog = hubRow.catalog.withFollowingPages(fetch = fetch))
+			} else {
+				hubRow
+			}
+		}
+	)
 
 private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
 	when (this) {
@@ -156,9 +173,16 @@ class BinderyHubViewModel(
 				repositoryResult
 			}
 			_hubAvailability.value = result
+			// Shown at once with the audiobook pages already cached; the rest follow below (#Whispersync row).
+			val firstPages = when (result) {
+				is OptionalIntegrationResult.Available -> result.data
+				is OptionalIntegrationResult.Stale -> result.data
+				else -> null
+			}
+			val pagedData = firstPages?.withAllAudiobookPages(::cachedCatalogPage)
 			when (result) {
 				is OptionalIntegrationResult.Available -> {
-					val state = result.data
+					val state = pagedData ?: result.data
 					val currentState = _hubState.value
 					if (currentState !is UiState.Success || currentState.data != state) {
 						_hubState.value = UiState.Success(state)
@@ -168,13 +192,26 @@ class BinderyHubViewModel(
 					_hubState.value = UiState.Success(emptyBinderyHubState())
 				}
 				is OptionalIntegrationResult.Stale -> {
-					_hubState.value = UiState.Success(result.data)
+					_hubState.value = UiState.Success(pagedData ?: result.data)
 				}
 				is OptionalIntegrationResult.Unavailable -> {
 					_hubState.value = UiState.Error(
 						error = IllegalStateException(result.failure.message),
 						data = visibleData
 					)
+				}
+			}
+			if (firstPages != null && pagedData != null && result !is OptionalIntegrationResult.Stale) {
+				// From the live first page: the cached pages are fetched again, not only the missing ones.
+				val livePaged = firstPages.withAllAudiobookPages { path -> repository.getCatalog(path).getOrNull() }
+				val shown = _hubState.value
+				// A page that failed midway never shrinks the row below what the cache already showed.
+				if (
+					livePaged != pagedData &&
+					livePaged.audiobookCount() >= pagedData.audiobookCount() &&
+					shown is UiState.Success && shown.data == pagedData
+				) {
+					_hubState.value = UiState.Success(livePaged)
 				}
 			}
 		}
@@ -212,14 +249,7 @@ class BinderyHubViewModel(
 					mode = BinderyAvailabilityQueryMode.List
 				)
 			).getOrNull()?.let { catalog ->
-				BinderyHubCatalogRow(
-					row,
-					if (row.kind == BinderyHubRowKind.Audiobooks) {
-						catalog.withFollowingPages { path -> repository.getCachedCatalog(path).getOrNull() }
-					} else {
-						catalog
-					}
-				)
+				BinderyHubCatalogRow(row, catalog)
 			}
 		}
 		return BinderyHubState(
@@ -230,8 +260,11 @@ class BinderyHubViewModel(
 				refreshMetadata = false,
 				languageFilter = languageFilter
 			)
-		)
+		).withAllAudiobookPages(::cachedCatalogPage)
 	}
+
+	private suspend fun cachedCatalogPage(path: String): BinderyCatalog? =
+		repository.getCachedCatalog(path).getOrNull()
 
 	private suspend fun loadHub(languageFilter: String?): OptionalIntegrationResult<BinderyHubState> {
 		val rootResult = repository.getCatalogOptional("/")
@@ -260,12 +293,6 @@ class BinderyHubViewModel(
 				is OptionalIntegrationResult.Stale -> BinderyHubCatalogRow(row, result.data)
 				OptionalIntegrationResult.Empty,
 				is OptionalIntegrationResult.Unavailable -> null
-			}
-		}.map { hubRow ->
-			if (hubRow.row.kind == BinderyHubRowKind.Audiobooks) {
-				hubRow.copy(catalog = hubRow.catalog.withFollowingPages { path -> repository.getCatalog(path).getOrNull() })
-			} else {
-				hubRow
 			}
 		}
 		val state = BinderyHubState(
