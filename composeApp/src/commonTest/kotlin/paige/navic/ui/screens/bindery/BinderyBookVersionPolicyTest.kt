@@ -1382,7 +1382,7 @@ class BinderyBookVersionPolicyTest {
 		val resources = BinderyResourceCatalog(
 			title = "Resources",
 			resources = listOf(
-				epub("833", mapOf("format" to "epub", "bookFileId" to "833", "coverHref" to "/api/v1/book/3733/file/cover?bookFileId=833&v=6443cdaa5e1b")),
+				epub("833", mapOf("format" to "epub", "bookFileId" to "833", "coverHref" to "/api/v1/book/3733/file/cover?bookFileId=833&v=6443cdaa5e1b", "numberOfPages" to "144", "numberOfPagesEstimated" to "true")),
 				epub("837", mapOf("format" to "epub", "bookFileId" to "837"))
 			)
 		)
@@ -1391,6 +1391,8 @@ class BinderyBookVersionPolicyTest {
 
 		assertEquals("/api/v1/book/3733/file/cover?bookFileId=833&v=6443cdaa5e1b", rows["833"]?.coverHref)
 		assertEquals(null, rows["837"]?.coverHref)
+		assertEquals(144, rows["833"]?.pageCount)
+		assertEquals(null, rows["837"]?.pageCount)
 	}
 
 	@Test

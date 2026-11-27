@@ -15,6 +15,25 @@ import paige.navic.domain.manager.PreferenceManager
 
 class BinderyRepositoryCatalogJsonTest {
 	@Test
+	fun publicationPageCountComesFromOpdsNumberOfPages() {
+		val catalog = decodeBinderyCatalogJson(
+			"""
+			{
+			  "metadata": {"title": "Books"},
+			  "publications": [
+			    {"metadata": {"title": "The Hobbit", "identifier": "urn:bindery:book:3816", "numberOfPages": 301},
+			     "properties": {"numberOfPagesEstimated": true}},
+			    {"metadata": {"title": "Unknown", "identifier": "urn:bindery:book:1"}}
+			  ]
+			}
+			""".trimIndent()
+		)
+
+		assertEquals(301, catalog.publications[0].pageCount)
+		assertNull(catalog.publications[1].pageCount)
+	}
+
+	@Test
 	fun catalogJsonPreservesDetailMetadataAndPublicationFields() {
 		val catalog = decodeBinderyCatalogJson(
 			"""

@@ -515,7 +515,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.binderyContinueR
 			coverContentScale = ContentScale.Fit,
 			fallbackKind = "Book",
 			asBook = true,
-			bookPages = null,
+			bookPages = item.row.pageCount,
 			id = item.key,
 			tab = "bindery-continue-reading"
 		)

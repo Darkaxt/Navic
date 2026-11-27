@@ -94,7 +94,9 @@ data class BinderyBookVersionRow(
 	/** Normalized edition language (e.g. "eng"), when Bindery reports one. */
 	val language: String? = null,
 	/** This file's own cover (content-versioned); null when it has none worth showing. */
-	val coverHref: String? = null
+	val coverHref: String? = null,
+	/** This file's page count (Bindery's text estimate), for the 3D book's thickness. */
+	val pageCount: Int? = null
 )
 
 data class BinderyFullscreenCoverVariant(
@@ -660,7 +662,8 @@ private fun BinderyBookResource.toEbookVersionRow(
 		ebookBookFileId = bookFileId(),
 		fullscreenCoverHref = propertyValues.expandedCoverObjectHref(),
 		language = properties.firstNonBlankValue("language")?.normalizedBinderyAvailabilityLanguage(),
-		coverHref = properties.firstNonBlankValue("coverHref", "coverUrl")
+		coverHref = properties.firstNonBlankValue("coverHref", "coverUrl"),
+		pageCount = properties.firstNonBlankValue("numberOfPages")?.toDoubleOrNull()?.takeIf { it >= 1.0 }?.toInt()
 	)
 }
 
