@@ -27,7 +27,9 @@ data class BinderyHubState(
 	val root: BinderyCatalog,
 	val rows: List<BinderyHubCatalogRow>,
 	val continueListening: List<BinderyContinueListeningItem> = emptyList(),
-	val continueReading: List<BinderyContinueReadingItem> = emptyList()
+	val continueReading: List<BinderyContinueReadingItem> = emptyList(),
+	/** Bindery's Whispersync-ready audiobooks (`whispersync=ready`), every page; null until loaded. */
+	val whispersync: BinderyCatalog? = null
 )
 
 data class BinderyHubCatalogRow(
@@ -45,8 +47,12 @@ data class BinderyHubCatalogRow(
 			}
 }
 
-fun BinderyHubState.whispersyncReadyAudiobooks(languageFilter: String? = null): List<BinderyCatalogCard.Book> =
-	rows.whispersyncReadyAudiobookCards(languageFilter)
+fun BinderyHubState.whispersyncReadyAudiobooks(languageFilter: String? = null): List<BinderyCatalogCard.Book> {
+	val audiobooks = rows.firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.Audiobooks }
+	// Without the filtered feed (not loaded yet, or an older Bindery) the Audiobooks row stands in.
+	val filtered = whispersync?.let { catalog -> audiobooks?.copy(catalog = catalog) }
+	return (filtered?.let(::listOf) ?: rows).whispersyncReadyAudiobookCards(languageFilter)
+}
 
 /** Route ids of the newest books in the hub's Recently Added row, the same ids a card tap opens. */
 fun BinderyHubState.recentlyAddedBookIds(
@@ -71,10 +77,7 @@ fun List<BinderyHubCatalogRow>.whispersyncReadyAudiobookCards(
 		.filterIsInstance<BinderyCatalogCard.Book>()
 		.filter { card -> card.hasActionableWhispersync }
 
-/**
- * The Audiobooks row (and the Whispersync row drawn from it) covers every owned audiobook: Bindery
- * pages that feed (50 entries by default), so the following pages are fetched and appended.
- */
+/** The catalog followed through its next pages (Bindery pages feeds at 50 entries by default). */
 internal suspend fun BinderyCatalog.withFollowingPages(
 	maxPages: Int = BinderyHubAudiobookPageLimit,
 	fetch: suspend (String) -> BinderyCatalog?
@@ -92,24 +95,29 @@ internal suspend fun BinderyCatalog.withFollowingPages(
 	return merged
 }
 
-internal const val BinderyHubAudiobookPageLimit = 60
+internal const val BinderyHubAudiobookPageLimit = 20
 
-private fun BinderyHubState.audiobookCount(): Int =
-	rows.firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.Audiobooks }?.catalog?.publications?.size ?: 0
-
-/** The hub with its Audiobooks row extended by the following pages [fetch] provides. */
-internal suspend fun BinderyHubState.withAllAudiobookPages(
-	fetch: suspend (String) -> BinderyCatalog?
-): BinderyHubState =
-	copy(
-		rows = rows.map { hubRow ->
-			if (hubRow.row.kind == BinderyHubRowKind.Audiobooks) {
-				hubRow.copy(catalog = hubRow.catalog.withFollowingPages(fetch = fetch))
-			} else {
-				hubRow
-			}
-		}
+/** The Audiobooks feed narrowed by Bindery to books with a ready Whispersync pair. */
+internal fun binderyWhispersyncCatalogPath(audiobookRow: BinderyHubRow, languageFilter: String?): String {
+	val path = binderyAvailabilityFilteredCatalogPath(
+		path = audiobookRow.path,
+		languageFilter = languageFilter,
+		mode = BinderyAvailabilityQueryMode.List
 	)
+	return if ('?' in path) "$path&whispersync=ready" else "$path?whispersync=ready"
+}
+
+/** The hub with [BinderyHubState.whispersync] loaded through [fetch]; unchanged when it fails. */
+internal suspend fun BinderyHubState.withWhispersyncCatalog(
+	languageFilter: String?,
+	fetch: suspend (String) -> BinderyCatalog?
+): BinderyHubState {
+	val audiobooks = rows.firstOrNull { hubRow -> hubRow.row.kind == BinderyHubRowKind.Audiobooks } ?: return this
+	val catalog = fetch(binderyWhispersyncCatalogPath(audiobooks.row, languageFilter))
+		?.withFollowingPages(fetch = fetch)
+		?: return this
+	return copy(whispersync = catalog)
+}
 
 private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
 	when (this) {
@@ -173,13 +181,13 @@ class BinderyHubViewModel(
 				repositoryResult
 			}
 			_hubAvailability.value = result
-			// Shown at once with the audiobook pages already cached; the rest follow below (#Whispersync row).
+			// Shown at once with the cached Whispersync feed; the live one follows below.
 			val firstPages = when (result) {
 				is OptionalIntegrationResult.Available -> result.data
 				is OptionalIntegrationResult.Stale -> result.data
 				else -> null
 			}
-			val pagedData = firstPages?.withAllAudiobookPages(::cachedCatalogPage)
+			val pagedData = firstPages?.withWhispersyncCatalog(languageFilter, ::cachedCatalogPage)
 			when (result) {
 				is OptionalIntegrationResult.Available -> {
 					val state = pagedData ?: result.data
@@ -202,13 +210,14 @@ class BinderyHubViewModel(
 				}
 			}
 			if (firstPages != null && pagedData != null && result !is OptionalIntegrationResult.Stale) {
-				// From the live first page: the cached pages are fetched again, not only the missing ones.
-				val livePaged = firstPages.withAllAudiobookPages { path -> repository.getCatalog(path).getOrNull() }
+				val livePaged = firstPages.withWhispersyncCatalog(languageFilter) { path ->
+					repository.getCatalog(path).getOrNull()
+				}
 				val shown = _hubState.value
-				// A page that failed midway never shrinks the row below what the cache already showed.
+				// A failed live fetch keeps whatever the cache already showed.
 				if (
+					livePaged.whispersync != null &&
 					livePaged != pagedData &&
-					livePaged.audiobookCount() >= pagedData.audiobookCount() &&
 					shown is UiState.Success && shown.data == pagedData
 				) {
 					_hubState.value = UiState.Success(livePaged)
@@ -260,7 +269,7 @@ class BinderyHubViewModel(
 				refreshMetadata = false,
 				languageFilter = languageFilter
 			)
-		).withAllAudiobookPages(::cachedCatalogPage)
+		).withWhispersyncCatalog(languageFilter, ::cachedCatalogPage)
 	}
 
 	private suspend fun cachedCatalogPage(path: String): BinderyCatalog? =
