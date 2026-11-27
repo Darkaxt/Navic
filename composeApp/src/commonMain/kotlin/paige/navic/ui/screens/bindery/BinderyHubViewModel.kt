@@ -71,6 +71,29 @@ fun List<BinderyHubCatalogRow>.whispersyncReadyAudiobookCards(
 		.filterIsInstance<BinderyCatalogCard.Book>()
 		.filter { card -> card.hasActionableWhispersync }
 
+/**
+ * The Audiobooks row (and the Whispersync row drawn from it) covers every owned audiobook: Bindery
+ * pages that feed (50 entries by default), so the following pages are fetched and appended.
+ */
+internal suspend fun BinderyCatalog.withFollowingPages(
+	maxPages: Int = BinderyHubAudiobookPageLimit,
+	fetch: suspend (String) -> BinderyCatalog?
+): BinderyCatalog {
+	var merged = this
+	var pages = 1
+	val visited = mutableSetOf<String>()
+	var next = merged.nextPagePath()
+	while (next != null && pages < maxPages && visited.add(next)) {
+		val page = fetch(next) ?: break
+		merged = merged.appendCatalogPage(page)
+		pages++
+		next = merged.nextPagePath()
+	}
+	return merged
+}
+
+internal const val BinderyHubAudiobookPageLimit = 20
+
 private fun BinderyHubRowKind.showOnlyAvailableContent(): Boolean =
 	when (this) {
 		BinderyHubRowKind.LastRead,
@@ -189,7 +212,14 @@ class BinderyHubViewModel(
 					mode = BinderyAvailabilityQueryMode.List
 				)
 			).getOrNull()?.let { catalog ->
-				BinderyHubCatalogRow(row, catalog)
+				BinderyHubCatalogRow(
+					row,
+					if (row.kind == BinderyHubRowKind.Audiobooks) {
+						catalog.withFollowingPages { path -> repository.getCachedCatalog(path).getOrNull() }
+					} else {
+						catalog
+					}
+				)
 			}
 		}
 		return BinderyHubState(
@@ -230,6 +260,12 @@ class BinderyHubViewModel(
 				is OptionalIntegrationResult.Stale -> BinderyHubCatalogRow(row, result.data)
 				OptionalIntegrationResult.Empty,
 				is OptionalIntegrationResult.Unavailable -> null
+			}
+		}.map { hubRow ->
+			if (hubRow.row.kind == BinderyHubRowKind.Audiobooks) {
+				hubRow.copy(catalog = hubRow.catalog.withFollowingPages { path -> repository.getCatalog(path).getOrNull() })
+			} else {
+				hubRow
 			}
 		}
 		val state = BinderyHubState(
