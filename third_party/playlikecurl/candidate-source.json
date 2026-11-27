@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/Darkaxt/PlayLikeCurl",
-  "commit": "24cca2a8809c875b8e5448a59339950d714ae874",
+  "commit": "10bc81f00ac8ee127eae82e96e651515f1f3a89d",
   "apiVersion": 3,
-  "sourceManifestSha256": "ba05a196f337cf1f867e40b3cdbeb3b9a2738fd64dd2b5973a0fcbcd735e07b8",
+  "sourceManifestSha256": "17fb800278d8c1b036e40071a2a0bdfbd97a3299b6cbaf6af1898204e5410c08",
   "licenseBlob": "8aa26455d23acf904be3ed9dfb3a3efe3e49245a",
   "sourceFiles": [
     {
@@ -103,7 +103,7 @@
     },
     {
       "mode": "100644",
-      "blob": "2da4441768bc8618e21937d08e76d54411cd61cc",
+      "blob": "fdd12bd1f24b08455f6e60168acb7bd4d3ff11b5",
       "path": "karackencurllib/src/main/java/karacken/curl/PageSurfaceView.java"
     },
     {
@@ -283,7 +283,7 @@
     },
     {
       "mode": "100644",
-      "blob": "9b8b4aabbc023e64e5047a3437b9eb68f261d233",
+      "blob": "aad33cf4f5481733a9053dfccbd9a85f53ae66b6",
       "path": "karackencurllib/src/main/java/karacken/curl/PageRenderer.java"
     },
     {
@@ -433,7 +433,7 @@
     },
     {
       "mode": "100644",
-      "blob": "fbc48c6ce918534e1e0c447f804768ce20d333a2",
+      "blob": "05ede1157b4721a163f27fca90d50b5ffaffc8ee",
       "path": "karackencurllib/src/test/java/karacken/curl/ProductionBitmapApiSourceTest.java"
     },
     {
