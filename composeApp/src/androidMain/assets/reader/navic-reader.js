@@ -1520,6 +1520,15 @@ Object.assign(NavicReaderRuntime.prototype,
 const runtime = new NavicReaderRuntime()
 const acknowledgedCommandIds = new Set()
 
+const readerLivingPlateCaptureMaskRects = () => {
+  try {
+    const { plates } = JSON.parse(window.NavicReaderBridge.livingPlateRects())
+    return (plates || []).map(({ left, top, width, height }) => ({ left, top, width, height }))
+  } catch {
+    return []
+  }
+}
+
 window.NavicReaderBridge = {
   dispatch: command => {
     const commandId = typeof command?.commandId === 'string' ? command.commandId.trim() : ''
@@ -1678,7 +1687,13 @@ window.NavicReaderBridge = {
   restorePageTurnLiveComposition: (token, foregroundMutationGeneration) =>
     runtime.restorePageTurnLiveComposition(token, foregroundMutationGeneration),
   pageTurnCaptureGeometry: () => runtime.pageTurnCaptureGeometry(),
-  pageTurnCaptureMaskRects: () => readerMediaOverlayPaintedViewportRects(),
+  // The live page-turn check compares the page with its stored raster. Masked: the playing
+  // WordSync highlight, and living plates (#77), whose curl recording carries them in colour
+  // where the page raster draws them grey.
+  pageTurnCaptureMaskRects: () => [
+    ...readerMediaOverlayPaintedViewportRects(),
+    ...readerLivingPlateCaptureMaskRects(),
+  ],
   readerContentActionAtPoint: (x, y, viewWidth, viewHeight) =>
     runtime.readerContentActionAtRootPoint(x, y, viewWidth, viewHeight)?.handled === true,
   activeMediaOverlaySnapshot: () =>

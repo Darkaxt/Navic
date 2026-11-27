@@ -47,6 +47,14 @@ class ReaderLivingPlateRestoreSourceTest {
 		assertContains(controller, "readerPlayLikeCurlLogicalPageId(profile, ordinal),")
 	}
 
+	@Test
+	fun livePageCheckMasksLivingPlates() {
+		// A returning page's curl recording is coloured where its raster draws the plate grey.
+		val runtime = readerAssetRoot().resolve("navic-reader.js").readText()
+		assertContains(runtime, "...readerLivingPlateCaptureMaskRects(),")
+		assertContains(runtime, "JSON.parse(window.NavicReaderBridge.livingPlateRects())")
+	}
+
 	private fun readerScreenFile(name: String): File =
 		listOf(
 			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/$name"),
