@@ -55,6 +55,20 @@ class ReaderLivingPlateRestoreSourceTest {
 		assertContains(runtime, "JSON.parse(window.NavicReaderBridge.livingPlateRects())")
 	}
 
+	@Test
+	fun plateFadesOnlyOnceTheLoopFrameIsOnTheTexture() {
+		// The fade must not run ahead of the video: a resumed loop's seeked frame lands after start().
+		val start = overlay.substringAfter("private fun startVideoIfReady() {").substringBefore("\n\t}\n")
+		assertContains(start, "awaitingLoopFrame = !loopFrameShown")
+		assertFalse(start.contains("crossfadeIfReady()"))
+		val updated = overlay.substringAfter("override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {")
+			.substringBefore("\n\t}\n")
+		assertContains(updated, "loopFrameShown = true")
+		assertContains(updated, "crossfadeIfReady()")
+		assertContains(overlay, "if (released || !loopFrameShown || !videoPrepared || !revealDone) return")
+		assertFalse(overlay.contains("MEDIA_INFO_VIDEO_RENDERING_START"))
+	}
+
 	private fun readerScreenFile(name: String): File =
 		listOf(
 			File("src/androidMain/kotlin/paige/navic/ui/screens/reader/$name"),

@@ -227,7 +227,9 @@ private class LivingPlateView(
 	private var player: MediaPlayer? = null
 	private var surface: Surface? = null
 	private var animator: ValueAnimator? = null
-	private var videoStarted = false
+	/** Playing, waiting for its first frame to reach the texture before the plate fades to it. */
+	private var awaitingLoopFrame = false
+	private var loopFrameShown = false
 	private var videoPrepared = false
 	private var revealDone = false
 	private var released = false
@@ -377,13 +379,6 @@ private class LivingPlateView(
 					videoPrepared = true
 					startVideoIfReady()
 				}
-				setOnInfoListener { _, what, _ ->
-					if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
-						videoStarted = true
-						crossfadeIfReady()
-					}
-					false
-				}
 				setOnErrorListener { _, what, extra ->
 					Logger.w(LivingPlateTag, "living-plate video error scene=${target.sceneId} what=$what extra=$extra")
 					true
@@ -399,12 +394,13 @@ private class LivingPlateView(
 		val prepared = player ?: return
 		if (released || paused || !videoPrepared || !revealDone || prepared.isPlaying) return
 		prepared.start()
-		// Some decoders report rendering start for the held first frame, before start().
-		crossfadeIfReady()
+		// The fade waits for a frame decoded after start() to reach the texture: decoders may
+		// report rendering start for a held frame, and a resumed loop's seeked frame lands later.
+		awaitingLoopFrame = !loopFrameShown
 	}
 
 	private fun crossfadeIfReady() {
-		if (released || !videoStarted || !videoPrepared || !revealDone) return
+		if (released || !loopFrameShown || !videoPrepared || !revealDone) return
 		val fade = when {
 			restoredLoop -> LivingPlateRestoreFadeMillis
 			target.advanced -> LivingPlateAdvancedDissolveMillis
@@ -423,7 +419,13 @@ private class LivingPlateView(
 		return true
 	}
 
-	override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+	override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+		if (released || !awaitingLoopFrame) return
+		awaitingLoopFrame = false
+		loopFrameShown = true
+		Logger.i(LivingPlateTag, "living-plate loop frame shown scene=${target.sceneId} restored=$restoredLoop")
+		crossfadeIfReady()
+	}
 
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 		super.onSizeChanged(w, h, oldw, oldh)
