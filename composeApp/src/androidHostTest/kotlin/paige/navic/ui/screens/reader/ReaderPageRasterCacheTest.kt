@@ -1582,6 +1582,24 @@ class ReaderPageRasterCacheTest {
 	}
 
 	@Test
+	fun openBookKeepsEveryChapterAndTrimsOnlyWhenLeft() {
+		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
+		val behind = chapterKey(spineIndex = 1, visualPageOrdinal = 2)
+		val current = chapterKey(spineIndex = 4, visualPageOrdinal = 10)
+		listOf(behind, current).forEach { rasterKey ->
+			assertTrue(fixture.cache.write(rasterKey, metadata(), pngBytes(rasterKey.digest)))
+		}
+
+		// While the book is open (no spine) every chapter stays, so going back needs no preparation.
+		assertEquals(0, fixture.cache.discardChaptersBehind("publication-1", null))
+		assertTrue(fixture.cache.contains(behind))
+		// Leaving the book trims the chapters two or more behind where reading stopped.
+		assertEquals(1, fixture.cache.discardChaptersBehind("publication-1", 4))
+		assertFalse(fixture.cache.contains(behind))
+		assertTrue(fixture.cache.contains(current))
+	}
+
+	@Test
 	fun chapterRetentionNeverDiscardsThePinnedEncodedWindow() {
 		val fixture = fixture(maxDiskBytes = Long.MAX_VALUE, maxDecodedEntries = 0)
 		val pinnedBehind = chapterKey(spineIndex = 1, visualPageOrdinal = 9)

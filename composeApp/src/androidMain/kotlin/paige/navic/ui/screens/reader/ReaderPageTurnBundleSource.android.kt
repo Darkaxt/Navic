@@ -1451,6 +1451,8 @@ internal class ReaderPageTurnBundleSource(
 	private var protectedEncodedProfile: ReaderPageRasterProfile? = null
 	private var currentRetentionChapter: ReaderPageRasterRetentionChapter? = null
 	private var retiredRetentionChapter: ReaderPageRasterRetentionChapter? = null
+	/** The chapter on screen when the book was left: its earlier chapters are trimmed on close. */
+	private var leftRetentionChapter: ReaderPageRasterRetentionChapter? = null
 	private var rasterCache: ReaderPageRasterCache<Bitmap>? = null
 	private var persistentStore: ReaderPageRasterCacheStore<Bitmap>? = null
 	private var rasterScheduler: ReaderPageRasterScheduler<Bitmap>? = null
@@ -1477,6 +1479,7 @@ internal class ReaderPageTurnBundleSource(
 		publicationEntryCount = publicationLedger::entryCount,
 		publicationDispatchFailure = publicationLedger::dispatchFailure,
 		closeRasterGenerationWorkers = {
+			trimRasterChaptersBehindLeftChapter()
 			rasterScheduler?.closeAndJoin()
 			val persistenceJobs = synchronized(rasterPersistenceJobLock) {
 				rasterPersistenceJobs.toList()
@@ -2510,10 +2513,10 @@ internal class ReaderPageTurnBundleSource(
 	}
 
 	/**
-	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's rasters
-	 * two or more chapters behind it in every pagination, layout and quality, plus paginations
-	 * superseded by font/layout changes beyond the most recent few. The cache itself keeps
-	 * the pinned encoded window, so the displayed pages are never removed.
+	 * Chapter retention (#57): once the displayed chapter is prepared, discards this book's
+	 * paginations superseded by font/layout changes beyond the most recent few. Every chapter is
+	 * kept while the book is open, so going back never prepares again; the chapters two or more
+	 * behind are trimmed when the book is left ([trimRasterChaptersBehindLeftChapter]).
 	 */
 	fun retireRasterChaptersBehindCurrent() {
 		if (closed) return
@@ -2527,13 +2530,13 @@ internal class ReaderPageTurnBundleSource(
 			if (closed) return@launch
 			val removed = scheduler.discardChaptersBehind(
 				publicationHash = chapter.publicationHash,
-				currentSpineIndex = chapter.spineIndex,
+				currentSpineIndex = null,
 				currentPaginationHash = chapter.paginationHash
 			)
 			if (removed > 0) {
 				Logger.i(
 					ReaderPageTurnBundleSourceTag,
-					"Page raster chapters retired behind spine=${chapter.spineIndex} " +
+					"Page raster superseded paginations retired spine=${chapter.spineIndex} " +
 						"rasters=$removed generation=${chapter.generation}"
 				)
 			}
@@ -2550,6 +2553,27 @@ internal class ReaderPageTurnBundleSource(
 			}
 		}
 		trackRasterPersistenceJob(job)
+	}
+
+	/** Leaving the book (#57): trims its rasters two or more chapters behind where reading stopped. */
+	private suspend fun trimRasterChaptersBehindLeftChapter() {
+		val chapter = leftRetentionChapter ?: return
+		leftRetentionChapter = null
+		val scheduler = rasterScheduler ?: return
+		val removed = runCatching {
+			scheduler.discardChaptersBehind(
+				publicationHash = chapter.publicationHash,
+				currentSpineIndex = chapter.spineIndex,
+				currentPaginationHash = chapter.paginationHash
+			)
+		}.getOrElse { failure ->
+			Logger.w(ReaderPageTurnBundleSourceTag, "Page raster chapter trim on leave failed", failure)
+			0
+		}
+		Logger.i(
+			ReaderPageTurnBundleSourceTag,
+			"Page raster chapters retired behind spine=${chapter.spineIndex} rasters=$removed reason=left-book"
+		)
 	}
 
 	private fun dispatchRasterDescriptor(
@@ -4469,6 +4493,9 @@ internal class ReaderPageTurnBundleSource(
 	fun fenceForClose() {
 		synchronized(closeFenceLock) {
 			if (closed) return
+			// The chapter last on screen, whatever generation it was prepared in: leaving the
+			// window (shell cover, window-hidden) invalidates the generation before the close.
+			leftRetentionChapter = currentRetentionChapter
 			closed = true
 			activeLiveValidations.toList().forEach { validation -> validation.cancel() }
 			persistenceRetryCorrelations.clear()

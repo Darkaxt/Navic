@@ -696,18 +696,15 @@ internal class ReaderPageRasterCache<T : Any>(
 	}
 
 	/**
-	 * Chapter retention (#57): drops [publicationHash]'s rasters two or more spine sections behind
-	 * [currentSpineIndex] across every pagination, layout and quality, keeping the previous chapter.
-	 * The pinned encoded window, the protected chapter and protected decoded pages always survive.
-	 */
-	/**
-	 * Discards this book's rasters two or more chapters behind [currentSpineIndex] and, when
+	 * Chapter retention (#57): discards this book's rasters two or more chapters behind
+	 * [currentSpineIndex] (null keeps every chapter: the book is still open) and, when
 	 * [currentPaginationHash] is given, every pagination (font, size, margins, orientation...) other
 	 * than the current one and the [ReaderPageRasterRetainedPreviousPaginations] most recently used.
+	 * The pinned encoded window, the protected chapter and protected decoded pages always survive.
 	 */
 	fun discardChaptersBehind(
 		publicationHash: String,
-		currentSpineIndex: Int,
+		currentSpineIndex: Int?,
 		currentPaginationHash: String? = null
 	): Int {
 		if (!storageAvailable) return 0
@@ -731,7 +728,8 @@ internal class ReaderPageRasterCache<T : Any>(
 			val discarded = entries.values.filter { entry ->
 				val key = entry.key
 				key.publicationHash == publicationHash &&
-					((key.spineIndex < currentSpineIndex - 1 && key.paginationHash !in preparedPaginations) ||
+					((currentSpineIndex != null && key.spineIndex < currentSpineIndex - 1 &&
+						key.paginationHash !in preparedPaginations) ||
 						(keptPaginations != null && key.paginationHash !in keptPaginations)) &&
 					key.chapter != protectedChapter &&
 					!(decoded.containsKey(key.digest) &&

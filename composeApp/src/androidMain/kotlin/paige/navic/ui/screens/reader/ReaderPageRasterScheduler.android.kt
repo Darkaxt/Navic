@@ -104,7 +104,7 @@ internal interface ReaderPageRasterStore<T : Any> {
 	fun protectChapter(chapter: ReaderPageRasterChapterKey?)
 	fun discardChaptersBehind(
 		publicationHash: String,
-		currentSpineIndex: Int,
+		currentSpineIndex: Int?,
 		currentPaginationHash: String? = null
 	): Int = 0
 	fun retireFinishedBooks(publicationHash: String, finished: Boolean): Int = 0
@@ -240,7 +240,7 @@ internal class ReaderPageRasterCacheStore<T : Any>(
 
 	override fun discardChaptersBehind(
 		publicationHash: String,
-		currentSpineIndex: Int,
+		currentSpineIndex: Int?,
 		currentPaginationHash: String?
 	): Int = withOpen(0) {
 		cache.discardChaptersBehind(publicationHash, currentSpineIndex, currentPaginationHash)
@@ -421,7 +421,7 @@ internal class ReaderPageRasterScheduler<T : Any>(
 
 	suspend fun discardChaptersBehind(
 		publicationHash: String,
-		currentSpineIndex: Int,
+		currentSpineIndex: Int?,
 		currentPaginationHash: String? = null
 	): Int = withContext(ioDispatcher) {
 		store.discardChaptersBehind(publicationHash, currentSpineIndex, currentPaginationHash)
