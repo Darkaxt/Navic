@@ -168,7 +168,8 @@ class BinderyHubViewModel(
 			if (fullRefresh || visibleData == null) {
 				_hubState.value = UiState.Loading(visibleData)
 			}
-			val repositoryResult = loadHub(languageFilter)
+			// Pull-to-refresh bypasses the 6 h catalog cache so server changes (covers...) show at once.
+			val repositoryResult = loadHub(languageFilter, forceRefresh = fullRefresh)
 			val result = if (
 				repositoryResult is OptionalIntegrationResult.Unavailable &&
 				visibleData != null
@@ -211,7 +212,7 @@ class BinderyHubViewModel(
 			}
 			if (firstPages != null && pagedData != null && result !is OptionalIntegrationResult.Stale) {
 				val livePaged = firstPages.withWhispersyncCatalog(languageFilter) { path ->
-					repository.getCatalog(path).getOrNull()
+					repository.getCatalog(path, forceRefresh = fullRefresh).getOrNull()
 				}
 				val shown = _hubState.value
 				// A failed live fetch keeps whatever the cache already showed.
@@ -275,8 +276,11 @@ class BinderyHubViewModel(
 	private suspend fun cachedCatalogPage(path: String): BinderyCatalog? =
 		repository.getCachedCatalog(path).getOrNull()
 
-	private suspend fun loadHub(languageFilter: String?): OptionalIntegrationResult<BinderyHubState> {
-		val rootResult = repository.getCatalogOptional("/")
+	private suspend fun loadHub(
+		languageFilter: String?,
+		forceRefresh: Boolean = false
+	): OptionalIntegrationResult<BinderyHubState> {
+		val rootResult = repository.getCatalogOptional("/", forceRefresh = forceRefresh)
 		val rootCatalog = when (rootResult) {
 			is OptionalIntegrationResult.Available -> rootResult.data
 			is OptionalIntegrationResult.Stale -> rootResult.data
@@ -291,7 +295,8 @@ class BinderyHubViewModel(
 							path = row.catalogPath,
 							languageFilter = languageFilter,
 							mode = BinderyAvailabilityQueryMode.List
-						)
+						),
+						forceRefresh = forceRefresh
 					)
 				}
 			}.awaitAll()

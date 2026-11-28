@@ -36,7 +36,11 @@ class OptionalIntegrationViewModelSourceTest {
 			"MutableStateFlow<OptionalIntegrationResult<BinderyHubState>?>(null)"
 		)
 		assertContains(source, "val hubAvailability = _hubAvailability.asStateFlow()")
-		assertContains(loadHub, "repository.getCatalogOptional(\"/\")")
+		assertContains(loadHub, "repository.getCatalogOptional(\"/\", forceRefresh = forceRefresh)")
+		// Pull-to-refresh must bypass the 6 h catalog cache (a fixed Bindery cover stayed stale).
+		assertContains(source, "loadHub(languageFilter, forceRefresh = fullRefresh)")
+		assertContains(loadHub, "),\n\t\t\t\t\t\tforceRefresh = forceRefresh\n")
+		assertContains(source, "repository.getCatalog(path, forceRefresh = fullRefresh)")
 		assertContains(loadHub, "repository.getCatalogOptional(")
 		assertContains(loadHub, "OptionalIntegrationResult.Stale")
 		assertFalse(
