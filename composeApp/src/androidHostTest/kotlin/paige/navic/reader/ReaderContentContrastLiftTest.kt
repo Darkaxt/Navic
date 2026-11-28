@@ -40,7 +40,7 @@ class ReaderContentContrastLiftTest {
 		// Revision 6: NBSP-padded chapter numerals are centred.
 		// Revision 7: living plates are drawn greyscale on the page for their overlay (#77).
 		// Revision 8: document figures (figure-replaces-blocks, #82) replace their blocks.
-		assertTrue(revision == "10", "document figures (#82) and their hidden-block fix must retire older rasters")
+		assertTrue(revision == "11", "document figures (#82) fitted under their text must retire older rasters")
 		assertContains(renderProfile, "contentRenderRevision: ReaderContentRenderRevision,")
 		val descriptor = preview
 			.substringAfter("function pageTurnRasterDescriptor(")

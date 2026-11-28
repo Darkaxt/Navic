@@ -1,6 +1,8 @@
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const exactNavigationUnlockPollMs = 16
 const exactNavigationUnlockTimeoutMs = 5000
+// Smallest share of its full height a document figure may shrink to (#fitNavicDocumentFigures).
+const NavicDocumentFigureMinFitScale = 0.7
 
 const textPageCommitInvalidationReasons = new Set([
     'attribute-change',
@@ -575,6 +577,7 @@ class View {
         const documentElement = doc?.documentElement
         const contentRoot = documentStyleRoot(doc)
         if (!documentElement?.isConnected || !contentRoot?.isConnected) return false
+        this.#fitNavicDocumentFigures()
         this.#alignNavicIllustrationPlates()
         this.#contentRange.selectNodeContents(contentRoot)
 
@@ -649,6 +652,46 @@ class View {
         this.#layoutSignature = signature
         if (this.#committed) this.onExpand()
         return true
+    }
+    // Navic mid-chapter document figures (#82, navic-reader-render-profile.js) shrink slightly to
+    // stay under the text before them: a figure pushed to the next column by a lack of room is
+    // fitted into the room left in the previous column when that is at least
+    // NavicDocumentFigureMinFitScale of its full height. Each pass first restores the full size, so
+    // the result depends only on the layout and the resize this causes re-expands without change.
+    #fitNavicDocumentFigures() {
+        const doc = this.document
+        const figures = doc?.querySelectorAll?.('figure[data-navic-document-figure]') || []
+        if (!figures.length) return
+        for (const figure of figures) {
+            const image = figure.querySelector('img[data-navic-document-figure-image]')
+            if (image) image.style.removeProperty('width')
+        }
+        const { height, columnWidth, gap } = this.#layout || {}
+        const pitch = columnWidth + gap
+        if (!this.#column || this.#vertical || !(pitch > 0) || !(height > 0)) return
+        const view = doc.defaultView
+        const rootTop = doc.documentElement.getBoundingClientRect().top
+        for (const figure of figures) {
+            const image = figure.querySelector('img[data-navic-document-figure-image]')
+            if (!image) continue
+            // the end of the text before the figure, which may sit inside a wrapper (a letter's
+            // div): the last line box laid out before it, in whichever column that is
+            const range = doc.createRange()
+            range.setStart(doc.body, 0)
+            range.setEndBefore(figure)
+            const before = Array.from(range.getClientRects()).filter(rect => rect.height > 0).pop()
+            if (!before) continue
+            const box = figure.getBoundingClientRect()
+            const imageBox = image.getBoundingClientRect()
+            if (!(imageBox.height > 0) || Math.abs(box.left - before.left) < pitch / 2) continue
+            const figureStyle = view.getComputedStyle(figure)
+            // box.top - rootTop: the wrapper padding/border above the figure at its column's top
+            const room = rootTop + height - before.bottom - (box.top - rootTop) -
+                (parseFloat(figureStyle.marginTop) || 0) - (parseFloat(figureStyle.marginBottom) || 0) - 2
+            const scale = room / imageBox.height
+            if (scale < NavicDocumentFigureMinFitScale || scale >= 1) continue
+            image.style.setProperty('width', `${Math.floor(imageBox.width * scale)}px`, 'important')
+        }
     }
     // Navic mid-chapter plates (navic-reader-render-profile.js) face their text in a two-page
     // spread: each plate must start a left (even) column. Its hidden blank-page spacer shifts it by

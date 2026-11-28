@@ -89,6 +89,26 @@ class ReaderIllustrationPlateSourceTest {
 	}
 
 	@Test
+	fun documentFigureShrinksSlightlyToStayUnderItsText() {
+		val paginator = root.resolve("vendor/foliate-js/paginator.js").readText()
+		val expand = paginator.substringAfter("    expand() {").substringBefore("this.#contentRange.selectNodeContents")
+		// Fitted before the spacers align, since a fit moves later columns.
+		assertTrue(expand.indexOf("this.#fitNavicDocumentFigures()") in 0 until expand.indexOf("this.#alignNavicIllustrationPlates()"))
+		assertContains(paginator, "const NavicDocumentFigureMinFitScale = 0.7")
+		val fit = paginator
+			.substringAfter("    #fitNavicDocumentFigures() {")
+			.substringBefore("\n    #alignNavicIllustrationPlates() {")
+		// Only document figures (#82); chapter and facing plates keep their own page.
+		assertContains(fit, "doc?.querySelectorAll?.('figure[data-navic-document-figure]')")
+		// Every pass restores the full size first, so the fit is idempotent across re-expands.
+		assertContains(fit, "if (image) image.style.removeProperty('width')")
+		// The text before may sit inside a wrapper (Alcatraz's letter div): measure everything before it.
+		assertContains(fit, "range.setEndBefore(figure)")
+		assertContains(fit, "if (scale < NavicDocumentFigureMinFitScale || scale >= 1) continue")
+		assertContains(fit, "image.style.setProperty('width', `${'$'}{Math.floor(imageBox.width * scale)}px`, 'important')")
+	}
+
+	@Test
 	fun plateIsIdempotentReplacedOnChangeAndRemovedWhenDisabled() {
 		assertContains(plate, "figures[0] === body.firstChild")
 		assertContains(plate, "placements.some(placement => readerIllustrationPlateMatches(figure, placement, height))")
@@ -194,12 +214,12 @@ class ReaderIllustrationPlateSourceTest {
 			.substringAfter("function pageTurnRasterDescriptor(")
 			.substringBefore("function pageTurnRasterPreparationPlan(")
 		assertContains(preview, "illustrationsDigest: readerIllustrationsDigest(settings),")
-		assertContains(preview, "contentRenderRevision: 10,")
+		assertContains(preview, "contentRenderRevision: 11,")
 		// Living plates are drawn grey on the page; which ones is part of both raster fingerprints.
 		assertContains(planned, "livingPlateGrey: readerLivingPlateGreyKey(settings),")
 		assertContains(preview, "livingPlateGrey: readerIllustrationPlacements(settings)")
 		assertContains(renderProfile, "[${'$'}{ReaderLivingPlateGreyAttribute}] {\n    filter: grayscale(1) !important;")
-		assertContains(renderProfile, "export const ReaderContentRenderRevision = 10")
+		assertContains(renderProfile, "export const ReaderContentRenderRevision = 11")
 	}
 
 	@Test
